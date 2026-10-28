@@ -62,7 +62,12 @@ def train(seed: int = 7) -> None:
     from versoml.ml.train import train_all
 
     metrics = train_all(seed=seed)
-    console.print_json(json.dumps(metrics, ensure_ascii=False, default=str)[:4000])
+    # the full metrics are in var/models/metrics.json; here only a summary, since a cut JSON string no longer parses
+    text = json.dumps(metrics, ensure_ascii=False, default=str)
+    if len(text) <= 4000:
+        console.print_json(text)
+    else:
+        console.print(text[:4000] + " …", markup=False, highlight=False)
 
 
 def _build_frontend(force: bool = False) -> bool:

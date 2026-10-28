@@ -1,57 +1,65 @@
-# VersoML · design
+# VersoML design
 
-Consolă de operare, la standardul categoriei (reper: Stripe Dashboard + Linear). Operatorul vede întâi decizia, termenul și ce așteaptă semnătura lui. Tokenurile sunt în `src/styles/index.css` (`@theme`), primitivele în `src/ui/kit.tsx`.
+Two surfaces, one brand:
 
-## Culoare
+- **Homepage** (`src/pages/home`): dark graphite (`night*`) with Raiffeisen yellow `#FEE600` as the light in the room: the headline accent, the beams, the progress bars, the one yellow button (charcoal `#2B2D33` text). Motion-led: animated grid, beams from inputs into VersoML, a pinned scroll story, fingerprints that settle.
+- **Console** (`/cases` and the rest): light and calm, after Mercury and Linear. White surfaces, quiet greys, one dark primary action, statuses as a dot and a word. Yellow is a signal there, not a fill.
 
-Paleta e impusă: galben, alb, negru. Tot restul e neutru sau semantic.
+The mark is a V split down the middle: the ink half is the case as reported, the yellow half is the verso, the side the bank has to prove (`src/ui/Logo.tsx`, `public/favicon.svg`).
 
-| Token | Valoare | Rol |
+Tokens live in `src/styles/index.css` (`@theme`). Primitives live in `src/ui/kit.tsx`; animated pieces live in `src/components/fx` (adapted from Magic UI, MIT). Use them; don't restyle them locally.
+
+## Color
+
+| Token | Value | Use |
 |---|---|---|
-| `yellow` | `#ffe500` | doar: acțiunea principală, elementul activ din navigare, „acum” (pas care rulează, caz care te așteaptă), numărul filei active |
-| `yellow-soft` / `yellow-tint` | `#fff4a8` / `#fffbe0` | banner de semnătură; rânduri „te așteaptă”; hover pe rânduri |
-| `ink` | `#0b0b0b` | text, chenarul elementelor active, bara laterală AML |
-| `ink-soft` / `muted` / `subtle` | `#2a2a26` / `#5b5b52` / `#74746a` | text secundar, etichete, metadate |
-| `line` / `line-strong` | `#d8d8ce` / `#b4b4a8` | chenare de 1 px |
-| `paper` / `canvas` / `hover` | `#fff` / `#f6f6f1` / `#efefe8` | suprafețe |
-| `danger` (+ `-soft`, `-line`) | `#c4311a` | excepții, blocări, termen sub 6 h |
-| `ok` (+ `-soft`, `-line`) | `#15793b` | bani returnați, verificări trecute |
+| `ink` | `#121316` | text, primary button, active states |
+| `ink-soft` / `muted` / `subtle` | `#2e3036` / `#5c5e66` / `#6f717a` | secondary text, labels, metadata |
+| `line` / `line-strong` | `#e8e8ec` / `#d5d6dc` | hairlines, dividers |
+| `paper` / `canvas` / `hover` | `#fff` / `#f7f7f8` / `#f1f1f4` | surfaces, sidebar, hover and selected rows |
+| `yellow` (+ `-soft`, `-tint`) | `#fee600` (Raiffeisen) | console: "needs a person" dot, the live step, the proof path. Homepage: accents, beams, the main button. Never yellow text on a light background. |
+| `ok` / `danger` / `warn` | `#127a47` / `#c4321d` / `#a8500d` | refunded/sealed, overdue/broken, warnings |
+| `night*` | `#0f1012` … | homepage background, cards and text |
 
-Reguli:
-- Galbenul apare mereu cu text negru și nu marchează niciodată un avertisment; urgența merge neutru → roșu.
-- Culoarea nu poartă singură sensul: orice stare are și cuvânt sau iconiță.
-- Zona AML are bara laterală neagră și banda de mediu neagră cu text galben; restul suprafeței rămâne alb.
+In the console, neutrals cover over 90% of every screen: no gradients, no glows, no colored icon tiles. The homepage may glow, but only in yellow and only behind content, never on it.
 
-## Tipografie
+## Type
 
-- Archivo Variable (inclus în build), rădăcină 15 px (lizibil pe proiector), numerale tabulare pentru sume și termene.
-- JetBrains Mono doar pentru ID-uri, hash-uri și coduri de regulă (`IdTag`).
-- Ierarhie: titlu de pagină 1,75 rem bold, propoziția deciziei 1,45 rem bold, titlu de panou 1 rem semibold, corp 1 rem, metadate 0,8–0,87 rem.
-- Majuscule obișnuite (sentence case), fără supratitluri, fără text rotit, fără majuscule spațiate.
+- Host Grotesk (variable, OFL, Element Type) for everything, IDs included: rule, evidence and case IDs use `id-text` (the text face with tabular digits). Fragment Mono (OFL) only for hashes, code and XML.
+- Console: 15px root; body 0.9333rem (14px); metadata 0.8rem; page title 1.6rem semibold, tracking -0.02em.
+- Homepage: H1 4.4rem semibold, tracking -0.04em; H2 2.6rem. The H1 never animates (it is the page's largest paint).
+- Tabular figures (`tnum`) in tables, lists and countdowns only. Big display numbers use proportional figures.
+- Weights 400 / 500 / 600 only. Sentence case.
 
-## Formă și spațiu
+## Shape and depth
 
-- Raze: 6 px (chip-uri), 8 px (butoane, câmpuri), 12 px (panouri). Chenare de 1 px, fără umbre decorative; umbra există doar la straturi (dialog, meniu mobil).
-- Marginea laterală pe telefon e 18 px; conținutul are maximum 1320 px.
+- Radius: 8px controls, 12px cards and panels, 16–22px only for the homepage showcase.
+- Cards use `shadow-[var(--shadow-card)]` (a 1px ring plus a faint drop), not borders. Floating layers use `--shadow-overlay`.
+- Buttons are pills (`rounded-full`): `primary` = ink with white text, `secondary` = white with the card ring. One primary per view.
 
-## Tipare
+## Components and patterns
 
-- **Decizia întâi.** Cazul se deschide cu o propoziție despre bani și termen („Rambursarea de 3.200 lei a fost emisă.”), apoi motivele, fiecare cu probele citate (clic → proba clipește în tabel).
-- **Un singur buton principal pe ecran.**
-- **File cu numărătoare** pentru filtre (Toate, Te așteaptă, În lucru, Termen în 24 h, Închise).
-- **Lista de pași a agenților:** cascadă pe o axă de timp comună, grupată pe faze. Se strânge când rularea s-a încheiat și rămâne deschisă dacă un pas e oprit.
-- **Bannere:** galben pentru „semnătura ta”, roșu pentru „zidul a oprit scrisoarea”, fiecare cu o singură acțiune.
-- **Banda de mediu** permanentă: „Date sintetice”.
-- **Telefon:** tabelele devin liste de rânduri, cu starea, timpul rămas și suma la început.
+- Status: `<Status tone>` (6–8px dot + word). Pills (`<Badge>`) only when a row needs a second state.
+- Lists: rows 48–56px, a 36px avatar or icon tile on the left, title + muted second line, amount right-aligned in `tnum`. Hover = `bg-hover`.
+- Needs a person: `<Banner tone="now">`: white card with a yellow live dot, one sentence saying why, one primary action.
+- Deadlines: `<DeadlineText>` says "Due tomorrow, 23:59"; the full date is in the tooltip. Never write "T+1" in the UI.
+- Empty states: say what's missing and offer one action ("No cases yet. Run a sample case.").
+- Errors: say what happened and what to do. No "please", no "sorry", no "successfully".
 
-## Rezerve (fallback)
+## Agent work, shown minimally
 
-Mod demonstrativ automat când serverul nu răspunde (sau `?mock=1`), interogare periodică în locul fluxului live, `SectionBoundary` pe fiecare secțiune, eroare cu „Încearcă din nou”, stări goale cu o acțiune, ultima stare păstrată când se pierde legătura.
+Three levels:
+1. While running: one status line ("Collecting evidence · 2.4 s") and five phase segments.
+2. When done: one line ("Agents finished · 16 steps · 58 s") with "View trace".
+3. The full step list (model names, timings) opens in a side sheet on request.
 
-## Demo pe telefon
+## Motion
 
-„Coduri QR pentru jurați” (sau `?qr=1`) deschide două coduri mari pentru proiector: pagina falsă și Banca Demo, cu avertisment dacă consola e pe localhost.
+- CSS transitions for hovers (120–150ms) and presses (`press` utility: scale 0.97). Enter animations 200–260ms, `--ease-out`. Sheets 280ms, `--ease-drawer`.
+- No animation on frequent actions (keyboard, row hover beyond color, approve-then-next).
+- The homepage uses Motion (`LazyMotion` + `m`, features loaded on demand): the grid cells and the beams in the hero, the pinned scroll story (steps follow the scroll, the product card changes scene), the evidence fingerprints and the tamper switch, the recovery rows, the result counters. Every loop pauses off screen; with reduced motion everything renders in its final state.
+- Respect `prefers-reduced-motion` (global CSS rule + `MotionConfig reducedMotion="user"`).
 
-## Ce nu folosim
+## Writing
 
-Grafic decorativ, mozaic de carduri identice, cifre-erou, gradient, galben pentru avertismente, text conturat sau rotit, ticker.
+US spelling, plain words, active voice. Money as `RON 3,200.00`. Dates as `29 Oct 2026, 23:59` (Bucharest time). Buttons are verb + noun ("Approve refund", "Run a sample case"). Say who acts: "The rules decided", "A person approved". No em dashes, no "seamless", no "not just X but Y".

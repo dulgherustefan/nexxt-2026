@@ -1,4 +1,6 @@
-import { openEventStream, type StreamSource } from "./sse";
+import { openEventStream, TUNNEL_HEADERS, type StreamSource } from "./sse";
+
+export { TUNNEL_HEADERS };
 import type {
   AmlStats,
   AttackKind,
@@ -103,7 +105,7 @@ export async function fetchJson<T>(path: string, init: RequestInit & { timeoutMs
     const res = await fetch(path, {
       ...init,
       signal: init.signal ?? ctrl.signal,
-      headers: { Accept: "application/json", ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers },
+      headers: { Accept: "application/json", ...TUNNEL_HEADERS, ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers },
     });
     const text = await res.text();
     let body: unknown = null;

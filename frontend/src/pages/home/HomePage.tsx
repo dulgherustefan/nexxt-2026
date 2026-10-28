@@ -3,6 +3,7 @@ import { LazyMotion, m, MotionConfig, useInView, useReducedMotion } from "motion
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { dateLong } from "../../api/format";
+import { TUNNEL_HEADERS } from "../../api/sse";
 import { AnimatedGridPattern } from "../../components/fx/AnimatedGridPattern";
 import { NumberTicker } from "../../components/fx/NumberTicker";
 import { Logo } from "../../ui/Logo";
@@ -252,7 +253,7 @@ function useProof(): Proof {
   const [p, setP] = useState(SNAPSHOT);
   useEffect(() => {
     let alive = true;
-    fetch("/api/eval")
+    fetch("/api/eval", { headers: TUNNEL_HEADERS })
       .then((r) => (r.ok ? r.json() : null))
       .then((raw) => {
         const g = raw?.rules_golden;

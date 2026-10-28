@@ -11,27 +11,27 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 const STEPS: Array<{ title: string; body: string; scene: (animate: boolean) => ReactNode }> = [
   {
     title: "The claim comes in",
-    body: "A customer taps “I didn’t make this payment”. VersoML reads the message in a sealed-off step that can’t act on anything it says.",
+    body: "The customer taps “I didn’t make this payment” in the banking app.",
     scene: () => <ClaimScene />,
   },
   {
-    title: "The evidence follows in seconds",
-    body: "The transaction, 3-D Secure, the device and the website behind the scam. Each item is stored with a fingerprint the moment it arrives.",
+    title: "The evidence arrives",
+    body: "Payment, 3-D Secure, device and the fake website, each saved with a fingerprint.",
     scene: (a) => <EvidenceScene animate={a} />,
   },
   {
     title: "The rules decide",
-    body: "Rule PAY-03 says the refund is owed by the end of the next business day. A numbered rule decides, never a model.",
+    body: "Rule PAY-03 decides, not a model: refund by the end of the next business day.",
     scene: () => <DecisionScene />,
   },
   {
     title: "The customer gets the money back",
-    body: "Under the limit, the refund goes out on its own. Above it, one person approves it with one click, with the reason in plain words.",
+    body: "Under RON 5,000 it goes out on its own. Above that, a person approves it in one click.",
     scene: (a) => <RefundScene animate={a} />,
   },
   {
     title: "Recovery starts",
-    body: "VersoML checks whether a chargeback can win before drafting it, reports the fake site, and writes to the customer.",
+    body: "A chargeback is drafted only if it can win, and the customer gets a letter.",
     scene: () => <RecoveryScene />,
   },
 ];

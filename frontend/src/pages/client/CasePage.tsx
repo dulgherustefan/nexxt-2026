@@ -555,7 +555,7 @@ function LetterTab({ d, caseId, onCite }: { d: CaseDetail; caseId: string; onCit
         </Panel>
       )}
 
-      <Panel title="Check a text before it goes out" description="The letter check looks for personal data, internal-only terms and anything that would tip off a third party.">
+      <Panel title="Check a text before it goes out" description="Catches personal data and words that must not reach the customer.">
         <label htmlFor="letter-check" className="sr-only">Text to check</label>
         <textarea
           id="letter-check"
@@ -601,7 +601,7 @@ function LiveSteps({ d, events, streamStatus }: { d: CaseDetail; events: Paramet
         <p className="mt-1.5 text-[0.8rem] text-muted">The live feed dropped. Refreshing every few seconds.</p>
       )}
       {trace && (
-        <Sheet title="Agent trace" description="Every step, the model behind it and how long it took." onClose={() => setTrace(false)}>
+        <Sheet title="Agent trace" description="Each step, its model and how long it took." onClose={() => setTrace(false)}>
           <StepList rows={rows} settled={settled} />
         </Sheet>
       )}

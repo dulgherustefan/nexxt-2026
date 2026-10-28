@@ -49,7 +49,7 @@ export default function EvalPage() {
     <>
       <PageHeader
         title="Evaluation"
-        description="How the rules and the claim classifier score on synthetic cases, measured before anyone relies on them."
+        description="Scores on synthetic cases, measured before anyone relies on them."
         actions={
           model?.kind === "report" ? (
             <Button icon={<ArrowClockwise aria-hidden size={16} />} busy={checking} onClick={check}>Reload report</Button>
@@ -224,7 +224,7 @@ function Failures({ items }: { items: Failure[] }) {
     <section aria-labelledby="eval-failures" className="mt-6 overflow-clip rounded-2xl bg-paper shadow-[var(--shadow-card)]">
       <header className="px-5 py-4">
         <h2 id="eval-failures" className="text-[0.9333rem] font-semibold">Wrong decisions</h2>
-        <p className="mt-0.5 text-[0.8667rem] text-muted">Cases where the rules didn’t reach the expected refund decision. The run lists up to 12 per set.</p>
+        <p className="mt-0.5 text-[0.8667rem] text-muted">Cases where the rules missed the expected decision (up to 12 per set).</p>
       </header>
       <ul className="divide-y divide-line border-t border-line">
         {items.map((f, i) => (

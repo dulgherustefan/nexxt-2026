@@ -142,8 +142,7 @@ function Hero() {
             transition={{ duration: 0.7, ease: EASE, delay: 0.15 }}
             className="mx-auto mt-6 max-w-[40rem] text-[1.1rem] leading-relaxed text-night-muted"
           >
-            VersoML checks the claim, collects the evidence and applies the refund rules for your bank. Then it drafts the chargeback.
-            People only approve what the rules can’t settle.
+            VersoML gathers the evidence and applies the law. A person signs only the exceptions.
           </m.p>
           <m.div
             initial={reduce ? false : { opacity: 0, y: 10 }}
@@ -183,8 +182,7 @@ function Evidence() {
           </Reveal>
           <Reveal delay={0.1}>
             <p className="max-w-[48ch] text-[1.0667rem] leading-relaxed text-night-muted lg:justify-self-end">
-              Each item is hashed the moment it’s collected. The hashes roll up into one root, and the root is signed when the case closes.
-              Change one word and the signature breaks. Hover a row to see its path, or try editing the statement.
+              Each item is hashed when it’s collected, and the file is signed when the case closes. Change one word and the signature breaks.
             </p>
           </Reveal>
         </div>
@@ -216,7 +214,7 @@ function Recovery() {
           <Eyebrow>Recovery</Eyebrow>
           <H2>Chargebacks only where they can win.</H2>
           <p className="mt-5 max-w-[42ch] text-[1.0667rem] leading-relaxed text-night-muted">
-            After the refund, VersoML checks the card scheme and payment rules before it drafts anything. A chargeback that is bound to fail costs time and fees, so it picks the route that can work.
+            A chargeback that fails still costs fees. VersoML checks the scheme rules first and picks the route that can work.
           </p>
         </Reveal>
         <ul ref={ref} className="divide-y divide-white/[0.07] overflow-hidden rounded-[22px] bg-[#131416] ring-1 ring-white/10">
@@ -281,10 +279,10 @@ function useProof(): Proof {
 function Results() {
   const p = useProof();
   const items = [
-    { value: p.refundsOk, suffix: "%", label: `correct refund decisions on ${p.cases} test cases` },
-    { value: p.deadlinesOk, suffix: "%", label: "deadlines right, with Romanian public holidays" },
-    { value: p.injections[0], suffix: ` of ${p.injections[1]}`, label: "hidden instructions in claims caught" },
-    { value: p.pii, suffix: "", label: "pieces of raw personal data sent to a model" },
+    { value: p.refundsOk, suffix: "%", label: "correct refund decisions" },
+    { value: p.deadlinesOk, suffix: "%", label: "deadlines right, holidays included" },
+    { value: p.injections[0], suffix: ` of ${p.injections[1]}`, label: "prompt injections caught" },
+    { value: p.pii, suffix: "", label: "personal data sent to the model" },
   ];
   return (
     <section id="results" className="scroll-mt-20 border-t border-white/[0.07] py-24 lg:py-32">
@@ -296,7 +294,7 @@ function Results() {
           </Reveal>
           <Reveal delay={0.1}>
             <p className="max-w-[38ch] text-night-muted">
-              From the evaluation run on {dateLong(p.at)}, on synthetic data.{" "}
+              {p.cases} synthetic cases, run on {dateLong(p.at)}.{" "}
               <Link to="/evaluation" className="font-medium text-night-text underline decoration-white/25 underline-offset-4 hover:decoration-yellow">Read the report</Link>
             </p>
           </Reveal>
@@ -331,7 +329,7 @@ function FinalCta() {
         <Reveal>
           <h2 className="mx-auto max-w-[18ch] text-[2.4rem] leading-[1.04] font-semibold tracking-[-0.035em] sm:text-[3.4rem]">See a case from claim to refund.</h2>
           <p className="mx-auto mt-5 max-w-[46ch] text-[1.0667rem] text-night-muted">
-            Run a sample case in the console, or report a payment from the Demo Bank app on your phone and watch it arrive.
+            Run a sample case, or report a payment from your phone.
           </p>
           <div className="mt-9 flex flex-wrap items-center justify-center gap-x-7 gap-y-4">
             <YellowLink to="/cases">Open the console</YellowLink>
@@ -351,9 +349,8 @@ function Footer() {
       <Container className="flex flex-col gap-6 py-10 text-[0.8667rem] text-night-muted md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3 text-night-text">
           <Logo className="text-[0.95rem]" />
-          <span className="text-night-muted">NEXXT Summit 2026</span>
         </div>
-        <p className="max-w-[56ch]">All data is synthetic. Demo Bank is not a real bank, and no real customer data is used.</p>
+        <p className="max-w-[56ch]">Synthetic data. Demo Bank is not a real bank.</p>
         <nav aria-label="Footer" className="flex gap-5">
           <Link to="/cases" className="hover:text-night-text">Console</Link>
           <Link to="/rules" className="hover:text-night-text">Rules</Link>

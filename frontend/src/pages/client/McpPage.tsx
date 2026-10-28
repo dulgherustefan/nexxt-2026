@@ -85,7 +85,7 @@ export default function McpPage() {
     <>
       <PageHeader
         title="MCP server"
-        description="Connect VersoML to Claude Desktop, Cursor or any MCP client. Your team can work on disputes from the tool they already use, with the same rules and evidence as this console."
+        description="Use VersoML from Claude Desktop, Cursor or any MCP client, with the same cases and rules as this console."
       />
 
       <section aria-label="What MCP gives your team">

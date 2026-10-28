@@ -72,7 +72,7 @@ export default function CasesPage() {
     <>
       <PageHeader
         title="Cases"
-        description="Disputed payments, most urgent first. The agents collect the evidence, the rules decide, and you approve the exceptions."
+        description="Most urgent first. You only approve the exceptions."
         actions={
           <>
             <Button icon={<Play size={14} weight="fill" />} busy={starting} onClick={() => startCase("demo_t1")}>Run demo case</Button>
@@ -117,7 +117,7 @@ export default function CasesPage() {
               </div>
             }
           >
-            Run the demo case, or report a payment from Demo Bank on a phone. It shows up here within seconds.
+            Run the demo case, or report a payment from Demo Bank.
           </EmptyState>
         ) : visible.length === 0 ? (
           <EmptyState title="Nothing in this view">Pick another filter, or go back to All.</EmptyState>
@@ -240,7 +240,7 @@ function NewCaseSheet({ onClose, onStart, busy }: { onClose: () => void; onStart
   return (
     <Sheet
       title="New case"
-      description="Pick a synthetic situation. The case starts right away and the agents begin collecting evidence."
+      description="Pick a situation. The case starts right away."
       onClose={onClose}
       footer={<>
         <Button onClick={onClose}>Cancel</Button>

@@ -103,7 +103,7 @@ export function verdictSentence(
     case "INFORMATII_SUPLIMENTARE":
       return { title: "Information is missing for a decision.", detail: "VersoML asks the customer for the missing details. The legal deadline keeps running.", tone: "neutral" };
     default:
-      return { title: "The agents are working.", detail: "The decision shows up here as soon as the rules engine finishes.", tone: "neutral" };
+      return { title: "Working on it", detail: "The decision appears here when the rules finish.", tone: "neutral" };
   }
 }
 

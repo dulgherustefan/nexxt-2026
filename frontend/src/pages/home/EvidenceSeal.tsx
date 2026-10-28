@@ -151,8 +151,8 @@ export default function EvidenceSeal() {
 
         <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl px-4 py-3 ring-1 ring-night-line transition-colors hover:bg-white/[0.04]">
           <span className="text-[0.9333rem]">
-            Edit the customer’s statement
-            <span className="block text-[0.8rem] text-night-muted">One word changes: “did not” becomes “did”.</span>
+            Change one word
+            <span className="block text-[0.8rem] text-night-muted">“did not” becomes “did”</span>
           </span>
           <button
             type="button"
@@ -162,7 +162,7 @@ export default function EvidenceSeal() {
             className={cx("relative h-6 w-10 shrink-0 rounded-full transition-colors duration-200", tampered ? "bg-[#ff6b55]" : "bg-white/20")}
           >
             <span className={cx("absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform duration-200 ease-[var(--ease-out)]", tampered && "translate-x-4")} />
-            <span className="sr-only">Edit the customer’s statement</span>
+            <span className="sr-only">Change one word in the customer’s statement</span>
           </button>
         </label>
       </div>

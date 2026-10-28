@@ -61,7 +61,7 @@ export default function RulesPage() {
     <>
       <PageHeader
         title="Rules"
-        description="The rules decide, not the model. Every decision in a case cites one of these rules, with its legal basis and how well that source is verified."
+        description="Every decision cites one of these rules and its legal basis."
         actions={
           <a
             href="#parameters"

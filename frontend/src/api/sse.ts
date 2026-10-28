@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentEvent } from "./types";
 
+/** The public demo reaches this server through an ngrok tunnel; this header skips ngrok's browser warning page. */
+export const TUNNEL_HEADERS: Record<string, string> = { "ngrok-skip-browser-warning": "1" };
+
 export type StreamStatus = "idle" | "connecting" | "open" | "reconnecting" | "closed";
 
 export interface StreamHandlers {
@@ -25,41 +28,58 @@ function isAgentEvent(x: unknown): x is AgentEvent {
 }
 
 /**
- * SSE prin EventSource, cu reconectare proprie (backoff 1 s → 10 s).
- * Nu ne bazăm pe reconectarea implicită a browserului, ca să putem raporta starea și să oprim curat.
+ * SSE read with fetch, with our own reconnect (backoff 1 s → 10 s). Fetch rather than EventSource so every
+ * request can carry TUNNEL_HEADERS (EventSource cannot send headers) and so we can report status and stop cleanly.
  */
 export function openEventStream(url: string, { onEvent, onStatus }: StreamHandlers): () => void {
-  let es: EventSource | null = null;
+  let ctrl: AbortController | null = null;
   let closed = false;
   let attempt = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  const connect = () => {
+  const handleBlock = (block: string) => {
+    const lines = block.split(/\r?\n/);
+    const event = lines.find((l) => l.startsWith("event:"))?.slice(6).trim();
+    if (event && event !== "message") return; // named events were never handled here
+    const data = lines.filter((l) => l.startsWith("data:")).map((l) => l.slice(5).replace(/^ /, "")).join("\n");
+    if (!data) return; // heartbeat or comment
+    try {
+      const parsed: unknown = JSON.parse(data);
+      if (isAgentEvent(parsed)) onEvent(parsed);
+    } catch {
+      /* not JSON: ignore */
+    }
+  };
+
+  const connect = async () => {
     if (closed) return;
     onStatus?.(attempt === 0 ? "connecting" : "reconnecting");
+    ctrl = new AbortController();
     try {
-      es = new EventSource(url);
-    } catch {
-      schedule();
-      return;
-    }
-    es.onopen = () => {
+      const res = await fetch(url, {
+        headers: { Accept: "text/event-stream", ...TUNNEL_HEADERS },
+        cache: "no-store",
+        signal: ctrl.signal,
+      });
+      if (!res.ok || !res.body || !(res.headers.get("content-type") ?? "").includes("text/event-stream")) throw new Error(String(res.status));
       attempt = 0;
       onStatus?.("open");
-    };
-    es.onmessage = (msg) => {
-      try {
-        const parsed: unknown = JSON.parse(msg.data);
-        if (isAgentEvent(parsed)) onEvent(parsed);
-      } catch {
-        /* mesaj care nu e JSON (heartbeat, comentariu): îl ignorăm */
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += value;
+        let cut: RegExpExecArray | null;
+        while ((cut = /\r?\n\r?\n/.exec(buffer))) {
+          handleBlock(buffer.slice(0, cut.index));
+          buffer = buffer.slice(cut.index + cut[0].length);
+        }
       }
-    };
-    es.onerror = () => {
-      es?.close();
-      es = null;
-      schedule();
-    };
+    } catch {
+      /* network error, abort or a non-SSE answer: reconnect below unless closed */
+    }
+    if (!closed) schedule();
   };
 
   const schedule = () => {
@@ -67,15 +87,15 @@ export function openEventStream(url: string, { onEvent, onStatus }: StreamHandle
     attempt += 1;
     onStatus?.("reconnecting");
     const delay = Math.min(10_000, 1000 * 2 ** Math.min(attempt - 1, 4));
-    timer = setTimeout(connect, delay);
+    timer = setTimeout(() => void connect(), delay);
   };
 
-  connect();
+  void connect();
 
   return () => {
     closed = true;
     if (timer) clearTimeout(timer);
-    es?.close();
+    ctrl?.abort();
     onStatus?.("closed");
   };
 }

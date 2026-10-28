@@ -1,6 +1,6 @@
 # Date sintetice, formate și validatori pentru operațiuni bancare românești
 
-_Document de context pentru echipa NEXXT Summit 2026, track Raiffeisen „AI for Operational Efficiency". Sursa unică este nota de cercetare `research_notes/Oportunități AI operațiuni Raiffeisen România/date_sintetice_formate_tooling.md` (stare la 28.10.2026), completată cu teste locale. Toate datele din document sunt **fictive**. Orice valoare cu checksum valid poate coincide întâmplător cu un identificator real, așa că etichetați tot setul ca SINTETIC și nu asociați vectorii de test cu persoane sau firme reale._
+_Document de context pentru echipa NEXXT Summit 2026, track Raiffeisen „AI for Operational Efficiency". Sursa unică este cercetarea echipei despre date sintetice, formate și tooling (stare la 28.10.2026), completată cu teste locale. Toate datele din document sunt **fictive**. Orice valoare cu checksum valid poate coincide întâmplător cu un identificator real, așa că etichetați tot setul ca SINTETIC și nu asociați vectorii de test cu persoane sau firme reale._
 
 **Legendă etichete**
 

@@ -3,7 +3,7 @@
 > **Pentru:** echipa NEXXT Summit 2026, challenge Raiffeisen, track „AI for Operational Efficiency” (redactat pe 28 octombrie 2026).
 > **Subiect:** un agent care primește un document sau date, aplică reguli predefinite și produce un rezultat sau semnalează o excepție, pe date sintetice. Agnostic de proces; exemple din popriri, KYC refresh, dispute card și triaj AML.
 
-**Surse.** Trei note din `research_notes/Oportunități AI operațiuni Raiffeisen România/`: `ai_operatiuni_bancare_benchmark_reglementare.md` (sursa principală); `raiffeisen_profil_ai_hackathon.md` (doar stack, AI existent, declarațiile CEO-ului, formatul NEXXT/VibeHack, câștigătorii din 2025); `date_sintetice_formate_tooling.md` (doar framework-urile de agenți și uneltele de evaluare).
+**Surse.** Cercetarea echipei: AI în operațiunile bancare, benchmark și reglementare (sursa principală); profilul Raiffeisen (doar stack, AI existent, declarațiile CEO-ului, formatul NEXXT/VibeHack, câștigătorii din 2025); date sintetice și tooling (doar framework-urile de agenți și uneltele de evaluare).
 
 | Marcaj | Sens |
 |---|---|
@@ -411,7 +411,7 @@ Omnibus-ul a înlocuit declanșatorul condiționat propus de Comisie (legat de s
 
 ### 6.4 CCD2 art. 18
 
-**Nu e acoperit în cele trei note.** Nu citați conținutul din memorie; subiectul apare în `reguli_kyc_aml_credit_plati_reclamatii.md` din același folder, nefolosit aici.
+**Nu e acoperit aici.** Subiectul e tratat în [context/11](11_reguli_kyc_aml_credit_plati_reclamatii.md).
 
 ### 6.5 DORA și furnizorul LLM
 
@@ -581,7 +581,7 @@ Core banking-ul, case management-ul și document management-ul băncii nu sunt i
 
 **Deja acoperit public (nu duplicați):** Q&A pe proceduri (ARI, RBI GPT); chat cu clienții (Ana, ERIC); citire de documente și RPA în onboarding-ul IMM; OCR în HR; oferte generate automat; onboarding KYC digital; matching de reconciliere la nivel de grup (Broadridge la CRISP); analiză de știri și ESG la nivel de grup.
 
-**„PoC-ul de automatizare a reclamațiilor la nivel de grup”** nu apare în cele trei note. Cel mai apropiat element e RBI GPT, cu „auto-responding to common customer inquiries”, iar profilul trece, dimpotrivă, triajul reclamațiilor și al disputelor de card la spațiu liber. Informația poate fi în `voc_reclamatii_raiffeisen.md` (nefolosit aici); confirmați înainte de pitch.
+**„PoC-ul de automatizare a reclamațiilor la nivel de grup”** nu apare în sursele de aici. Cel mai apropiat element e RBI GPT, cu „auto-responding to common customer inquiries”, iar profilul trece, dimpotrivă, triajul reclamațiilor și al disputelor de card la spațiu liber. Confirmați înainte de pitch.
 
 **Spațiu liber (fără claim public de AI în note):** triajul reclamațiilor și al disputelor de card (≈64% din reclamații); alertele AML și cererile de informații; investigarea excepțiilor rămase după matching; validarea dosarelor de credit față de regulile de produs (ARI răspunde la întrebări despre reguli, dar nu e descris ca verificând dosare).
 
@@ -728,7 +728,7 @@ Notele spun că alegerea e o judecată, nu rezultatul unui benchmark: extragere 
 - CEO: https://spotmedia.ro/stiri/economie/zdenek-romanek-ceo-raiffeisen-bank-ai-poate-pregati-o-decizie-bancara-dar-nu-ar-trebui-sa-aiba-ultimul-cuvant ; https://www.wall-street.ro/articol/banking/ai-in-bancile-romanesti-ce-fac-bt-bcr-cec-ing-si-raiffeisen.html
 - NEXXT: https://nexxtsummit.com/hackathon/ ; https://nexxtsummit.com/rulebook ; https://vibehack.eu/cities/bucharest ; https://bankingnews.ro/raiffeisen-bank-sustine-nexxt-ai-summit.html ; https://financialmarket.ro/events/nexxt-ai-hackathon-2026-aduce-la-bucuresti-peste-50-de-echipe-care-dezvolta-solutii-bazate-pe-inteligenta-artificiala/
 - Câștigători 2025: https://start-up.ro/castigatorii-nexxt-ai-hackathon-2025-hackathonul-despre-viitorul-inteligentei-artificiale-in-banking ; https://startupcafe.ro/solutii-castigatoare-hackathon-solutii-inteligenta-artificiala-89179
-- Profilul LinkedIn citat pentru ARIA: URL-ul e în `raiffeisen_profil_ai_hackathon.md` (omis aici intenționat).
+- Profilul LinkedIn citat pentru ARIA (URL omis intenționat).
 
 **Framework-uri și evaluare**
 - https://pypi.org/pypi/langgraph/json ; https://pypi.org/pypi/pydantic-ai/json ; https://pypi.org/pypi/openai-agents/json

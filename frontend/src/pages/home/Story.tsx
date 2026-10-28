@@ -61,10 +61,10 @@ export default function Story() {
                     <span className="relative block bg-white/10">
                       <span className="absolute inset-x-0 top-0 block bg-yellow" style={{ height: `${fill * 100}%` }} />
                     </span>
-                    <div className={cx("pb-6 transition-opacity duration-300", active ? "opacity-100" : "opacity-40")}>
+                    <div className="pb-6">
                       <p className="flex items-baseline gap-3">
-                        <span className="tnum text-[0.8rem] text-night-muted">{String(i + 1).padStart(2, "0")}</span>
-                        <span className="text-[1.15rem] font-semibold text-night-text">{s.title}</span>
+                        <span className={cx("tnum text-[0.8rem] transition-colors duration-300", active ? "text-yellow" : "text-night-muted")}>{String(i + 1).padStart(2, "0")}</span>
+                        <span className={cx("text-[1.15rem] font-semibold transition-colors duration-300", active ? "text-night-text" : "text-night-muted")}>{s.title}</span>
                       </p>
                       <m.div
                         initial={false}

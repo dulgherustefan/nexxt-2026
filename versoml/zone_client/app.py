@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -88,6 +89,17 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="VersoML · client zone", version=__version__, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
                    allow_methods=["*"], allow_headers=["*"])
+# The built UI is about 600 KB of JS and CSS; gzip cuts it to a third. SSE (text/event-stream) is never compressed.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+
+@app.middleware("http")
+async def cache_built_assets(request: Request, call_next):
+    """Files under /assets/ carry a content hash in their name, so browsers can keep them for a year."""
+    response = await call_next(request)
+    if request.url.path.startswith("/assets/") and response.status_code == 200:
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
 
 
 def svc():

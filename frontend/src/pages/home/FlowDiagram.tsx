@@ -49,7 +49,7 @@ export default function FlowDiagram() {
   const ins = [useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null)];
   const outs = [useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null)];
   return (
-    <div className="relative overflow-hidden rounded-[28px] bg-[#111214]/80 p-6 ring-1 ring-white/10 backdrop-blur-sm sm:p-10">
+    <div className="relative overflow-hidden rounded-[28px] bg-[#111214] p-6 ring-1 ring-white/10 sm:p-10">
       <BorderBeam size={180} duration={10} />
       <div ref={box} className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-6 sm:gap-10">
         <div className="flex flex-col items-end gap-5 sm:gap-6">

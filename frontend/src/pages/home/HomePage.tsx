@@ -79,9 +79,9 @@ function Reveal({ children, className, delay = 0 }: { children: ReactNode; class
     <m.div
       ref={ref}
       className={className}
-      initial={reduce ? false : { opacity: 0, y: 18, filter: "blur(4px)" }}
-      animate={inView ? { opacity: 1, y: 0, filter: "blur(0px)" } : undefined}
-      transition={{ duration: 0.7, ease: EASE, delay }}
+      initial={reduce ? false : { opacity: 0, y: 16 }}
+      animate={inView ? { opacity: 1, y: 0 } : undefined}
+      transition={{ duration: 0.6, ease: EASE, delay }}
     >
       {children}
     </m.div>
@@ -130,7 +130,7 @@ function Hero() {
       <div aria-hidden className="absolute inset-0 [mask-image:radial-gradient(60%_55%_at_50%_30%,#000_10%,transparent_90%)]">
         <AnimatedGridPattern className="text-white" numSquares={14} maxOpacity={0.09} duration={3.6} />
       </div>
-      <div aria-hidden className="pointer-events-none absolute top-[-18rem] left-1/2 size-[46rem] -translate-x-1/2 rounded-full bg-yellow/[0.14] blur-[120px]" />
+      <div aria-hidden className="pointer-events-none absolute top-[-18rem] left-1/2 size-[56rem] -translate-x-1/2 bg-[radial-gradient(closest-side,rgb(254_230_0/0.13),transparent)]" />
       <Container className="relative">
         <div className="mx-auto max-w-[56rem] text-center">
           <h1 className="text-[2.7rem] leading-[1.02] font-semibold tracking-[-0.04em] sm:text-[4.4rem]">
@@ -140,7 +140,7 @@ function Hero() {
             initial={reduce ? false : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, ease: EASE, delay: 0.15 }}
-            className="mx-auto mt-6 max-w-[40rem] text-[1.1rem] leading-relaxed text-night-muted"
+            className="mx-auto mt-6 max-w-[40rem] text-[1.1rem] leading-relaxed text-balance text-night-muted"
           >
             VersoML gathers the evidence and applies the law. A person signs only the exceptions.
           </m.p>
@@ -324,7 +324,7 @@ function Results() {
 function FinalCta() {
   return (
     <section className="relative overflow-hidden border-t border-white/[0.07] py-28 lg:py-36">
-      <div aria-hidden className="pointer-events-none absolute bottom-[-22rem] left-1/2 size-[44rem] -translate-x-1/2 rounded-full bg-yellow/[0.12] blur-[120px]" />
+      <div aria-hidden className="pointer-events-none absolute bottom-[-22rem] left-1/2 size-[54rem] -translate-x-1/2 bg-[radial-gradient(closest-side,rgb(254_230_0/0.11),transparent)]" />
       <Container className="relative text-center">
         <Reveal>
           <h2 className="mx-auto max-w-[18ch] text-[2.4rem] leading-[1.04] font-semibold tracking-[-0.035em] sm:text-[3.4rem]">See a case from claim to refund.</h2>

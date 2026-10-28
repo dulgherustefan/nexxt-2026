@@ -19,6 +19,18 @@ const LeadPage = lazy(() => import("./pages/aml/LeadPage"));
 const OsintPage = lazy(() => import("./pages/aml/OsintPage"));
 const AccessLogPage = lazy(() => import("./pages/aml/AccessLogPage"));
 
+// Fetch the console pages once the browser is idle, so the first click never waits on a chunk.
+if (typeof window !== "undefined") {
+  const warm = () => {
+    void import("./pages/client/CasesPage");
+    void import("./pages/client/CasePage");
+    void import("./pages/client/RulesPage");
+    void import("./pages/client/EvalPage");
+  };
+  if ("requestIdleCallback" in window) window.requestIdleCallback(warm, { timeout: 4000 });
+  else setTimeout(warm, 2500);
+}
+
 /** Each page has its own error boundary: one broken page never takes the navigation down. */
 const S = ({ children, label }: { children: ReactNode; label: string }) => (
   <SectionBoundary label={label}>

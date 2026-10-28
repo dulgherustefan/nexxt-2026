@@ -178,7 +178,8 @@ export function AppShell() {
           </button>
         </div>
         <main id="main" className="mx-auto w-full max-w-[1240px] px-5 py-7 sm:px-8 lg:px-10 lg:py-9">
-          <Outlet />
+          {/* a short fade when the page changes; keyed so every route enters the same way */}
+          <div key={location.pathname} className="animate-enter"><Outlet /></div>
         </main>
       </div>
       {open && (

@@ -91,9 +91,9 @@ export default function Story() {
                 <m.div
                   key={step}
                   className="absolute inset-0"
-                  initial={{ opacity: 0, y: 12, filter: "blur(3px)" }}
-                  animate={{ opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.42, ease: EASE } }}
-                  exit={{ opacity: 0, y: -8, filter: "blur(3px)", transition: { duration: 0.18, ease: EASE } }}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0, transition: { duration: 0.38, ease: EASE } }}
+                  exit={{ opacity: 0, y: -8, transition: { duration: 0.16, ease: EASE } }}
                 >
                   {STEPS[step].scene(!reduce)}
                 </m.div>

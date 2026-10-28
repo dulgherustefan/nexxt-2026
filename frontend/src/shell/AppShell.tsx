@@ -7,6 +7,7 @@ import {
   List,
   ListMagnifyingGlass,
   Plugs,
+  Plus,
   QrCode,
   Scales,
   Tray,
@@ -29,19 +30,26 @@ interface NavItem {
   end?: boolean;
 }
 
-const CLIENT_NAV: NavItem[] = [
-  { to: "/cases", label: "Cases", icon: Tray },
-  { to: "/rules", label: "Rules", icon: Scales },
-  { to: "/knowledge", label: "Knowledge", icon: BookOpenText },
-  { to: "/evaluation", label: "Evaluation", icon: ChartLineUp },
-  { to: "/mcp", label: "MCP", icon: Plugs },
+/** The work first, then what the decisions rest on, then how far to trust it and how to plug it in. */
+const CLIENT_NAV: Array<{ title?: string; items: NavItem[] }> = [
+  { items: [{ to: "/cases", label: "Cases", icon: Tray }] },
+  { title: "What decides", items: [
+    { to: "/rules", label: "Rules", icon: Scales },
+    { to: "/knowledge", label: "Knowledge", icon: BookOpenText },
+  ] },
+  { title: "Trust and setup", items: [
+    { to: "/evaluation", label: "Evaluation", icon: ChartLineUp },
+    { to: "/mcp", label: "MCP", icon: Plugs },
+  ] },
 ];
 
-const AML_NAV: NavItem[] = [
-  { to: "/", label: "Leads", icon: ListMagnifyingGlass, end: true },
-  { to: "/osint", label: "OSINT check", icon: FileMagnifyingGlass },
-  { to: "/zid", label: "Access log", icon: Scales },
-  { to: "/knowledge", label: "Knowledge", icon: BookOpenText },
+const AML_NAV: Array<{ title?: string; items: NavItem[] }> = [
+  { items: [
+    { to: "/", label: "Leads", icon: ListMagnifyingGlass, end: true },
+    { to: "/osint", label: "OSINT check", icon: FileMagnifyingGlass },
+    { to: "/zid", label: "Access log", icon: Scales },
+    { to: "/knowledge", label: "Knowledge", icon: BookOpenText },
+  ] },
 ];
 
 /** What is answering right now, in words: a live model, recorded answers, or rules only. */
@@ -100,8 +108,9 @@ function Sidebar({ onNavigate, onPhoneDemo }: { onNavigate?: () => void; onPhone
   const aml = zone === "aml";
   const nav = aml ? AML_NAV : CLIENT_NAV;
   const item = "flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[0.9333rem] transition-colors";
+  const groupTitle = "px-2.5 pb-1 text-[0.8rem] text-subtle";
   return (
-    <div className="flex h-full flex-col gap-7 bg-canvas px-3 pt-4 pb-3">
+    <div className="flex h-full flex-col gap-6 bg-canvas px-3 pt-4 pb-3">
       <div className="px-2">
         <Link to={aml ? "/" : "/"} onClick={onNavigate} className="inline-flex rounded-md text-[1.05rem]" aria-label="VersoML home">
           <Logo />
@@ -109,31 +118,46 @@ function Sidebar({ onNavigate, onPhoneDemo }: { onNavigate?: () => void; onPhone
         <p className="mt-1 text-[0.8rem] text-muted">{aml ? "AML zone" : "Demo Bank · Disputes"}</p>
       </div>
 
-      <nav aria-label="Main" className="flex flex-col gap-0.5">
-        {nav.map((it) => (
-          <NavLink
-            key={it.to}
-            to={it.to}
-            end={it.end}
-            onClick={onNavigate}
-            className={({ isActive }) =>
-              cx(item, isActive ? "bg-yellow font-medium text-on-yellow" : "text-muted hover:bg-hover hover:text-ink")
-            }
-          >
-            {({ isActive }) => (
-              <>
-                <it.icon size={17} weight={isActive ? "fill" : "regular"} className={isActive ? "text-on-yellow" : "text-subtle"} />
-                {it.label}
-                {it.to === "/cases" && <NeedsYou active={isActive} />}
-              </>
-            )}
-          </NavLink>
+      {!aml && (
+        <Link
+          to="/cases/new"
+          onClick={onNavigate}
+          className="press -mt-1 flex h-9 items-center justify-center gap-2 rounded-full bg-paper text-[0.9333rem] font-medium shadow-[var(--shadow-card)] transition-colors hover:bg-hover"
+        >
+          <Plus size={14} weight="bold" /> New case
+        </Link>
+      )}
+
+      <nav aria-label="Main" className="flex flex-col gap-5">
+        {nav.map((g, gi) => (
+          <div key={gi} className="flex flex-col gap-0.5">
+            {g.title && <p className={groupTitle}>{g.title}</p>}
+            {g.items.map((it) => (
+              <NavLink
+                key={it.to}
+                to={it.to}
+                end={it.end}
+                onClick={onNavigate}
+                className={({ isActive }) =>
+                  cx(item, isActive ? "bg-yellow font-medium text-on-yellow" : "text-muted hover:bg-hover hover:text-ink")
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <it.icon size={17} weight={isActive ? "fill" : "regular"} className={isActive ? "text-on-yellow" : "text-subtle"} />
+                    {it.label}
+                    {it.to === "/cases" && <NeedsYou active={isActive} />}
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
 
       {!aml && (
         <div className="flex flex-col gap-0.5">
-          <p className="px-2.5 pb-1 text-[0.8rem] text-subtle">Try it</p>
+          <p className={groupTitle}>Try it as the customer</p>
           <a className={cx(item, "text-muted hover:bg-hover hover:text-ink")} href="/bank" target="_blank" rel="noreferrer">
             <DeviceMobile size={17} className="text-subtle" /> Demo Bank app
             <ArrowSquareOut aria-hidden size={14} className="ml-auto text-subtle" />

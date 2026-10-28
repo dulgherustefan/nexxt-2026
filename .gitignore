@@ -1,0 +1,22 @@
+# Secrete: nu se comit niciodată
+API_KEY.txt
+*API_KEY*
+*.key
+*.pem
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Node
+node_modules/
+.next/
+dist/
+
+# Date de rulare (baze de date pe zone, chei Ed25519, modele antrenate)
+var/

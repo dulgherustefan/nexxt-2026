@@ -1,5 +1,5 @@
 import { Play, RotateCw, TriangleAlert, Waypoints } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ApiError } from "../../api/client";
 import { dateTime, relative, verdictLabel } from "../../api/format";
@@ -7,17 +7,20 @@ import { useApi, usePrefersReducedMotion } from "../../api/runtime";
 import { Badge, Button, Dot, EmptyState, ErrorNote, IdTag, SectionBoundary, Skeleton, useNowTick } from "../../ui/kit";
 import { maskAccount, roCount, tsOf } from "./aml";
 import { DecisionArea } from "./DecisionPanel";
-import FlowGraph from "./FlowGraph";
 import { describeFlow, subjectIdsOf } from "./flow";
-import { AchPanel, ClocksPanel, ScorePanel, StepsPanel } from "./LeadPanels";
+import { AchPanel, ScorePanel } from "./LeadPanels";
+import { ClockBars, TypologyChips } from "./LeadVisuals";
 import { LeadTabs, type LeadTab } from "./LeadTabs";
 import { LeadStatusBadge, StaleNote } from "./ui";
 import { useLead } from "./useLead";
 
+const MoneyGraph = lazy(() => import("../../graph/MoneyGraph"));
+const AgentGraph = lazy(() => import("../../graph/AgentGraph"));
+
 function Breadcrumb({ id }: { id: string }) {
   return (
     <nav aria-label="Firul paginii" className="mb-3 flex items-center gap-1.5 text-[0.8667rem] text-muted">
-      <Link to="/" className="font-semibold text-ink-soft hover:underline">
+      <Link to="/aml" className="font-semibold text-ink-soft hover:underline">
         Piste
       </Link>
       <span aria-hidden>/</span>
@@ -52,6 +55,10 @@ function LeadSkeleton({ id }: { id: string }) {
 
 export default function LeadPage() {
   const { leadId = "" } = useParams<{ leadId: string }>();
+  return <LeadRoom leadId={leadId} />;
+}
+
+export function LeadRoom({ leadId, compact = false }: { leadId: string; compact?: boolean }) {
   const id = leadId;
   const api = useApi();
   const live = useLead(id);
@@ -117,7 +124,7 @@ export default function LeadPage() {
               icon={<Waypoints aria-hidden className="size-5" />}
               title={`Pista ${id} nu există.`}
               action={
-                <Link to="/" className="font-semibold underline">
+                <Link to="/aml" className="font-semibold underline">
                   Înapoi la piste
                 </Link>
               }
@@ -156,13 +163,13 @@ export default function LeadPage() {
 
   return (
     <div>
-      <Breadcrumb id={id} />
+      {!compact && <Breadcrumb id={id} />}
 
       <header className="mb-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <h1 className="text-[1.6rem] leading-tight font-bold">
+              <h1 className="display text-[2rem] leading-tight font-black">
                 {account ? (
                   <span className="font-mono tracking-tight">{maskAccount(account)}</span>
                 ) : (
@@ -230,10 +237,26 @@ export default function LeadPage() {
         />
       </SectionBoundary>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="min-w-0 space-y-6 lg:col-span-2">
+      <div className={compact ? "grid gap-6 2xl:grid-cols-[minmax(0,1fr)_22rem]" : "grid gap-6 xl:grid-cols-[minmax(0,1fr)_25rem]"}>
+        <div className="min-w-0 space-y-6">
           <SectionBoundary label="Drumul banilor">
-            <FlowGraph graph={detail.graph} lead={lead} building={graphBuilding} />
+            <Suspense fallback={<Skeleton className="h-[28rem] w-full rounded-xl" />}>
+              <MoneyGraph graph={detail.graph} lead={lead} building={graphBuilding} />
+            </Suspense>
+          </SectionBoundary>
+          <SectionBoundary label="Agenții Investigatorului">
+            <Suspense fallback={<Skeleton className="h-64 w-full rounded-xl" />}>
+              <AgentGraph
+                nodes={detail.pipeline?.nodes ?? []}
+                edges={detail.pipeline?.edges ?? []}
+                events={live.events}
+                direction="LR"
+                height={230}
+                rowLabels={false}
+                settled={!live.running && !pending && live.hasRun}
+                title="Agenții Investigatorului, live"
+              />
+            </Suspense>
           </SectionBoundary>
           <div ref={tabsRef} className="scroll-mt-4">
             <SectionBoundary label="Ciornă RTS, OSINT și probe">
@@ -252,6 +275,12 @@ export default function LeadPage() {
         </div>
 
         <div className="min-w-0 space-y-6">
+          <SectionBoundary label="Tipologii">
+            <TypologyChips detail={detail.typologies_detail} names={lead.typologies} />
+          </SectionBoundary>
+          <SectionBoundary label="Ceasuri">
+            <ClockBars clocks={detail.clocks} events={live.events} />
+          </SectionBoundary>
           <SectionBoundary label="Scor M5">
             <ScorePanel accounts={lead.accounts} />
           </SectionBoundary>
@@ -264,12 +293,6 @@ export default function LeadPage() {
               onCite={onCite}
               factTitle={factTitle}
             />
-          </SectionBoundary>
-          <SectionBoundary label="Ceasuri">
-            <ClocksPanel clocks={detail.clocks} />
-          </SectionBoundary>
-          <SectionBoundary label="Pașii agenților">
-            <StepsPanel steps={live.steps} streamStatus={live.streamStatus} hasRun={live.hasRun} />
           </SectionBoundary>
         </div>
       </div>

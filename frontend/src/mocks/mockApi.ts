@@ -26,7 +26,7 @@ import { isoRo } from "./calendar";
 import { advance, PUBLIC_KEY, type MockCase } from "./engine";
 import { MCP, RULES, SCENARIOS, evalReport } from "./fixtures";
 import { canonical, merkleRoot, sha256 } from "./sha256";
-import { ATTACKS, caseEventSource, createMockCase, leadEventSource, read, startDriver, startRun, transact } from "./store";
+import { ATTACKS, caseEventSource, createMockCase, leadEventSource, read, startDriver, startRun, tickerSource, transact } from "./store";
 import { MULE_IBAN_SHORT } from "./stories";
 import type { StreamSource } from "../api/sse";
 
@@ -241,6 +241,16 @@ export function createMockApi(zone: Zone): Api {
       return (h) => {
         h.onStatus?.("open");
         const unsub = caseEventSource(id)(h.onEvent);
+        return () => {
+          unsub();
+          h.onStatus?.("closed");
+        };
+      };
+    },
+    ticker(): StreamSource {
+      return (h) => {
+        h.onStatus?.("open");
+        const unsub = tickerSource()(h.onEvent);
         return () => {
           unsub();
           h.onStatus?.("closed");

@@ -45,8 +45,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="VersoML · zona AML", version=__version__, lifespan=lifespan)
+# Aplicația unică rulează pe portul zonei client; vederea AML citește direct din acest proces (datele nu trec
+# prin zona client). Browserul analistului e singurul punct comun, la fel ca o consolă cu două ferestre.
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173",
-                                                   "http://localhost:5174", "http://127.0.0.1:5174"],
+                                                   "http://localhost:5174", "http://127.0.0.1:5174",
+                                                   "http://localhost:8000", "http://127.0.0.1:8000"],
                    allow_methods=["*"], allow_headers=["*"])
 
 

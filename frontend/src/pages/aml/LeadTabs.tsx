@@ -122,7 +122,7 @@ function OsintTab({ findings, summary, onCite, factTitle, running }: { findings:
       <OsintGroups findings={findings} onCite={onCite} factTitle={factTitle} />
       <p className="text-[0.8667rem] text-muted">
         Vrei să verifici alt identificator?{" "}
-        <Link to="/osint" className="font-semibold text-ink underline">
+        <Link to="/aml/osint" className="font-semibold text-ink underline">
           Deschide verificarea OSINT
         </Link>
       </p>

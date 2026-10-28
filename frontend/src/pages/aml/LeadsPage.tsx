@@ -1,12 +1,83 @@
 import { Search, Waypoints } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
+import { lazy, Suspense, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { dateTime, money, relative, scenarioLabel, toMoney, verdictLabel } from "../../api/format";
 import { useApi, useResource, type Resource } from "../../api/runtime";
 import type { LeadSummary, Referral } from "../../api/types";
-import { Button, EmptyState, ErrorNote, IdTag, PageHeader, SectionBoundary, Tabs, useNowTick } from "../../ui/kit";
+import { Button, EmptyState, ErrorNote, IdTag, PageHeader, SectionBoundary, Skeleton, Tabs, useNowTick } from "../../ui/kit";
+import { Bar, BigStat } from "../../ui/viz";
 import { GROUP_ORDER, leadStatus, maskAccount, typologyLabel, type LeadGroup } from "./aml";
 import { Account, LeadStatusText, rowClick, ScoreText, SkeletonRows, StaleNote, TableFrame, TD, TH } from "./ui";
+
+const MoneyGraph = lazy(() => import("../../graph/MoneyGraph"));
+
+/** Imaginea de ansamblu a zonei AML: cifrele, campaniile și rețeaua conturilor semnalate. */
+function AmlOverview() {
+  const api = useApi();
+  const stats = useResource(() => api.amlStats(), [api], { pollMs: 5000 });
+  const campaigns = useResource(() => api.amlCampaigns(), [api], { pollMs: 8000 });
+  const network = useResource(() => api.amlGraph(), [api], { pollMs: 10000 });
+  const s = stats.data;
+  const list = Array.isArray(campaigns.data) ? campaigns.data : [];
+  const max = Math.max(1, ...list.map((c) => toMoney(c.amount_total)?.value ?? 0));
+  return (
+    <div className="mb-6 flex flex-col gap-6">
+      <section aria-label="Cifrele zonei AML" className="grid gap-px overflow-hidden rounded-xl border-2 border-ink bg-ink sm:grid-cols-3 xl:grid-cols-6">
+        {[
+          ["Contestații primite", s?.referrals, "prin diodă, fără identitatea victimei"],
+          ["Piste", s?.leads, "conturi legate între ele"],
+          ["Conturi semnalate", s?.accounts_flagged, "scor M5 ≥ 0,70"],
+          ["Bani în risc", s ? money(s.amount_at_risk) : undefined, "suma contestată"],
+          ["Ciorne RTS", s?.rts_drafts, "le depune doar analistul"],
+          ["Comunități", s?.communities, "Louvain pe graful banilor"],
+        ].map(([label, value, sub]) => (
+          <div key={String(label)} className="bg-paper px-4 py-3.5">
+            {s ? <BigStat label={label} value={value ?? "—"} sub={sub} /> : <Skeleton className="h-16" />}
+          </div>
+        ))}
+      </section>
+      <div className="grid items-start gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
+        <section aria-label="Campanii" className="rounded-xl border border-line bg-paper p-4">
+          <h2 className="font-bold">Campanii</h2>
+          <p className="text-[0.8667rem] text-muted">Victime legate prin același domeniu, IBAN sau telefon.</p>
+          {list.length === 0 ? (
+            <p className="mt-3 text-[0.9333rem] text-muted">Nicio campanie încă.</p>
+          ) : (
+            <ul className="mt-3 flex flex-col gap-3">
+              {list.map((c) => {
+                const amount = toMoney(c.amount_total)?.value ?? 0;
+                const n = Array.isArray(c.cases) ? c.cases.length : Number(c.cases);
+                return (
+                  <li key={c.campaign_id}>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <IdTag>{c.campaign_id}</IdTag>
+                      <span className="font-black tabular-nums">{money(amount)}</span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2"><Bar value={amount / max} tone="danger" height={10} /><span className="shrink-0 text-[0.8rem] text-muted">{n === 1 ? "o victimă" : `${n} victime`}</span></div>
+                    <p className="mt-1 flex flex-wrap gap-1.5 text-[0.75rem]">
+                      {(c.shared.domains ?? []).map((d) => <span key={d} className="rounded-sm bg-danger-soft px-1.5 py-0.5 font-mono text-danger">{d}</span>)}
+                      {(c.shared.ibans ?? []).map((d) => <span key={d} className="rounded-sm bg-canvas px-1.5 py-0.5 font-mono">{d}</span>)}
+                      {(c.shared.phones ?? []).map((d) => <span key={d} className="rounded-sm bg-canvas px-1.5 py-0.5 font-mono">{d}</span>)}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+        <SectionBoundary label="Rețeaua">
+          <Suspense fallback={<Skeleton className="h-80 rounded-xl" />}>
+            {network.data && (network.data.edges?.length ?? 0) > 0 ? (
+              <MoneyGraph graph={network.data} title="Rețeaua conturilor semnalate" height={380} />
+            ) : (
+              <EmptyState title="Rețeaua apare după prima pistă.">Graful unește toate pistele: victime, conturile urmărite și ieșirile spre cripto sau numerar.</EmptyState>
+            )}
+          </Suspense>
+        </SectionBoundary>
+      </div>
+    </div>
+  );
+}
 
 type TabId = "asteapta" | "analiza" | "inchise" | "toate";
 const TAB_GROUP: Record<Exclude<TabId, "toate">, LeadGroup> = { asteapta: "waiting", analiza: "active", inchise: "closed" };
@@ -22,7 +93,7 @@ interface LeadRow {
 }
 
 function leadHref(id: string) {
-  return `/piste/${encodeURIComponent(id)}`;
+  return `/aml/piste/${encodeURIComponent(id)}`;
 }
 
 /** Contul principal și suma contestată: din contestațiile primite pentru pista respectivă. */
@@ -74,7 +145,7 @@ function OsintSearch() {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const t = q.trim();
-    if (t) navigate(`/osint?q=${encodeURIComponent(t)}`);
+    if (t) navigate(`/aml/osint?q=${encodeURIComponent(t)}`);
   };
   return (
     <form role="search" aria-label="Verifică un identificator" onSubmit={submit} className="flex w-full items-center gap-2 sm:w-auto">
@@ -273,6 +344,7 @@ export default function LeadsPage() {
         description="Conturile care au primit bani din contestațiile de fraudă. Agenții strâng probele și propun; decizia e a ta."
         actions={<OsintSearch />}
       />
+      <SectionBoundary label="Imaginea de ansamblu"><AmlOverview /></SectionBoundary>
 
       <SectionBoundary label="Piste">
         {leads.error && !leads.data ? (

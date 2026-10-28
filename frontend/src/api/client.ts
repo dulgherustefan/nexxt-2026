@@ -44,6 +44,7 @@ export interface Api {
   caseDetail(id: string): Promise<CaseDetail>; // GET /api/cases/{id}
   runCase(id: string): Promise<{ run_id: string }>; // POST /api/cases/{id}/run
   caseEvents(id: string): StreamSource; // GET /api/cases/{id}/events (SSE)
+  ticker(): StreamSource; // GET /api/ticker (SSE): activitatea agenților din toate cazurile
   approve(id: string, body: { action: "approve" | "reject"; note?: string; approver?: string }): Promise<{ ok: boolean; status: string }>; // POST /api/cases/{id}/approve
   counterfactual(id: string, body: { field: string; value: unknown }): Promise<CounterfactualResult>; // POST /api/cases/{id}/counterfactual
   letterCheck(id: string, body: { body: string }): Promise<FilterResult>; // POST /api/cases/{id}/letter/check
@@ -129,12 +130,18 @@ export async function fetchJson<T>(path: string, init: RequestInit & { timeoutMs
 }
 
 const enc = encodeURIComponent;
-const post = <T>(path: string, body?: unknown) =>
-  fetchJson<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
-const put = <T>(path: string, body: unknown) => fetchJson<T>(path, { method: "PUT", body: JSON.stringify(body) });
-const get = <T>(path: string) => fetchJson<T>(path);
 
-export function createHttpApi(): Api {
+/**
+ * `base` gol = același proces care a servit pagina. Vederea AML deschisă pe portul zonei client
+ * primește URL-ul procesului AML (din /api/meta → urls.aml) și citește direct de acolo.
+ */
+export function createHttpApi(base = ""): Api {
+  const root = base.replace(/\/+$/, "");
+  const get = <T>(path: string) => fetchJson<T>(root + path);
+  const post = <T>(path: string, body?: unknown) =>
+    fetchJson<T>(root + path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
+  const put = <T>(path: string, body: unknown) => fetchJson<T>(root + path, { method: "PUT", body: JSON.stringify(body) });
+  const sse = (path: string): StreamSource => (h) => openEventStream(root + path, h);
   return {
     mode: "live",
     meta: () => get("/api/meta"),
@@ -144,7 +151,8 @@ export function createHttpApi(): Api {
     cases: () => get("/api/cases"),
     caseDetail: (id) => get(`/api/cases/${enc(id)}`),
     runCase: (id) => post(`/api/cases/${enc(id)}/run`),
-    caseEvents: (id) => (h) => openEventStream(`/api/cases/${enc(id)}/events`, h),
+    caseEvents: (id) => sse(`/api/cases/${enc(id)}/events`),
+    ticker: () => sse("/api/ticker"),
     approve: (id, body) => post(`/api/cases/${enc(id)}/approve`, body),
     counterfactual: (id, body) => post(`/api/cases/${enc(id)}/counterfactual`, body),
     letterCheck: (id, body) => post(`/api/cases/${enc(id)}/letter/check`, body),
@@ -165,7 +173,7 @@ export function createHttpApi(): Api {
     amlLeads: () => get("/api/aml/leads"),
     amlLead: (id) => get(`/api/aml/leads/${enc(id)}`),
     amlRunLead: (id) => post(`/api/aml/leads/${enc(id)}/run`),
-    leadEvents: (id) => (h) => openEventStream(`/api/aml/leads/${enc(id)}/events`, h),
+    leadEvents: (id) => sse(`/api/aml/leads/${enc(id)}/events`),
     amlDecide: (id, body) => post(`/api/aml/leads/${enc(id)}/decide`, body),
     amlOsint: (body) => post("/api/aml/osint", body),
     amlCampaigns: () => get("/api/aml/campaigns"),

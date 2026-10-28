@@ -207,7 +207,7 @@ function CasesGrid({ cases, onOpen }: { cases: CaseSummary[]; onOpen: (id: strin
   );
 }
 
-function NewCaseSheet({ onClose, onStart, busy }: { onClose: () => void; onStart: (id: string) => void; busy: boolean }) {
+export function NewCaseSheet({ onClose, onStart, busy }: { onClose: () => void; onStart: (id: string) => void; busy: boolean }) {
   const api = useApi();
   const scenarios = useResource(() => api.scenarios(), [api]);
   const [choice, setChoice] = useState<string>("demo_t1");

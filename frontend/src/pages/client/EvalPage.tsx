@@ -18,6 +18,7 @@ import {
   type Outcome,
 } from "./evalReport";
 import { CodeBlock, InlineCode, TABLE } from "./trustUi";
+import { EvalVisuals } from "./EvalVisuals";
 
 const LLM_MODE: Record<string, string> = {
   live: "LLM live (Claude pe Bedrock)",
@@ -66,6 +67,9 @@ export default function EvalPage() {
       ) : (
         <>
           {res.error && <p className="mb-3 text-[0.8667rem] text-danger">Nu am putut reîncărca raportul; afișez ultima versiune primită.</p>}
+          <SectionBoundary label="Imaginea evaluării">
+            <EvalVisuals sections={model.sections} />
+          </SectionBoundary>
           <SectionBoundary label="Sinteza">
             <Summary rows={model.rows} />
           </SectionBoundary>

@@ -62,6 +62,18 @@ export function exactTime(v: string | null | undefined): string {
   return new Intl.DateTimeFormat("ro-RO", { timeZone: "Europe/Bucharest", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
 }
 
+/** „azi, 23:59", „mâine, 23:59" sau „30.10, 23:59", în ora României. */
+export function whenPhrase(v: string | null | undefined, now = Date.now()): string {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "—";
+  const day = (x: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Bucharest", year: "numeric", month: "2-digit", day: "2-digit" }).format(x);
+  const hm = new Intl.DateTimeFormat("ro-RO", { timeZone: "Europe/Bucharest", hour: "2-digit", minute: "2-digit" }).format(d);
+  if (day(d) === day(new Date(now))) return `azi, ${hm}`;
+  if (day(d) === day(new Date(now + 86_400_000))) return `mâine, ${hm}`;
+  return exactTime(v);
+}
+
 // ---------------------------------------------------------------- decizia, într-o propoziție
 
 /** `after` = ce s-a întâmplat după decizie (starea cazului, răspunsul omului), ca propoziția să treacă la trecut. */
@@ -71,7 +83,7 @@ export function verdictSentence(
   after?: { status?: string; action?: string; approver?: string },
 ): { title: string; detail: string; tone: Tone } {
   const sum = money(amount ?? d?.amount ?? null);
-  const until = d?.deadline ? `până pe ${exactTime(d.deadline)}` : "în termen";
+  const until = d?.deadline ? `până ${whenPhrase(d.deadline).startsWith("azi") || whenPhrase(d.deadline).startsWith("mâine") ? "" : "pe "}${whenPhrase(d.deadline)}` : "în termen";
   const who = after?.approver ?? "un om";
   const Who = who.charAt(0).toUpperCase() + who.slice(1);
   if (d && after?.status === "RAMBURSAT") {

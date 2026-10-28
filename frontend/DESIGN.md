@@ -54,4 +54,4 @@ Mod demonstrativ automat când serverul nu răspunde (sau `?mock=1`), interogare
 
 ## Ce nu folosim
 
-Grafic decorativ, mozaic de carduri identice, cifre-erou, gradient, galben pentru avertismente, text conturat sau rotit, ticker.
+Grafic decorativ (fiecare inel, bară sau graf arată o dată reală), gradient, galben pentru avertismente, text conturat sau rotit. Benzile cu dungi galben-negru apar doar la zid și în zona AML. Semaforul termenelor folosește verde / chihlimbar (`warn`) / roșu.

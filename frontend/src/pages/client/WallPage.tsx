@@ -365,6 +365,8 @@ export default function WallPage() {
         </div>
       </PageHeader>
 
+      <WallDiagram controls={controls} isActive={isActive} latest={latest} running={running} onAttack={runTest} />
+
       <div
         className={cx(
           "grid gap-4",
@@ -508,6 +510,61 @@ export default function WallPage() {
         </section>
       </SectionBoundary>
     </>
+  );
+}
+
+// ------------------------------------------------------------------ diagrama zidului
+
+/** Cele două zone și zidul dintre ele: șase cărămizi, dioda într-un singur sens, atacurile ca butoane. */
+function WallDiagram({ controls, isActive, latest, running, onAttack }: {
+  controls: Control[]; isActive: (c: Control) => boolean; latest: Attempt | null; running: AttackKind | null; onAttack: (k: AttackKind) => void;
+}) {
+  const hitKeys = new Set(latest?.blocked ? latest.stoppers.map((s) => s.key).filter(Boolean) : []);
+  return (
+    <section aria-label="Diagrama zidului" className="mb-6 overflow-hidden rounded-xl border-2 border-ink bg-paper">
+      <div className="grid items-stretch gap-0 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)]">
+        <div className="flex flex-col justify-center gap-2 p-5">
+          <p className="text-[0.8rem] font-bold tracking-wide text-muted">ZONA CLIENT · :8000</p>
+          <p className="display text-[1.5rem] leading-tight font-black">Operatorul de contestații</p>
+          <p className="text-[0.9333rem] text-ink-soft">Rambursează la T+1 și scrie clientului. Nu vede nimic din investigația AML.</p>
+          <div className="mt-2 flex flex-col gap-1.5">
+            {TESTS.map((t) => (
+              <button key={t.kind} type="button" disabled={running !== null} onClick={() => onAttack(t.kind)}
+                className="flex items-center justify-between gap-2 rounded-md border-2 border-ink bg-yellow px-3 py-1.5 text-left text-[0.9333rem] font-bold hover:bg-yellow-hover disabled:opacity-50">
+                <span>{running === t.kind ? "Se trimite…" : t.label}</span>
+                <span aria-hidden>→</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="hazard flex flex-col justify-center gap-1.5 p-3">
+          {controls.map((c, i) => {
+            const hit = c.key ? hitKeys.has(c.key) : false;
+            return (
+              <div key={c.id} className={cx("flex items-center gap-3 rounded-md border-2 px-3 py-2 transition-colors", hit ? "animate-flash border-danger bg-danger text-paper" : isActive(c) ? "border-ink bg-paper" : "border-danger bg-danger-soft")}>
+                <span className={cx("grid size-7 shrink-0 place-items-center rounded-full text-[0.8667rem] font-black", hit ? "bg-paper text-danger" : "bg-ink text-yellow")}>{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate font-bold">{c.name}</span>
+                {hit ? <span className="text-[0.8rem] font-black">OPRIT AICI</span> : isActive(c) ? <ShieldCheck className="size-4 text-ok" /> : <ShieldAlert className="size-4 text-danger" />}
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex flex-col justify-center gap-2 bg-ink p-5 text-paper">
+          <p className="text-[0.8rem] font-bold tracking-wide text-yellow">ZONA AML · :8001 · ALT PROCES</p>
+          <p className="display text-[1.5rem] leading-tight font-black">Analistul AML</p>
+          <p className="text-[0.9333rem] text-white/80">Investighează contul care a primit banii. Poate trimite înapoi doar HOLD: da sau nu, aprobat de un om.</p>
+          <div className="mt-2 flex flex-col gap-1 text-[0.8667rem]">
+            <p className="flex items-center gap-2"><ArrowRightLeft className="size-4 text-yellow" /> client → AML: DisputeFacts, semnat HMAC</p>
+            <p className="flex items-center gap-2"><ArrowRightLeft className="size-4 text-yellow" /> AML → client: un singur boolean</p>
+          </div>
+        </div>
+      </div>
+      {latest && (
+        <p className={cx("border-t-2 border-ink px-5 py-2.5 text-[0.9333rem] font-semibold", latest.blocked ? "bg-ok-soft" : "bg-danger-soft text-danger")} aria-live="polite">
+          {latest.blocked ? `Oprit de ${latest.controlLabel ?? "zid"}: ` : "A trecut: "}<span className="font-normal">{latest.detail}</span>
+        </p>
+      )}
+    </section>
   );
 }
 

@@ -1,6 +1,6 @@
 # VERSOML · frontend
 
-Consola de contestații, consola AML, Banca Demo și pagina falsă de demo. Vite + React 19 + TypeScript strict + Tailwind CSS v4 și lucide-react. Lista de pași a agenților și graful banilor sunt desenate local (fără biblioteci de grafuri). Fonturile (Archivo, JetBrains Mono) sunt incluse în build, deci totul merge fără internet.
+O singură aplicație cu două roluri (Operator contestații / Analist AML), Banca Demo, pagina falsă de demo și demo-ul ghidat. Vite + React 19 + TypeScript strict + Tailwind CSS v4, lucide-react și @xyflow/react (graful agenților și graful banilor). Fonturile (Archivo, JetBrains Mono) sunt incluse în build, deci totul merge fără internet.
 
 Designul și tokenurile: [DESIGN.md](DESIGN.md). Contractul API: `docs/06_implementare.md` §6.
 
@@ -41,9 +41,11 @@ Toate datele sunt sintetice: bănci fictive (BDEM, XBNK, YBNK), domenii `.exampl
 
 ## Rute
 
-Zona client: `/` contestațiile, sortate după urgență · `/cazuri/:id` cazul · `/zid` · `/reguli` · `/evaluare` · `/mcp` · `/banca` (Banca Demo, `?client=CUST-DEMO-02` pentru al doilea jurat) · `/demo/livrare` (pagina falsă).
+O singură adresă: aplicația servită de zona client pe `:8000`. Comutatorul din bara de sus schimbă rolul.
 
-Zona AML: `/` · `/piste/:leadId` · `/osint` · `/zid` (jurnalul de politici AML).
+Operator: `/` „Azi” (indicatori, coada după termenul T+1, agenții live, campanii) · `/cazuri` · `/cazuri/:id` camera cazului · `/demo` demo-ul ghidat (telefon + caz + 7 pași) · `/zid` · `/reguli` · `/evaluare` · `/mcp` · `/banca` (Banca Demo, `?client=CUST-DEMO-02` pentru al doilea jurat) · `/demo/livrare` (pagina falsă).
+
+Analist AML: `/aml` piste, campanii și rețeaua · `/aml/piste/:leadId` camera pistei (graful banilor) · `/aml/osint` · `/aml/jurnal`. Vederea AML citește direct din procesul AML (`urls.aml` din `/api/meta`, CORS permis pentru `:8000`); rolul de operator nu apelează niciodată API-ul AML. Deschisă pe `:8001`, aplicația pornește direct în rolul AML.
 
 ## Structura
 

@@ -38,6 +38,11 @@ SCENARIO_TITLES = {
 }
 
 
+from zoneinfo import ZoneInfo
+
+_RO = ZoneInfo("Europe/Bucharest")
+
+
 def _remap(value: Any, renames: dict[str, str], delta: timedelta) -> Any:
     """Redenumește ID-urile și mută orele ISO cu `delta`, recursiv."""
     if isinstance(value, dict):
@@ -124,9 +129,8 @@ class ClientService:
             title, desc = SCENARIO_TITLES.get(sid, (sid.replace("_", " ").capitalize(), ""))
             expected = None
             try:
-                from versoml.data.scenarios import SCENARIOS
-                spec = SCENARIOS[sid]
-                exp = getattr(spec, "expected", None) or (spec.get("expected") if isinstance(spec, dict) else None)
+                from versoml.data.scenarios import build_scenario
+                exp = build_scenario(sid).expected
                 if isinstance(exp, dict):
                     expected = exp.get("rambursare_t1")
             except Exception:  # noqa: BLE001
@@ -283,7 +287,47 @@ class ClientService:
             "ledger": self.rt.ledger.summary(case_id),
             "aml_referral": doc.get("aml_referral"), "decision_seconds": doc.get("decision_seconds"),
             "llm_mode": doc.get("llm_mode"),
+            "story": self._story(doc, facts),
         }
+
+    @staticmethod
+    def _story(doc: dict, facts: list[dict]) -> list[dict]:
+        """Cronologia cazului, în ordine: ce s-a întâmplat cu banii, din probele din registru."""
+        events: list[dict] = []
+
+        def add(ts, kind, title, detail="", fact_id=None):
+            when = A.parse_dt(ts)  # orele vin cu fusuri diferite: le comparăm ca momente, nu ca text
+            if when:
+                events.append({"ts": when.astimezone(_RO).isoformat(timespec="seconds"), "_t": when, "kind": kind, "title": title, "detail": detail,
+                               "fact_id": fact_id})
+
+        for f in facts:
+            c, fid = f.get("content") or {}, f.get("fact_id")
+            if f["kind"] == "device.session":
+                add(c.get("clicked_at"), "click", "Click pe linkul din mesaj", c.get("clicked_url") or "", fid)
+            elif f["kind"] == "sca.auth_event":
+                purpose = c.get("purpose")
+                add(c.get("ts"), "device" if purpose == "device_enrollment" else "auth",
+                    "Telefon nou înrolat cu un cod SMS" if purpose == "device_enrollment" else "Autentificare pentru plată",
+                    "ecranul a afișat suma și beneficiarul" if c.get("screen_showed_amount_and_payee")
+                    else "fără sumă și beneficiar pe ecran", fid)
+            elif f["kind"] == "bank.transaction":
+                add(c.get("ts") or c.get("executed_at"), "payment",
+                    f"Plată de {A.money_ro(float(c.get('amount') or 0))}",
+                    f"către {c.get('counterparty_name') or 'beneficiar'}", fid)
+            elif f["kind"] == "complaint.received":
+                add(f.get("retrieved_at"), "dispute", "Clientul contestă plata", "pornește termenul T+1", fid)
+            elif f["kind"] == "refund.instruction":
+                add(f.get("retrieved_at"), "refund", "Banii returnați clientului",
+                    "aprobat de om" if c.get("approved_by") else "automat, sub plafon", fid)
+            elif f["kind"] == "wall.diode_sent":
+                add(f.get("retrieved_at"), "aml", "Faptele despre beneficiar trec spre AML", "fără identitatea victimei", fid)
+            elif f["kind"] == "ledger_seal" or f["kind"] == "letter.checked":
+                add(f.get("retrieved_at"), "letter", "Scrisoarea către client verificată de zid",
+                    "trecută" if c.get("passed") else "oprită, merge la om", fid)
+        if doc.get("ledger", {}).get("sealed") and doc.get("finished_at"):
+            add(doc["finished_at"], "seal", "Dosar sigilat (Merkle + Ed25519)")
+        return [{k: v for k, v in e.items() if k != "_t"} for e in sorted(events, key=lambda e: e["_t"])]
 
     def stats(self) -> dict:
         cases = [d for d in self.rt.cases.all() if d.get("case_id")]

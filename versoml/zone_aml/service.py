@@ -202,7 +202,7 @@ class AmlService:
         return {"lead": lead, "status": l.get("status"), "graph": l.get("graph") or {"nodes": [], "edges": []},
                 "osint": l.get("osint", []), "osint_summary": l.get("osint_summary"), "innocent": l.get("innocent", []),
                 "innocent_detail": l.get("innocent_detail", []), "typologies_detail": l.get("typologies", []),
-                "rts": l.get("rts") or {"status": "nepregătit"}, "clocks": l.get("clocks", []),
+                "rts": l.get("rts") or {"status": "nepregătit"}, "clocks": [{**c, "started_at": c.get("started_at") or l.get("started_at")} for c in l.get("clocks", [])],
                 "pipeline": {"nodes": nodes, "edges": [{"source": s, "target": t} for s, t in A.PIPELINE_EDGES]},
                 "interrupt": l.get("interrupt") or {"pending": False}, "ledger": l.get("ledger"),
                 "facts": [f.model_dump(mode="json") for f in self.rt.ledger.facts(lead_id)],

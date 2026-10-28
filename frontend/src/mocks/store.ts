@@ -424,6 +424,23 @@ export function caseEventSource(caseId: string) {
   };
 }
 
+/** Activitatea agenților din toate cazurile (ca /api/ticker): ultimele 30, apoi ce apare nou. */
+export function tickerSource() {
+  return (onEvent: (e: AgentEvent) => void) => {
+    const seen = new Set<string>();
+    let first = true;
+    const flush = () => {
+      const all = Object.values(read().cases).flatMap((c) => c.events);
+      const fresh = all.filter((e) => !seen.has(`${e.run_id}:${e.seq}`));
+      fresh.forEach((e) => seen.add(`${e.run_id}:${e.seq}`));
+      (first ? fresh.slice(-30) : fresh).forEach(onEvent);
+      first = false;
+    };
+    flush();
+    return subscribe(flush);
+  };
+}
+
 export function leadEventSource(leadId: string) {
   return (onEvent: (e: AgentEvent) => void) => {
     let lastSeq = 0;

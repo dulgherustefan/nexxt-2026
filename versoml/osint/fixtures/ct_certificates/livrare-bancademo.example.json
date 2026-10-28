@@ -1,0 +1,23 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: domeniu rezervat (RFC 2606), date inventate pentru demo; nu descrie un domeniu real.",
+  "source_url": "https://crt.sh/?q=livrare-bancademo.example",
+  "raw": {
+    "provider": "crt.sh",
+    "entries": [
+      {
+        "id": "DEMO-7991225897cc",
+        "issuer": "C=XX, O=CA Gratuit Demo, CN=Demo Free DV R1",
+        "issuer_org": "CA Gratuit Demo",
+        "names": [
+          "livrare-bancademo.example",
+          "www.livrare-bancademo.example"
+        ],
+        "not_before": "2026-10-28T05:00:00Z",
+        "not_after": "2027-01-26T05:00:00Z",
+        "logged_at": "2026-10-28T05:00:12Z",
+        "serial": "0d0025"
+      }
+    ]
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: domeniu rezervat (RFC 2606), date inventate pentru demo; nu descrie un domeniu real.",
+  "source_url": "https://rdap.org/domain/curierdemo.example",
+  "raw": {
+    "objectClassName": "domain",
+    "handle": "DEMO-CURIERDEMO.EXAMPLE",
+    "ldhName": "CURIERDEMO.EXAMPLE",
+    "status": [
+      "active"
+    ],
+    "events": [
+      {
+        "eventAction": "registration",
+        "eventDate": "2012-06-01T07:30:00Z"
+      },
+      {
+        "eventAction": "expiration",
+        "eventDate": "2030-06-01T07:30:00Z"
+      },
+      {
+        "eventAction": "last changed",
+        "eventDate": "2026-09-18T10:00:00Z"
+      }
+    ],
+    "entities": [
+      {
+        "objectClassName": "entity",
+        "handle": "REG-DEMO",
+        "roles": [
+          "registrar"
+        ],
+        "vcardArray": [
+          "vcard",
+          [
+            [
+              "version",
+              {},
+              "text",
+              "4.0"
+            ],
+            [
+              "fn",
+              {},
+              "text",
+              "Registrar Exemplu SA"
+            ]
+          ]
+        ],
+        "entities": [
+          {
+            "objectClassName": "entity",
+            "roles": [
+              "abuse"
+            ],
+            "vcardArray": [
+              "vcard",
+              [
+                [
+                  "version",
+                  {},
+                  "text",
+                  "4.0"
+                ],
+                [
+                  "fn",
+                  {},
+                  "text",
+                  "Echipa de abuz"
+                ],
+                [
+                  "email",
+                  {},
+                  "text",
+                  "abuz@registrar-exemplu.example"
+                ],
+                [
+                  "tel",
+                  {
+                    "type": "voice"
+                  },
+                  "uri",
+                  "tel:+40.700000999"
+                ]
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "objectClassName": "entity",
+        "roles": [
+          "registrant"
+        ],
+        "vcardArray": [
+          "vcard",
+          [
+            [
+              "version",
+              {},
+              "text",
+              "4.0"
+            ],
+            [
+              "fn",
+              {},
+              "text",
+              "Curier Demo S.A. (fictiv)"
+            ],
+            [
+              "org",
+              {},
+              "text",
+              "Curier Demo S.A. (fictiv)"
+            ]
+          ]
+        ]
+      }
+    ],
+    "nameservers": [
+      {
+        "objectClassName": "nameserver",
+        "ldhName": "NS1.CURIERDEMO.EXAMPLE"
+      },
+      {
+        "objectClassName": "nameserver",
+        "ldhName": "NS2.CURIERDEMO.EXAMPLE"
+      }
+    ]
+  }
+}

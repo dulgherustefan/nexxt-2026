@@ -1,0 +1,21 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: IP din rețelele de documentare (RFC 5737), ASN de documentare (RFC 5398).",
+  "source_url": "http://ip-api.com/json/203.0.113.77",
+  "raw": {
+    "provider": "ip-api",
+    "status": "success",
+    "country": "Țară demo",
+    "countryCode": "ZZ",
+    "regionName": "",
+    "city": "Oraș demo",
+    "isp": "VPS Demo Hosting",
+    "org": "VPS Demo Hosting",
+    "as": "AS64500 VPS-DEMO-HOSTING",
+    "asname": "VPS-DEMO-HOSTING",
+    "hosting": true,
+    "proxy": false,
+    "mobile": false,
+    "query": "203.0.113.77"
+  }
+}

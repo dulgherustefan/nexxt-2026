@@ -1,0 +1,16 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: pagină inventată pentru demo (brandurile Banca Demo și Curier Demo sunt fictive).",
+  "source_url": "https://confirmare-colet-demo.example/taxa",
+  "raw": {
+    "final_url": "https://confirmare-colet-demo.example/taxa",
+    "status": 200,
+    "content_type": "text/html; charset=utf-8",
+    "server": "nginx",
+    "redirects": [],
+    "truncated": false
+  },
+  "raw_files": {
+    "html": "confirmare-colet-demo.example.html"
+  }
+}

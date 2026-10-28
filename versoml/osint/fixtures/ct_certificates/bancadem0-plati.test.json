@@ -1,0 +1,23 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: domeniu rezervat (RFC 2606), date inventate pentru demo; nu descrie un domeniu real.",
+  "source_url": "https://crt.sh/?q=bancadem0-plati.test",
+  "raw": {
+    "provider": "crt.sh",
+    "entries": [
+      {
+        "id": "DEMO-685ccfe0cedc",
+        "issuer": "C=XX, O=CA Gratuit Demo, CN=Demo Free DV R1",
+        "issuer_org": "CA Gratuit Demo",
+        "names": [
+          "bancadem0-plati.test",
+          "www.bancadem0-plati.test"
+        ],
+        "not_before": "2026-10-26T11:30:00Z",
+        "not_after": "2027-01-24T11:30:00Z",
+        "logged_at": "2026-10-26T11:30:12Z",
+        "serial": "0d0020"
+      }
+    ]
+  }
+}

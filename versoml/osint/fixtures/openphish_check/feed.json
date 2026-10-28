@@ -1,0 +1,13 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: feed în formatul OpenPhish, doar domenii rezervate.",
+  "source_url": "https://openphish.com/feed.txt",
+  "raw": {
+    "urls": [
+      "https://bancadem0-plati.test/plata",
+      "https://confirmare-colet-demo.example/taxa",
+      "http://cont-blocat-demo.test/login",
+      "https://premiu-exemplu.example/castig"
+    ]
+  }
+}

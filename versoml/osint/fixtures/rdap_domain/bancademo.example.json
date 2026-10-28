@@ -1,0 +1,131 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: domeniu rezervat (RFC 2606), date inventate pentru demo; nu descrie un domeniu real.",
+  "source_url": "https://rdap.org/domain/bancademo.example",
+  "raw": {
+    "objectClassName": "domain",
+    "handle": "DEMO-BANCADEMO.EXAMPLE",
+    "ldhName": "BANCADEMO.EXAMPLE",
+    "status": [
+      "active"
+    ],
+    "events": [
+      {
+        "eventAction": "registration",
+        "eventDate": "2009-03-17T09:00:00Z"
+      },
+      {
+        "eventAction": "expiration",
+        "eventDate": "2027-03-17T09:00:00Z"
+      },
+      {
+        "eventAction": "last changed",
+        "eventDate": "2026-09-18T10:00:00Z"
+      }
+    ],
+    "entities": [
+      {
+        "objectClassName": "entity",
+        "handle": "REG-DEMO",
+        "roles": [
+          "registrar"
+        ],
+        "vcardArray": [
+          "vcard",
+          [
+            [
+              "version",
+              {},
+              "text",
+              "4.0"
+            ],
+            [
+              "fn",
+              {},
+              "text",
+              "Registrar Exemplu SA"
+            ]
+          ]
+        ],
+        "entities": [
+          {
+            "objectClassName": "entity",
+            "roles": [
+              "abuse"
+            ],
+            "vcardArray": [
+              "vcard",
+              [
+                [
+                  "version",
+                  {},
+                  "text",
+                  "4.0"
+                ],
+                [
+                  "fn",
+                  {},
+                  "text",
+                  "Echipa de abuz"
+                ],
+                [
+                  "email",
+                  {},
+                  "text",
+                  "abuz@registrar-exemplu.example"
+                ],
+                [
+                  "tel",
+                  {
+                    "type": "voice"
+                  },
+                  "uri",
+                  "tel:+40.700000999"
+                ]
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "objectClassName": "entity",
+        "roles": [
+          "registrant"
+        ],
+        "vcardArray": [
+          "vcard",
+          [
+            [
+              "version",
+              {},
+              "text",
+              "4.0"
+            ],
+            [
+              "fn",
+              {},
+              "text",
+              "Banca Demo S.A. (fictivă)"
+            ],
+            [
+              "org",
+              {},
+              "text",
+              "Banca Demo S.A. (fictivă)"
+            ]
+          ]
+        ]
+      }
+    ],
+    "nameservers": [
+      {
+        "objectClassName": "nameserver",
+        "ldhName": "NS1.BANCADEMO.EXAMPLE"
+      },
+      {
+        "objectClassName": "nameserver",
+        "ldhName": "NS2.BANCADEMO.EXAMPLE"
+      }
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "synthetic": true,
+  "match": [
+    "bancademo.example"
+  ],
+  "note": "SINTETIC: publicații și forumuri inventate (.example/.test).",
+  "raw": {
+    "provider": "fixture",
+    "results": [
+      {
+        "title": "Banca Demo lansează o aplicație nouă",
+        "url": "https://stiri-demo.example/banca-demo-aplicatie",
+        "snippet": "Banca fictivă Banca Demo a prezentat noua aplicație mobilă.",
+        "source": "stiri-demo.example",
+        "date": "2026-10-01",
+        "provider": "fixture"
+      }
+    ]
+  }
+}

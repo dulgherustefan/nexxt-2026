@@ -1,0 +1,29 @@
+{
+  "synthetic": true,
+  "match": [
+    "40700000222",
+    "0700000222"
+  ],
+  "note": "SINTETIC: forumuri și site-uri inventate (.example/.test).",
+  "raw": {
+    "provider": "fixture",
+    "results": [
+      {
+        "title": "Atenție: 0700 000 222 se dă drept Banca Demo",
+        "url": "https://forum-demo.example/t/0700000222",
+        "snippet": "Mi-au spus că am contul blocat și să mut banii într-un „cont sigur”. Escrocherie clasică, am sunat la bancă.",
+        "source": "forum-demo.example",
+        "date": "2026-10-26",
+        "provider": "fixture"
+      },
+      {
+        "title": "0700 000 222 – vishing raportat",
+        "url": "https://numere-raportate-demo.test/40700000222",
+        "snippet": "Apeluri de tip vishing: «departamentul de securitate» cere instalarea unei aplicații. Raportat la poliția.",
+        "source": "numere-raportate-demo.test",
+        "date": "2026-10-27",
+        "provider": "fixture"
+      }
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "synthetic": true,
+  "match": [
+    "40700000100",
+    "0700000100"
+  ],
+  "note": "SINTETIC: linia oficială (fictivă) a Băncii Demo, ca reper legitim.",
+  "raw": {
+    "provider": "fixture",
+    "results": [
+      {
+        "title": "Contact Banca Demo",
+        "url": "https://bancademo.example/contact",
+        "snippet": "Linia Băncii Demo: 0700 000 100, de luni până vineri (număr fictiv).",
+        "source": "bancademo.example",
+        "date": "2026-09-01",
+        "provider": "fixture"
+      },
+      {
+        "title": "Banca Demo: cum recunoști un apel fals",
+        "url": "https://bancademo.example/siguranta",
+        "snippet": "Te sunăm doar de pe 0700 000 100 și nu îți cerem niciodată coduri.",
+        "source": "bancademo.example",
+        "date": "2026-10-01",
+        "provider": "fixture"
+      }
+    ]
+  }
+}

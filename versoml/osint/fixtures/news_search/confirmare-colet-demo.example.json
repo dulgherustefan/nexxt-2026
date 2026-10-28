@@ -1,0 +1,28 @@
+{
+  "synthetic": true,
+  "match": [
+    "confirmare-colet-demo.example"
+  ],
+  "note": "SINTETIC: publicații și forumuri inventate (.example/.test).",
+  "raw": {
+    "provider": "fixture",
+    "results": [
+      {
+        "title": "SMS fals de la „Curier Demo” cu link spre confirmare-colet-demo.example",
+        "url": "https://forum-demo.example/t/colet-demo",
+        "snippet": "Smishing: «taxă de livrare 4,99 lei». Nu plătiți, e fraudă.",
+        "source": "forum-demo.example",
+        "date": "2026-10-27",
+        "provider": "fixture"
+      },
+      {
+        "title": "Alertă phishing: confirmare-colet-demo.example",
+        "url": "https://stiri-demo.example/alerta-colet",
+        "snippet": "Specialiștii avertizează asupra unei campanii de phishing cu colete; domeniul confirmare-colet-demo.example colectează date de card.",
+        "source": "stiri-demo.example",
+        "date": "2026-10-28",
+        "provider": "fixture"
+      }
+    ]
+  }
+}

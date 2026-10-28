@@ -1,0 +1,11 @@
+{
+  "synthetic": true,
+  "match": [
+    "cryptox exchange"
+  ],
+  "note": "SINTETIC: exchange-ul crypto fictiv din scenariul inel_carausi; nicio mențiune publică.",
+  "raw": {
+    "provider": "fixture",
+    "results": []
+  }
+}

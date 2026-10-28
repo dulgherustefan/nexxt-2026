@@ -1,0 +1,20 @@
+{
+  "synthetic": true,
+  "match": [
+    "curierdemo.example"
+  ],
+  "note": "SINTETIC: publicații și forumuri inventate (.example/.test).",
+  "raw": {
+    "provider": "fixture",
+    "results": [
+      {
+        "title": "Curier Demo deschide un depozit nou",
+        "url": "https://stiri-demo.example/curier-demo-depozit",
+        "snippet": "Curierul fictiv Curier Demo își extinde rețeaua.",
+        "source": "stiri-demo.example",
+        "date": "2026-09-15",
+        "provider": "fixture"
+      }
+    ]
+  }
+}

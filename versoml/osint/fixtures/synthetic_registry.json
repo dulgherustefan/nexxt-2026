@@ -1,0 +1,41 @@
+{
+  "synthetic": true,
+  "note": "Entitățile sintetice ale demo-ului (aliniate cu versoml/data): nu se trimit niciodată la surse reale.",
+  "companies": [
+    "EXPRES LIVRARE DEMO SRL",
+    "CURIER DEMO SA",
+    "BANCA DEMO SA",
+    "TRANZIT RAPID DEMO SRL",
+    "CASA DE SCHIMB EXEMPLU SRL"
+  ],
+  "cuis": [
+    "44712025",
+    "9000000100",
+    "9000000208",
+    "9000000305"
+  ],
+  "phones": [
+    "+40700000000",
+    "+40700000111",
+    "+40700000222",
+    "+40700000999"
+  ],
+  "bank_codes": [
+    "BDEM",
+    "XBNK",
+    "YBNK",
+    "ZBNK"
+  ],
+  "domains": [
+    "bancademo.example",
+    "curierdemo.example",
+    "livrare-bancademo.example",
+    "bancadem0-plati.test",
+    "confirmare-colet-demo.example",
+    "securitate-bancademo.test"
+  ],
+  "ibans": [
+    "RO61BDEM1777286093723598",
+    "RO65ZBNK9000000000777000"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: domeniu rezervat (RFC 2606), date inventate pentru demo; nu descrie un domeniu real.",
+  "source_url": "https://crt.sh/?q=curierdemo.example",
+  "raw": {
+    "provider": "crt.sh",
+    "entries": [
+      {
+        "id": "DEMO-3e73eb3ff903",
+        "issuer": "C=RO, O=CA Demo Comercial SA, CN=CA Demo OV G2",
+        "issuer_org": "CA Demo Comercial SA",
+        "names": [
+          "curierdemo.example",
+          "www.curierdemo.example"
+        ],
+        "not_before": "2016-09-12T08:00:00Z",
+        "not_after": "2017-09-12T08:00:00Z",
+        "logged_at": "2016-09-12T08:00:12Z",
+        "serial": "0d0018"
+      },
+      {
+        "id": "DEMO-661db9c8ead8",
+        "issuer": "C=RO, O=CA Demo Comercial SA, CN=CA Demo OV G3",
+        "issuer_org": "CA Demo Comercial SA",
+        "names": [
+          "curierdemo.example",
+          "www.curierdemo.example"
+        ],
+        "not_before": "2025-09-12T08:00:00Z",
+        "not_after": "2026-09-12T08:00:00Z",
+        "logged_at": "2025-09-12T08:00:12Z",
+        "serial": "0d0118"
+      }
+    ]
+  }
+}

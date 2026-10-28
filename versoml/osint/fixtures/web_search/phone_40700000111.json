@@ -1,0 +1,37 @@
+{
+  "synthetic": true,
+  "match": [
+    "40700000111",
+    "0700000111"
+  ],
+  "note": "SINTETIC: forumuri și site-uri inventate (.example/.test).",
+  "raw": {
+    "provider": "fixture",
+    "results": [
+      {
+        "title": "0700 000 111 – m-a sunat „Banca Demo”, departamentul de securitate",
+        "url": "https://forum-demo.example/t/0700000111",
+        "snippet": "Un domn de la «securitate Banca Demo» mi-a cerut codul primit prin SMS de pe 0700 000 111. E țeapă, nu dați codul!",
+        "source": "forum-demo.example",
+        "date": "2026-10-27",
+        "provider": "fixture"
+      },
+      {
+        "title": "Număr raportat: +40 700 000 111 (înșelăciune)",
+        "url": "https://numere-raportate-demo.test/40700000111",
+        "snippet": "Raportat de 14 utilizatori: apeluri care cer datele cardului pentru „livrarea coletului”. Fraudă.",
+        "source": "numere-raportate-demo.test",
+        "date": "2026-10-28",
+        "provider": "fixture"
+      },
+      {
+        "title": "Ce faci dacă primești un SMS de la un curier",
+        "url": "https://sfaturi-demo.example/sms-curier",
+        "snippet": "Ghid general despre mesajele de la curieri, fără referire la un număr anume.",
+        "source": "sfaturi-demo.example",
+        "date": "2026-09-10",
+        "provider": "fixture"
+      }
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "synthetic": true,
+  "match": [
+    "livrare-bancademo.example"
+  ],
+  "note": "SINTETIC: domeniu înregistrat acum 6 ore; încă nimic indexat.",
+  "raw": {
+    "provider": "fixture",
+    "results": []
+  }
+}

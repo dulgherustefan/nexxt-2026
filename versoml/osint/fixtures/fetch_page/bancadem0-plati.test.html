@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<!-- SINTETIC: pagină falsă „plăți Banca Demo" pe un domeniu cu 0 în loc de o. -->
+<title>Banca Demo · Confirmare plată</title>
+<style>
+  body { margin: 0; background: #ffe600; color: #111111; font-family: Arial, sans-serif; }
+  header { background: #111111; color: #ffe600; padding: 16px 28px; font-size: 26px; font-weight: 800; }
+  main { max-width: 420px; margin: 40px auto; background: #ffffff; border: 4px solid #111111; padding: 28px; }
+  button { background: #111111; color: #ffe600; width: 100%; padding: 12px; border: 0; }
+</style>
+</head>
+<body>
+<div>DEMO · pagină falsă, sintetică</div>
+<header>Banca Demo</header>
+<main>
+  <h1>Confirmă plata</h1>
+  <p>Pentru siguranța contului, confirmă plata în așteptare. Contul tău va fi blocat dacă nu confirmi urgent.</p>
+  <form action="/trimite" method="post">
+    <label for="card">Numărul cardului</label>
+    <input id="card" name="numar_card" type="text" placeholder="Număr card" autocomplete="cc-number">
+    <label for="exp">Valabil până la</label>
+    <input id="exp" name="valabilitate" type="text" placeholder="LL/AA">
+    <label for="cvc">Cod de securitate</label>
+    <input id="cvc" name="cvc" type="password" placeholder="CVC">
+    <button type="submit">Confirmă plata</button>
+  </form>
+</main>
+</body>
+</html>

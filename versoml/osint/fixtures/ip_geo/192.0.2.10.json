@@ -1,0 +1,21 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: IP din rețelele de documentare (RFC 5737), ASN de documentare (RFC 5398).",
+  "source_url": "http://ip-api.com/json/192.0.2.10",
+  "raw": {
+    "provider": "ip-api",
+    "status": "success",
+    "country": "Romania",
+    "countryCode": "RO",
+    "regionName": "",
+    "city": "București",
+    "isp": "Banca Demo SA",
+    "org": "Banca Demo SA",
+    "as": "AS64496 BANCA-DEMO",
+    "asname": "BANCA-DEMO",
+    "hosting": false,
+    "proxy": false,
+    "mobile": false,
+    "query": "192.0.2.10"
+  }
+}

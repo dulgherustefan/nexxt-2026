@@ -1,0 +1,23 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: domeniu rezervat (RFC 2606), date inventate pentru demo; nu descrie un domeniu real.",
+  "source_url": "https://crt.sh/?q=confirmare-colet-demo.example",
+  "raw": {
+    "provider": "crt.sh",
+    "entries": [
+      {
+        "id": "DEMO-4b32268d0435",
+        "issuer": "C=XX, O=CA Gratuit Demo, CN=Demo Free DV R1",
+        "issuer_org": "CA Gratuit Demo",
+        "names": [
+          "confirmare-colet-demo.example",
+          "www.confirmare-colet-demo.example"
+        ],
+        "not_before": "2026-10-27T10:20:00Z",
+        "not_after": "2027-01-25T10:20:00Z",
+        "logged_at": "2026-10-27T10:20:12Z",
+        "serial": "0d0029"
+      }
+    ]
+  }
+}

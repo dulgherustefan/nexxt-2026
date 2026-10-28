@@ -1,0 +1,20 @@
+{
+  "synthetic": true,
+  "match": [
+    "bancadem0-plati.test"
+  ],
+  "note": "SINTETIC: publicații și forumuri inventate (.example/.test).",
+  "raw": {
+    "provider": "fixture",
+    "results": [
+      {
+        "title": "Pagină falsă „plăți Banca Demo” (bancadem0-plati.test)",
+        "url": "https://forum-demo.example/t/bancadem0-plati",
+        "snippet": "Atenție, phishing: domeniul bancadem0-plati.test cere datele cardului. Raportat la DNSC.",
+        "source": "forum-demo.example",
+        "date": "2026-10-27",
+        "provider": "fixture"
+      }
+    ]
+  }
+}

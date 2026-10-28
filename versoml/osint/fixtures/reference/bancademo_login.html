@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- SINTETIC: pagina de autentificare a băncii fictive „Banca Demo" (referința pentru M4). -->
+<title>Banca Demo · Autentificare</title>
+<style>
+  :root { --galben: #ffe600; --negru: #111111; --alb: #ffffff; --gri: #6b6b6b; }
+  body { margin: 0; background: #ffe600; color: #111111; font-family: Arial, Helvetica, sans-serif; }
+  .demo { background: #111111; color: #ffe600; text-align: center; font-size: 12px; padding: 4px; }
+  header { background: #111111; color: #ffe600; padding: 18px 32px; display: flex; justify-content: space-between; }
+  .logo { font-size: 28px; font-weight: 800; letter-spacing: 1px; }
+  nav a { color: #ffffff; margin-left: 18px; text-decoration: none; }
+  main { max-width: 440px; margin: 48px auto; background: #ffffff; border: 4px solid #111111; padding: 32px; }
+  label { display: block; font-weight: 700; margin-top: 16px; }
+  input { width: 100%; padding: 12px; border: 2px solid #111111; font-size: 16px; }
+  button { margin-top: 24px; width: 100%; padding: 14px; background: #111111; color: #ffe600; border: 0; font-size: 18px; font-weight: 700; }
+  .nota { font-size: 13px; color: #6b6b6b; }
+  footer { text-align: center; font-size: 12px; padding: 24px; }
+</style>
+</head>
+<body>
+<div class="demo">DEMO · Banca Demo este o bancă fictivă, folosită doar în demonstrații.</div>
+<header>
+  <span class="logo">Banca Demo</span>
+  <nav><a href="/persoane-fizice">Persoane fizice</a><a href="/firme">Firme</a><a href="/contact">Contact</a></nav>
+</header>
+<main>
+  <h1>Autentificare în Banca Demo Online</h1>
+  <p>Introdu numele de utilizator și parola ca să intri în contul tău.</p>
+  <form id="autentificare" action="/autentificare" method="post">
+    <label for="utilizator">Nume de utilizator</label>
+    <input id="utilizator" name="username" type="text" placeholder="Nume de utilizator" autocomplete="username">
+    <label for="parola">Parola</label>
+    <input id="parola" name="password" type="password" placeholder="Parola" autocomplete="current-password">
+    <button type="submit">Autentificare</button>
+  </form>
+  <p><a href="/recuperare">Ai uitat parola?</a></p>
+  <p class="nota">Banca Demo nu îți cere niciodată prin SMS, e-mail sau telefon datele cardului, codul CVV sau codurile primite prin SMS.</p>
+</main>
+<footer>© 2026 Banca Demo S.A. (fictivă) · Termeni și condiții · Confidențialitate · Asistență: 0700 000 000</footer>
+</body>
+</html>

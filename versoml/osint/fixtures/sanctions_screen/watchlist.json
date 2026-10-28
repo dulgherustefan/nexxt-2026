@@ -1,0 +1,55 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: listă de sancțiuni inventată pentru teste; nicio entitate reală.",
+  "entities": [
+    {
+      "id": "SIN-001",
+      "name": "ALFA EXEMPLU TRADING LTD",
+      "aliases": [
+        "ALFA EXEMPLU TRADING"
+      ],
+      "schema": "Company",
+      "program": "LISTA-SINTETICA-1",
+      "countries": "zz"
+    },
+    {
+      "id": "SIN-002",
+      "name": "IVAN EXEMPLUOV",
+      "aliases": [
+        "I. EXEMPLUOV",
+        "IVAN EXEMPLUOV DEMO"
+      ],
+      "schema": "Person",
+      "program": "LISTA-SINTETICA-1",
+      "countries": "zz"
+    },
+    {
+      "id": "SIN-003",
+      "name": "OMEGA FICTIV HOLDING SA",
+      "aliases": [
+        "OMEGA FICTIV"
+      ],
+      "schema": "Company",
+      "program": "LISTA-SINTETICA-2",
+      "countries": "zz"
+    },
+    {
+      "id": "SIN-004",
+      "name": "CRIPTO SCHIMB DEMO SRL",
+      "aliases": [
+        "CRYPTO SCHIMB DEMO"
+      ],
+      "schema": "Company",
+      "program": "LISTA-SINTETICA-2",
+      "countries": "zz"
+    },
+    {
+      "id": "SIN-005",
+      "name": "DELTA TRANZIT SINTETIC SRL",
+      "aliases": [],
+      "schema": "Company",
+      "program": "LISTA-SINTETICA-3",
+      "countries": "zz"
+    }
+  ]
+}

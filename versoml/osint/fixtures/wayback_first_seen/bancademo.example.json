@@ -1,0 +1,20 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: domeniu rezervat (RFC 2606), date inventate pentru demo; nu descrie un domeniu real.",
+  "source_url": "https://web.archive.org/cdx/search/cdx",
+  "raw": {
+    "provider": "cdx",
+    "rows": [
+      [
+        "timestamp",
+        "original",
+        "statuscode"
+      ],
+      [
+        "20100502101500",
+        "http://bancademo.example:80/",
+        "200"
+      ]
+    ]
+  }
+}

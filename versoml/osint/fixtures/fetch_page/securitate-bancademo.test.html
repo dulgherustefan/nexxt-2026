@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<!-- SINTETIC: pagină falsă „departamentul de securitate" folosită în scenariul de vishing. -->
+<title>Banca Demo · Departamentul de securitate</title>
+<style>
+  body { background: #111111; color: #ffe600; font-family: Arial, sans-serif; }
+  main { max-width: 480px; margin: 40px auto; background: #ffffff; color: #111111; padding: 28px; }
+</style>
+</head>
+<body>
+<p>DEMO · pagină falsă, sintetică</p>
+<main>
+  <h1>Banca Demo · Securitate</h1>
+  <p>Contul tău a fost blocat temporar din motive de securitate. Pentru deblocare urgentă, sună acum la 0700 000 222 sau introdu codul primit prin SMS.</p>
+  <form action="/deblocare" method="post">
+    <label for="client">Cod client</label>
+    <input id="client" name="client_id" type="text">
+    <label for="otp">Codul primit prin SMS</label>
+    <input id="otp" name="otp" type="text" autocomplete="one-time-code">
+    <button type="submit">Deblochează contul</button>
+  </form>
+</main>
+</body>
+</html>

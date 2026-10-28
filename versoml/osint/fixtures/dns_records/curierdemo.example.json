@@ -1,0 +1,74 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: domeniu rezervat (RFC 2606), date inventate pentru demo; nu descrie un domeniu real.",
+  "source_url": "https://cloudflare-dns.com/dns-query",
+  "raw": {
+    "provider": "fixture",
+    "answers": {
+      "A": {
+        "Status": 0,
+        "Answer": [
+          {
+            "name": "curierdemo.example.",
+            "type": 1,
+            "TTL": 300,
+            "data": "192.0.2.20"
+          }
+        ]
+      },
+      "AAAA": {
+        "Status": 0
+      },
+      "MX": {
+        "Status": 0,
+        "Answer": [
+          {
+            "name": "curierdemo.example.",
+            "type": 15,
+            "TTL": 300,
+            "data": "10 mx1.curierdemo.example."
+          }
+        ]
+      },
+      "NS": {
+        "Status": 0,
+        "Answer": [
+          {
+            "name": "curierdemo.example.",
+            "type": 2,
+            "TTL": 300,
+            "data": "ns1.curierdemo.example."
+          },
+          {
+            "name": "curierdemo.example.",
+            "type": 2,
+            "TTL": 300,
+            "data": "ns2.curierdemo.example."
+          }
+        ]
+      },
+      "TXT": {
+        "Status": 0,
+        "Answer": [
+          {
+            "name": "curierdemo.example.",
+            "type": 16,
+            "TTL": 300,
+            "data": "\"v=spf1 mx -all\""
+          }
+        ]
+      },
+      "DMARC": {
+        "Status": 0,
+        "Answer": [
+          {
+            "name": "curierdemo.example.",
+            "type": 16,
+            "TTL": 300,
+            "data": "\"v=DMARC1; p=quarantine; rua=mailto:dmarc@curierdemo.example\""
+          }
+        ]
+      }
+    }
+  }
+}

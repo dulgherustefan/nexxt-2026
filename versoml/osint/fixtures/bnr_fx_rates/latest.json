@@ -1,0 +1,11 @@
+{
+  "synthetic": false,
+  "note": "Instantaneu public al cursurilor BNR din 28.10.2026, folosit ca înregistrare locală.",
+  "source_url": "https://curs.bnr.ro/nbrfxrates.xml",
+  "raw": {
+    "provider": "bnr"
+  },
+  "raw_files": {
+    "xml": "nbrfxrates_2026-10-28.xml"
+  }
+}

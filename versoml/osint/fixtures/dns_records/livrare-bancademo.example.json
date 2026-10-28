@@ -1,0 +1,50 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: domeniu rezervat (RFC 2606), date inventate pentru demo; nu descrie un domeniu real.",
+  "source_url": "https://cloudflare-dns.com/dns-query",
+  "raw": {
+    "provider": "fixture",
+    "answers": {
+      "A": {
+        "Status": 0,
+        "Answer": [
+          {
+            "name": "livrare-bancademo.example.",
+            "type": 1,
+            "TTL": 300,
+            "data": "203.0.113.45"
+          }
+        ]
+      },
+      "AAAA": {
+        "Status": 0
+      },
+      "MX": {
+        "Status": 0
+      },
+      "NS": {
+        "Status": 0,
+        "Answer": [
+          {
+            "name": "livrare-bancademo.example.",
+            "type": 2,
+            "TTL": 300,
+            "data": "ns1.vps-demo-hosting.example."
+          },
+          {
+            "name": "livrare-bancademo.example.",
+            "type": 2,
+            "TTL": 300,
+            "data": "ns2.vps-demo-hosting.example."
+          }
+        ]
+      },
+      "TXT": {
+        "Status": 0
+      },
+      "DMARC": {
+        "Status": 0
+      }
+    }
+  }
+}

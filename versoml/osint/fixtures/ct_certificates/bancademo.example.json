@@ -1,0 +1,49 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: domeniu rezervat (RFC 2606), date inventate pentru demo; nu descrie un domeniu real.",
+  "source_url": "https://crt.sh/?q=bancademo.example",
+  "raw": {
+    "provider": "crt.sh",
+    "entries": [
+      {
+        "id": "DEMO-0391a12bf613",
+        "issuer": "C=RO, O=CA Demo Comercial SA, CN=CA Demo OV G2",
+        "issuer_org": "CA Demo Comercial SA",
+        "names": [
+          "bancademo.example",
+          "www.bancademo.example"
+        ],
+        "not_before": "2015-04-01T08:00:00Z",
+        "not_after": "2016-03-31T08:00:00Z",
+        "logged_at": "2015-04-01T08:00:12Z",
+        "serial": "0d0017"
+      },
+      {
+        "id": "DEMO-d8f64d655ed8",
+        "issuer": "C=RO, O=CA Demo Comercial SA, CN=CA Demo OV G2",
+        "issuer_org": "CA Demo Comercial SA",
+        "names": [
+          "bancademo.example",
+          "www.bancademo.example"
+        ],
+        "not_before": "2020-04-01T08:00:00Z",
+        "not_after": "2021-04-01T08:00:00Z",
+        "logged_at": "2020-04-01T08:00:12Z",
+        "serial": "0d0117"
+      },
+      {
+        "id": "DEMO-3de0bfe65797",
+        "issuer": "C=RO, O=CA Demo Comercial SA, CN=CA Demo OV G3",
+        "issuer_org": "CA Demo Comercial SA",
+        "names": [
+          "bancademo.example",
+          "www.bancademo.example"
+        ],
+        "not_before": "2026-04-01T08:00:00Z",
+        "not_after": "2027-04-01T08:00:00Z",
+        "logged_at": "2026-04-01T08:00:12Z",
+        "serial": "0d0217"
+      }
+    ]
+  }
+}

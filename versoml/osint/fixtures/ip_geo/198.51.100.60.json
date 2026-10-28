@@ -1,0 +1,21 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: IP din rețelele de documentare (RFC 5737), ASN de documentare (RFC 5398).",
+  "source_url": "http://ip-api.com/json/198.51.100.60",
+  "raw": {
+    "provider": "ip-api",
+    "status": "success",
+    "country": "Țară demo",
+    "countryCode": "ZZ",
+    "regionName": "",
+    "city": "Oraș demo",
+    "isp": "Cloud Exemplu",
+    "org": "Cloud Exemplu",
+    "as": "AS64501 CLOUD-EXEMPLU",
+    "asname": "CLOUD-EXEMPLU",
+    "hosting": true,
+    "proxy": false,
+    "mobile": false,
+    "query": "198.51.100.60"
+  }
+}

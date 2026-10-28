@@ -1,0 +1,68 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: CUI cu cifră de control validă, care nu există la ANAF (verificat 28.10.2026).",
+  "source_url": "https://webservicesp.anaf.ro/api/PlatitorTvaRest/v9/tva",
+  "raw": {
+    "found": [
+      {
+        "date_generale": {
+          "data": "2026-10-28",
+          "cui": 9000000100,
+          "denumire": "CURIER DEMO SA",
+          "adresa": "MUN. BUCUREȘTI, SECTOR 1, STR. EXEMPLULUI, NR. 1",
+          "telefon": "",
+          "fax": "",
+          "codPostal": "",
+          "act": "",
+          "stare_inregistrare": "INREGISTRAT din data 11.02.2008",
+          "data_inreg_Reg_RO_e_Factura": "",
+          "organFiscalCompetent": "Administrația Fiscală Demo",
+          "forma_de_proprietate": "PROPR.PRIVATĂ",
+          "forma_organizare": "PERSOANĂ JURIDICĂ",
+          "forma_juridica": "SOCIETATE PE ACȚIUNI",
+          "statusRO_e_Factura": true,
+          "data_inregistrare": "2008-02-11",
+          "nrRegCom": "J40/0100/2008",
+          "cod_CAEN": "5229",
+          "iban": ""
+        },
+        "inregistrare_scop_Tva": {
+          "scpTVA": true,
+          "perioade_TVA": []
+        },
+        "inregistrare_RTVAI": {
+          "dataInceputTvaInc": "",
+          "dataSfarsitTvaInc": "",
+          "statusTvaIncasare": false
+        },
+        "stare_inactiv": {
+          "dataInactivare": "",
+          "dataReactivare": "",
+          "dataPublicare": "",
+          "dataRadiere": "",
+          "statusInactivi": false
+        },
+        "inregistrare_SplitTVA": {
+          "dataInceputSplitTVA": "",
+          "dataAnulareSplitTVA": "",
+          "statusSplitTVA": false
+        },
+        "adresa_sediu_social": {
+          "sdenumire_Localitate": "Sector 1",
+          "sdenumire_Strada": "Str. Exemplului",
+          "snumar_Strada": "1",
+          "sdenumire_Judet": "BUCUREȘTI",
+          "scod_Postal": ""
+        },
+        "adresa_domiciliu_fiscal": {
+          "ddenumire_Localitate": "Sector 1",
+          "ddenumire_Strada": "Str. Exemplului",
+          "dnumar_Strada": "1",
+          "ddenumire_Judet": "BUCUREȘTI",
+          "dcod_Postal": ""
+        }
+      }
+    ],
+    "notFound": []
+  }
+}

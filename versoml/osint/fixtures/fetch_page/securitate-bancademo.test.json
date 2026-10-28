@@ -1,0 +1,16 @@
+{
+  "synthetic": true,
+  "note": "SINTETIC: pagină inventată pentru demo (brandurile Banca Demo și Curier Demo sunt fictive).",
+  "source_url": "https://securitate-bancademo.test/deblocare",
+  "raw": {
+    "final_url": "https://securitate-bancademo.test/deblocare",
+    "status": 200,
+    "content_type": "text/html; charset=utf-8",
+    "server": "nginx",
+    "redirects": [],
+    "truncated": false
+  },
+  "raw_files": {
+    "html": "securitate-bancademo.test.html"
+  }
+}

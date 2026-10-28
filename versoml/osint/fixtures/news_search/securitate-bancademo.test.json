@@ -1,0 +1,20 @@
+{
+  "synthetic": true,
+  "match": [
+    "securitate-bancademo.test"
+  ],
+  "note": "SINTETIC: publicații și forumuri inventate (.example/.test).",
+  "raw": {
+    "provider": "fixture",
+    "results": [
+      {
+        "title": "„Departamentul de securitate Banca Demo” – site fals",
+        "url": "https://forum-demo.example/t/securitate-bancademo",
+        "snippet": "Site-ul securitate-bancademo.test cere codul primit prin SMS. Vishing + phishing, raportat.",
+        "source": "forum-demo.example",
+        "date": "2026-10-26",
+        "provider": "fixture"
+      }
+    ]
+  }
+}

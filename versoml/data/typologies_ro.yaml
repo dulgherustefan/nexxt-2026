@@ -1,0 +1,1205 @@
+# Romanian payment-fraud and dispute typologies (2023-2026), sourced. Input for the synthetic-data generator.
+# Conventions:
+#   confidence P = the core mechanism is described in an official text that was opened and read (Police, DNSC communiqué,
+#                  BNR, CSALB, the Police/DNSC/ARB platform sigurantaonline.ro, Raiffeisen Bank, EBA/ECB, Europol, Visa).
+#   confidence S = main details come from press reports of official alerts or from other secondary sources, or the official
+#                  text supports the mechanism only thinly and no Romanian evidence exists.
+#   confidence U = unverified; kept because the project needs the scenario.
+#   sources[].date = publication month; for undated pages it is the retrieval month (2026-10).
+#   typical_amount_ron = range of RON loss or loan amounts in the documented cases, not a population statistic. The key is
+#                  omitted when the sources give no RON amounts or only one.
+#   bank_signals = observable consequences of the documented mechanism. No public source publishes bank log fields; each
+#                  typology's notes say which signals are stated by a source and which are inferences.
+#   complaint cues are composed from the narratives in the sources, not copied from real customer complaints.
+#   examples_public are names as they appear in public alerts, for context only (the generator never uses them).
+version: 1
+updated: "2026-10-28"
+typologies:
+  - id: courier_sms_link
+    name: "Fake courier SMS with a payment link"
+    name_ro: "SMS fals de la curier cu link de plată"
+    family: smishing
+    psd2_class: unauthorized
+    channels: [transfer, card]
+    maps_to_scenario: phishing_link
+    story: "The customer receives an SMS (sometimes a WhatsApp message) in the name of a courier or the postal service saying a parcel could not be delivered and a small fee must be paid; a DNSC alert from May 2026 cites a 3.57 lei fee to reschedule delivery, in the name of DHL, and an alert from January 2025 had the fake page ask for the fee to be paid through Revolut. The link opens a near-perfect copy of the courier site on a different domain, which asks for the full card details and then for the one-time code the bank sends by SMS. The attacker is online while the victim types: the card data is submitted to a merchant, the bank's code reaches the victim, the code typed on the fake page is used at once, and if it expires the page asks for another one. The customer thinks they paid a few lei and later finds an unknown card payment, or a transfer when the lure is turned into a fake bank login."
+    steps:
+      - "Customer receives an unsolicited SMS in the name of a courier or the post: delivery failed, pay a small fee or confirm the address."
+      - "The link opens a lookalike page whose domain is not the courier's; the form looks professional."
+      - "The page asks for the full card number, expiry, CVV and then the SMS one-time code from the bank."
+      - "The attacker, connected in real time, runs a payment with those data and relays the code the victim types; if the code expires the page requests a new one."
+      - "The payment goes through at a merchant the customer does not know; the customer notices a bank SMS or notification and calls the bank, usually minutes to hours later."
+    impersonated: ["courier companies", "national postal service"]
+    examples_public: ["DHL", "Revolut"]
+    complaint_cues_en:
+      - "I got an SMS saying my parcel could not be delivered and I had to pay a small fee."
+      - "I never ordered any parcel."
+      - "I clicked the link and typed in my card details and the code I received by SMS."
+      - "The page looked exactly like the courier's website."
+      - "A few minutes later there was a card payment I did not make."
+      - "The site asked me for the SMS code twice."
+      - "The payment is at a foreign website I have never used."
+      - "I only wanted to pay a delivery fee of a few lei."
+      - "I blocked the card straight away but the money had already left."
+    complaint_cues_ro:
+      - "Am primit un SMS că nu mi-a putut fi livrat coletul și că trebuie să plătesc o taxă mică."
+      - "Nu am comandat niciun colet."
+      - "Am dat click pe link și am introdus datele cardului și codul primit prin SMS."
+      - "Pagina arăta exact ca site-ul curierului."
+      - "După câteva minute a apărut o plată cu cardul pe care nu am făcut-o."
+      - "Site-ul mi-a cerut codul din SMS de două ori."
+      - "Plata e la un site din străinătate pe care nu l-am folosit niciodată."
+      - "am primit sms de la curier cu un link, am pus datele cardului si dupa cateva minute mi-au disparut banii"
+      - "Am blocat cardul imediat, dar banii plecaseră deja."
+    bank_signals:
+      - "Several 3-D Secure SMS OTP challenges for the same card within minutes (the fake page asks for a new code when the first one expires)."
+      - "Card-not-present authorisation completed seconds after the OTP was entered, with the OTP delivered to the customer's own registered phone."
+      - "Payment authenticated with an SMS OTP at a merchant the customer has never used, so it looks customer-authenticated (ECI 05, CAVV present)."
+      - "Merchant outside Romania or the EEA whose descriptor has nothing to do with a courier or the post."
+      - "No banking-app login around the time of the payment (card flow only), unlike the credential-theft variant."
+      - "Payment still pending or unsettled when the customer reports it, typically minutes to hours after the click."
+    prevalence: "DNSC, first half of 2026: vishing 42%, phishing 14%, SMS fraud (smishing) 13% of reported incidents. DNSC 2025 report: 4,975 phishing incidents (+70.6%); banking, postal/courier and financial market infrastructure sectors 3,326 incidents (88.23% of reports)."
+    sources:
+      - {title: "Tentativă de fraudă online care folosește imaginea unei companii de curierat. DNSC avertizează: nu accesați acele linkuri", publisher: "Capital.ro (reporting a DNSC alert)", url: "https://www.capital.ro/tentativa-de-frauda-online-care-foloseste-imaginea-unei-companii-de-curierat-dnsc-avertizeaza-nu-accesati-acele-linkuri.html", date: "2026-05", confidence: S}
+      - {title: "DNSC avertizează că încă se desfășoară o campanie de fraudă prin folosirea identității unor companii de curierat", publisher: "Digi24 (reporting a DNSC alert)", url: "https://www.digi24.ro/stiri/actualitate/dnsc-avertizeaza-ca-inca-se-desfasoara-o-campanie-de-frauda-prin-folosirea-identitatii-unor-companii-de-curierat-cum-va-puteti-proteja-3074593", date: "2025-01", confidence: S}
+      - {title: "Emotional Manipulation, Increasingly Used in Fraud Attempts Targeting Romanians' Bank Accounts", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/emotional-manipulation-increasingly-used-in-fraud-attempts-targeting-romanians-bank-accounts/", date: "2025-05", confidence: P}
+      - {title: "Raport asupra stabilității financiare, decembrie 2025", publisher: "Banca Națională a României", url: "https://www.bnr.ro/uploads/2025-12-09raportasuprastabilit%C4%83%C8%9Biifinanciare-decembrie2025_documentpdf_545_1765290572.pdf", date: "2025-12", confidence: P}
+      - {title: "Comunicat de presă – Directoratul Național de Securitate Cibernetică (ING SAFE Talks, 14.07.2026)", publisher: "AGERPRES (DNSC communiqué)", url: "https://agerpres.ro/comunicate/2026/07/15/comunicat-de-presa---directoratul-national-de-securitate-cibernetica--1576291", date: "2026-07", confidence: P}
+      - {title: "Atacurile cibernetice s-au înmulțit în 2025. DNSC: Incidentele de compromitere a conturilor au crescut cu 353%", publisher: "Digi24 (reporting the DNSC 2025 annual report)", url: "https://www.digi24.ro/digieconomic/digital/atacurile-cibernetice-s-au-inmultit-in-2025-dnsc-incidentele-de-compromitere-a-conturilor-au-crescut-cu-353-114743", date: "2026-08", confidence: S}
+    confidence: S
+    notes: "The DNSC alert pages are not retrievable by automated tools (dnsc.ro returns 403), so the DHL (May 2026) and courier/postal (Jan 2025) details come from press reports of the alerts; the lure type is confirmed by CSALB (fake delivery notices asking a small fee) and BNR (smishing as a leading social-engineering scenario). 3.57 lei is the lure, not the loss; no source gives a loss range for this exact pattern, so typical_amount_ron is omitted. The real-time relay of the OTP is the press reading of the DNSC alert. The first three bank_signals follow directly from that description; the rest are inferences. Variant that harvests online-banking credentials and enrols a new device: see bank_phishing_login_page; card plus OTP variant maps equally well to card_visa_secure."
+
+  - id: bank_phishing_login_page
+    name: "Phishing link to a fake bank login page"
+    name_ro: "Link de phishing către o pagină falsă de autentificare a băncii"
+    family: phishing
+    psd2_class: unauthorized
+    channels: [transfer, transfer_instant]
+    maps_to_scenario: phishing_link
+    story: "A message (SMS, e-mail, WhatsApp or social-media DM) in the bank's name says the account is blocked, the data must be updated or a payment must be unblocked. The link opens a copy of the bank's login page on another domain; a padlock or https does not prove legitimacy. The customer types the username and password and the SMS code, or approves a push request, believing it is the bank's own check. The attacker, working in real time, logs in to the genuine banking service, often enrols a new device with the stolen data, adds a new payee and sends one or more transfers, instant when available. The pattern is the one described in the CJEU C-70/25 case (a fake buyer's link to a bank-lookalike site, credentials typed, transfer made) as summarised in docs/context/14."
+    steps:
+      - "Customer receives a message in the bank's name (blocked account, data update, unblock a payment) with a link."
+      - "The link opens a lookalike login page on a domain that is not the bank's."
+      - "Customer enters credentials and the SMS code, or approves the push request the page triggers."
+      - "Attacker logs in to the real service, enrols a new device or session and adds a new payee."
+      - "One or more transfers leave the account, often most of the balance; the customer sees a notification or loses access and calls the bank."
+    impersonated: ["banks"]
+    examples_public: ["Raiffeisen Bank România"]
+    complaint_cues_en:
+      - "I received a message saying my account would be blocked and I had to update my data."
+      - "I logged in on a page that looked exactly like the bank's."
+      - "Someone logged into my account from another phone."
+      - "I got an SMS code and entered it on the website."
+      - "I did not approve any transfer."
+      - "A new device appeared in my banking app."
+      - "A transfer went to an account I do not know."
+      - "The bank says I authorised it, but I was tricked."
+    complaint_cues_ro:
+      - "Am primit un mesaj că mi se blochează contul și trebuie să-mi actualizez datele."
+      - "M-am logat pe o pagină care arăta exact ca cea a băncii."
+      - "Cineva s-a conectat la contul meu de pe alt telefon."
+      - "Am primit un cod prin SMS și l-am introdus pe site."
+      - "Nu am aprobat niciun transfer."
+      - "A apărut un dispozitiv nou în aplicație."
+      - "Un transfer a plecat către un cont necunoscut."
+      - "Banca zice că am autorizat eu plata, dar am fost păcălit."
+      - "mi-au golit contul dupa ce am intrat pe un link din sms"
+      - "nu am facut eu transferul, a aparut un dispozitiv nou in aplicatie"
+    bank_signals:
+      - "New device enrolled (via SMS OTP or web login) minutes after a login from an unfamiliar IP, geography or user agent."
+      - "SCA for the enrolment or the payment is satisfied on the NEW device; the customer's usual device shows no approval at that time."
+      - "New payee created within minutes of the enrolment, followed by one or more transfers (instant when available), often most of the available balance."
+      - "OTP text or approval screen shows an amount and payee the customer did not intend, or an OTP issued for login or enrolment is reused to authorise a payment."
+      - "Short gap (minutes, not days) between the first anomalous login and the first payment."
+      - "Attempts to raise limits or move savings immediately after the first transfer."
+    prevalence: "DNSC 2025 report (via Digi24): 4,975 phishing incidents (+70.6% vs 2024) and 1,125 account compromises (+353%, from 248). DNSC, first half of 2026: phishing 14% of reported incidents."
+    sources:
+      - {title: "În siguranță online (Raiffeisen Bank România, security guidance)", publisher: "Raiffeisen Bank România", url: "https://bank.raiffeisen.ro/ro/in-siguranta-online/home.html", date: "2026-10", confidence: P}
+      - {title: "Prevenire Phishing", publisher: "Poliția Română (IGPR)", url: "https://politiaromana.ro/ro/prevenire/recomandari-preventive/prevenirea-criminalitatii-informatice/prevenire-phishing", date: "2026-10", confidence: P}
+      - {title: "Cele mai frecvente tipuri de fraudă din România", publisher: "Siguranța Online (Poliția Română, DNSC, ARB)", url: "https://sigurantaonline.ro/cele-mai-frecvente-tipuri-de-fraude-din-romania/", date: "2021-10", confidence: P}
+      - {title: "10 Banking Fraud Methods and Channels: What Consumers Report to CSALB", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/10-banking-fraud-methods-and-channels-what-consumers-report-to-csalb/", date: "2025-10", confidence: P}
+      - {title: "Raport asupra stabilității financiare, decembrie 2025", publisher: "Banca Națională a României", url: "https://www.bnr.ro/uploads/2025-12-09raportasuprastabilit%C4%83%C8%9Biifinanciare-decembrie2025_documentpdf_545_1765290572.pdf", date: "2025-12", confidence: P}
+      - {title: "Atacurile cibernetice s-au înmulțit în 2025. DNSC: Incidentele de compromitere a conturilor au crescut cu 353%", publisher: "Digi24 (reporting the DNSC 2025 annual report)", url: "https://www.digi24.ro/digieconomic/digital/atacurile-cibernetice-s-au-inmultit-in-2025-dnsc-incidentele-de-compromitere-a-conturilor-au-crescut-cu-353-114743", date: "2026-08", confidence: S}
+    confidence: P
+    notes: "Mechanism per Raiffeisen guidance, Police, ARB platform and CSALB (an e-mail phishing case where home-banking access was lost after the phone number was changed and transactions continued after a block was requested). Raiffeisen also warns about fake social-media accounts imitating the bank. Legal class: the CJEU C-70/25 facts are taken from docs/context/14 (CURIA press release 147/26 was not re-opened here); banks in the CSALB cases refuse by pointing to customer-entered codes, which C-70/25 says cannot justify withholding the D+1 refund. The Raiffeisen and Police prevention pages are undated, so their date is the retrieval month. No public source publishes bank log fields: bank_signals are inferences from the mechanism."
+
+  - id: marketplace_fake_buyer_link
+    name: "Marketplace fake buyer sends a payment or courier link"
+    name_ro: "Fals cumpărător pe un site de anunțuri trimite un link de plată sau de curierat"
+    family: marketplace
+    psd2_class: unauthorized
+    channels: [card, transfer]
+    maps_to_scenario: card_visa_secure
+    story: "A seller lists an item on a classifieds site such as OLX, Publi24 or Lajumate. A buyer replies, says the money is already paid or will be paid at once, and moves the chat to WhatsApp. He sends a link to collect the money or to arrange a courier. The page, which imitates the platform, a courier or the bank, asks for card data, the card PIN or CVV, the static and dynamic 3-D Secure passwords, or online-banking credentials, always on the pretext that this is how the seller receives money. The data are then used for card payments, often at foreign merchants, or for transfers. In a CSALB case the seller of concert tickets typed a 3-D Secure code on a fake bank interface and two payments of 4,902 lei each followed, and the bank refused a refund because of the 3-D Secure authorisation. A mirror variant uses fake listings at very low prices to send buyers to a card-data phishing page."
+    steps:
+      - "Seller posts an item; a buyer answers quickly, claims to have paid, and asks to continue on WhatsApp."
+      - "Buyer sends a link to receive the payment or to use a courier service."
+      - "The page asks for card number, expiry, CVV, PIN or the 3-D Secure passwords, or for online-banking credentials."
+      - "A caller posing as the platform's or shop's operator may phone for the SMS codes as a bank verification."
+      - "Instead of money arriving, one or more payments leave the card or account; the seller finds out when the expected credit does not appear."
+    impersonated: ["classified-ads platforms", "courier companies", "banks"]
+    examples_public: ["OLX", "Publi24", "Lajumate", "WhatsApp"]
+    complaint_cues_en:
+      - "I listed an item for sale and the buyer said he had already paid."
+      - "He moved the chat to WhatsApp and sent me a link to receive the money."
+      - "The page asked for my card number, expiry date, CVV and an SMS code."
+      - "I thought I was entering my details to receive money, not to pay."
+      - "Instead of receiving money, two payments left my account."
+      - "The page looked like the bank's or the courier's website."
+      - "The bank says I approved it with the 3-D Secure code, but I was deceived."
+      - "The payments stayed pending for a few days and the bank did not stop them."
+    complaint_cues_ro:
+      - "Am pus un anunț de vânzare și cumpărătorul a zis că a plătit deja."
+      - "Mi-a cerut să trecem pe WhatsApp și mi-a trimis un link ca să primesc banii."
+      - "Pagina cerea numărul cardului, data expirării, CVV și un cod primit prin SMS."
+      - "Credeam că introduc datele ca să primesc banii, nu ca să plătesc."
+      - "În loc să primesc bani, mi-au plecat două plăți din cont."
+      - "Pagina arăta ca site-ul băncii sau al curierului."
+      - "banca zice ca eu am aprobat cu codul 3D Secure dar am fost pacalit"
+      - "am vandut ceva pe olx, cumparatorul mi-a trimis un link si mi-au disparut banii de pe card"
+      - "Plățile au rămas în așteptare câteva zile și banca nu le-a oprit."
+    bank_signals:
+      - "Card payments authenticated with a 3-D Secure code typed by the customer on a third-party page (ECI 05, CAVV present), so the bank can claim customer authentication."
+      - "Two or more card payments of the same amount within minutes at a foreign or first-time merchant (CSALB case: two payments of 4,902 lei)."
+      - "Payments unsettled or pending for days when the customer reports them (CSALB case: three days)."
+      - "Customer expected an incoming credit from the sale; the account shows only outgoing debits around the listing date."
+      - "In the transfer variant: login from a new device or IP right after the customer shared credentials, then a new payee and an outgoing transfer."
+      - "Phone contact from a caller who obtained SMS codes: OTP requests clustered in time with no matching customer action."
+    typical_amount_ron: [4902, 14972]
+    prevalence: ""
+    sources:
+      - {title: "Cele mai frecvente tipuri de fraudă din România", publisher: "Siguranța Online (Poliția Română, DNSC, ARB)", url: "https://sigurantaonline.ro/cele-mai-frecvente-tipuri-de-fraude-din-romania/", date: "2021-10", confidence: P}
+      - {title: "10 Banking Fraud Methods and Channels: What Consumers Report to CSALB", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/10-banking-fraud-methods-and-channels-what-consumers-report-to-csalb/", date: "2025-10", confidence: P}
+      - {title: "În siguranță online (Raiffeisen Bank România, security guidance)", publisher: "Raiffeisen Bank România", url: "https://bank.raiffeisen.ro/ro/in-siguranta-online/home.html", date: "2026-10", confidence: P}
+    confidence: P
+    notes: "typical_amount_ron is the range of the two documented CSALB cases (14,972 lei lost with an online-commerce fake buyer, bank agreed to a conditional refund; 4,902 lei twice for the ticket seller, bank refused), not a population statistic. The legal class follows the C-70/25 pattern in docs/context/14 (fake buyer link, bank-lookalike page); the CURIA text was not re-opened here. The sigurantaonline guide is from October 2021, outside the 2023-2026 window, but it is the ARB-backed description of the scheme and CSALB 2025 confirms it is still reported. A transfer variant (online-banking credentials) maps to phishing_link instead. The Raiffeisen page is undated (date = retrieval month). First four bank_signals are stated or directly implied by the cited cases; the rest are inferences."
+
+  - id: bank_employee_vishing_approve_in_app
+    name: "Fake bank security call: approve it in the app to stop the fraud"
+    name_ro: "Apel fals de la „securitatea băncii”: aprobă în aplicație ca să oprești frauda"
+    family: vishing
+    psd2_class: authorized_push_payment
+    channels: [transfer, card]
+    maps_to_scenario: vishing_securitate
+    story: "A caller whose number is spoofed to look like the bank's, or very similar, says he is from the bank's security or fraud department. The pretext is a suspicious transaction, an attempt to steal the customer's money, or a loan the customer supposedly requested and that was approved; the customer is told to react at once. To stop or cancel it, the customer is asked to confirm an operation in the banking app, read out the SMS codes, give personal and banking details or install an application. The customer approves a push request or enters the code, believing it cancels the fraud, but it authorises a payment, a new device or a limit change. Sometimes a second caller, posing as police, confirms the first. Police, ARB and DNSC describe this as a current campaign, and the CSALB case files show banks treating the in-app approval as proof of authorisation."
+    steps:
+      - "A call arrives from a spoofed number that looks like the bank's; the caller already knows basic data about the customer."
+      - "He claims a fraud attempt or a loan approved in the customer's name and creates urgency."
+      - "The customer is told to confirm or cancel the operation in the app, read SMS codes or install an app."
+      - "The customer approves the push or enters the code; the operation executed is a payment, a new payee, a new device or a loan."
+      - "The caller may hand the customer over to a second 'official' (police, central bank) who confirms the story."
+      - "The customer hangs up, calls the real bank and learns that no one from the bank called."
+    impersonated: ["bank security or fraud department", "police (second caller)"]
+    examples_public: []
+    complaint_cues_en:
+      - "Someone called from a number that looked like my bank's."
+      - "He said there was a fraud attempt on my account and that I had to confirm in the app."
+      - "He told me a loan had been approved in my name and that I had to cancel it."
+      - "I approved a notification in the app because he said it would stop the fraud."
+      - "He knew my name and some details about my account."
+      - "He asked me for the code I received by SMS."
+      - "I did not realise that approving it meant authorising a payment."
+      - "I called the real bank afterwards and they said nobody from the bank had called me."
+    complaint_cues_ro:
+      - "M-a sunat cineva de pe un număr care arăta ca al băncii."
+      - "A zis că e o tentativă de fraudă pe contul meu și că trebuie să confirm în aplicație."
+      - "Mi-a spus că mi s-a aprobat un credit pe care nu l-am cerut și că trebuie să-l anulez."
+      - "Am aprobat o notificare în aplicație pentru că mi-a spus că așa opresc frauda."
+      - "Știa numele meu și câteva date despre cont."
+      - "Mi-a cerut codul primit prin SMS."
+      - "nu am stiut ca prin aprobare dau voie la o plata"
+      - "am sunat banca dupa aceea si mi-au spus ca nimeni de la ei nu m-a sunat"
+    bank_signals:
+      - "Payment, new payee, new device or limit change approved in the app from the customer's own enrolled device (no unfamiliar device or IP)."
+      - "Approval screen shows the real amount and payee but the customer approved anyway (screen_showed_amount_and_payee true), or the OTP text names a different purpose."
+      - "New payee created minutes before the payment, then an immediate transfer of a large part of the balance."
+      - "Sequence login, add payee, approve, transfer completed in a few minutes while the customer is on a call (the call itself is invisible to the bank)."
+      - "A consumer or overdraft loan taken in the app shortly before outgoing transfers (the 'loan approved' pretext)."
+      - "No outbound customer call to the bank before the payment; the customer contacts the bank only afterwards."
+    prevalence: "DNSC, first half of 2026: vishing 42% of reported incidents, first place for the first time (phishing 14%, smishing 13%)."
+    sources:
+      - {title: "Poliția Română, Directoratul Național de Securitate Cibernetică și Asociația Română a Băncilor avertizează asupra riscului de fraudă prin apeluri telefonice false (spoofed)", publisher: "Siguranța Online (Poliția Română, DNSC, ARB)", url: "https://sigurantaonline.ro/politia-romana-directoratul-national-de-securitate-cibernetica-si-asociatia-romana-a-bancilor-avertizeaza-asupra-riscului-de-frauda-prin-apeluri-telefonice-false-spoofed/", date: "2024-05", confidence: P}
+      - {title: "Metode de înșelăciune în mediul online și atacurile de tip spoofing", publisher: "Poliția Română (IGPR)", url: "https://politiaromana.ro/ro/stiri-si-media/stiri/metode-de-inselaciune-in-mediul-online-si-atacurile-de-tip-spoofing", date: "2025-10", confidence: P}
+      - {title: "În siguranță online (Raiffeisen Bank România, security guidance)", publisher: "Raiffeisen Bank România", url: "https://bank.raiffeisen.ro/ro/in-siguranta-online/home.html", date: "2026-10", confidence: P}
+      - {title: "10 Banking Fraud Methods and Channels: What Consumers Report to CSALB", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/10-banking-fraud-methods-and-channels-what-consumers-report-to-csalb/", date: "2025-10", confidence: P}
+      - {title: "Comunicat de presă – Directoratul Național de Securitate Cibernetică (ING SAFE Talks, 14.07.2026)", publisher: "AGERPRES (DNSC communiqué)", url: "https://agerpres.ro/comunicate/2026/07/15/comunicat-de-presa---directoratul-national-de-securitate-cibernetica--1576291", date: "2026-07", confidence: P}
+    confidence: P
+    notes: "Legal class is contested: the customer approved with SCA, so banks call it authorised (CSALB 2026 case files: payments made in the app with the security code or biometrics, executed per the IBAN given), but the approval was obtained by deception and the screen may not have shown what the customer thought. docs/context/14 routes it to a human before the D+1 deadline. The CSALB 2025 case behind the 'loan approved' pretext: a fake-investment app, callers posing as bank staff took over the account and obtained a 54,000 lei loan from a non-bank lender, the opening pretext being a 950 lei transaction. Police (Oct 2025) says a spoofed call is often followed by a second call from the 'bank' or a message with links or account numbers to give an impression of confirmation. Most bank_signals are inferences from the mechanism; the Raiffeisen page is undated (retrieval month)."
+
+  - id: safe_account_transfer
+    name: "Transfer to a 'safe' or 'custody' account"
+    name_ro: "Transfer într-un cont „sigur” sau „în custodie”"
+    family: app_scam
+    psd2_class: authorized_push_payment
+    channels: [transfer_instant, transfer]
+    maps_to_scenario: cont_sigur
+    story: "A spoofed caller presents as a bank officer, then as a police officer and as a representative of the central bank, and says the customer's savings are at risk or evidence must be protected. The customer is told to move the money immediately to a 'safe account' or to intermediate accounts where it will be held 'in custody' during the investigation. The customer, under constant time pressure, makes one or more transfers, often instant, to accounts dictated by the caller. The receiving accounts are emptied quickly, the money is dispersed across other accounts or converted to crypto, and the same victim may be approached again with a new pretext."
+    steps:
+      - "Spoofed call from the 'bank', handed over to a 'police officer' and a 'central bank representative' who confirm that the account is compromised."
+      - "The customer is told to protect the savings by moving them to a safe account or custody account given by the caller."
+      - "The customer logs in and makes the transfers, often instant, to the accounts dictated; the caller stays on the line."
+      - "The recipients forward the money within minutes to other accounts, cash or crypto."
+      - "The customer realises the story is false when the caller disappears or the real bank says nobody called."
+    impersonated: ["bank security department", "police", "central bank"]
+    examples_public: ["Banca Națională a României (BNR)", "Poliția Română"]
+    complaint_cues_en:
+      - "They told me my account was compromised and I had to move my money to a safe account."
+      - "First he said he was from the bank, then from the police, then from the central bank."
+      - "I made the transfers myself, but only because they told me to."
+      - "The account I sent the money to was in a private person's name."
+      - "He said the money would be held in custody for the investigation."
+      - "I made several instant transfers one after another."
+      - "I realised only afterwards that the bank would never ask me to do this."
+    complaint_cues_ro:
+      - "Mi-au zis că mi-e compromis contul și că trebuie să-mi mut banii într-un cont sigur."
+      - "Întâi a zis că e de la bancă, apoi de la poliție, apoi de la BNR."
+      - "Transferurile le-am făcut eu, dar numai pentru că mi-au cerut ei."
+      - "Contul în care am trimis banii era pe numele unei persoane fizice."
+      - "Mi-a spus că banii sunt puși în custodie pentru anchetă."
+      - "Am făcut mai multe transferuri instant unul după altul."
+      - "mi-au zis sa transfer banii intr-un cont sigur ca sa nu-i pierd"
+    bank_signals:
+      - "Instant transfer or several transfers to new payees (created minutes earlier) approved from the customer's own device."
+      - "Payee names are private persons or unrelated companies, never the bank, the police or the central bank named in the story."
+      - "Transferred amount is a large share of the balance or of savings, well above the customer's usual transfers."
+      - "Receiving accounts forward the funds out within minutes to other accounts, cash or crypto (mule-like pass-through, relevant for AML referral)."
+      - "Several transfers in quick succession, sometimes to different payees, during a period that matches an inbound call."
+      - "Receiving accounts at other banks or payment institutions; the same account receiving from several unrelated senders in a short time."
+    prevalence: "ARB, end of 2024: fraud rate for bank transfers to other accounts 0,003% in Romania, by number of transactions. EBA/ECB 2024 (EU/EEA): manipulation of the payer was 74% of credit-transfer fraud by value (65% in 2023) and PSUs bore around 85% of credit-transfer fraud losses."
+    sources:
+      - {title: "Metode de înșelăciune în mediul online și atacurile de tip spoofing", publisher: "Poliția Română (IGPR)", url: "https://politiaromana.ro/ro/stiri-si-media/stiri/metode-de-inselaciune-in-mediul-online-si-atacurile-de-tip-spoofing", date: "2025-10", confidence: P}
+      - {title: "Poliția Română, DNSC, ARB și Mastercard lansează campania națională „Uniți împotriva escrocheriilor”", publisher: "Siguranța Online (Poliția Română, DNSC, ARB)", url: "https://sigurantaonline.ro/politia-romana-dnsc-arb-si-mastercard-lanseaza-campania-nationala-uniti-impotriva-escrocheriilor/", date: "2026-03", confidence: P}
+      - {title: "În siguranță online (Raiffeisen Bank România, security guidance)", publisher: "Raiffeisen Bank România", url: "https://bank.raiffeisen.ro/ro/in-siguranta-online/home.html", date: "2026-10", confidence: P}
+      - {title: "2025 Report on Payment Fraud (EBA/REP/2025/40)", publisher: "EBA and ECB", url: "https://www.ecb.europa.eu/press/intro/publications/pdf/ecb.ebaecb202512.en.pdf", date: "2025-12", confidence: P}
+    confidence: P
+    notes: "The customer initiates and approves the transfer, so this is an authorised push payment; PSD2 art. 73 gives no automatic refund right (docs/context/14 DSP-13) and the case goes to a support route, not to chargeback. The campaign page calls the scenario 'Metoda BNR'. Police (Oct 2025) states the custody wording and the rapid dispersal of the funds. The ARB rate is a rate for all bank-transfer fraud, not for this typology. Time from call to transfer and the payee-age signals are inferences."
+
+  - id: authority_impersonation_loan_crypto_atm
+    name: "Fake bank, police and central bank callers: take a loan and feed a crypto ATM"
+    name_ro: "Apelanți falși de la bancă, poliție și BNR: iei un credit și depui banii la un bancomat de criptomonede"
+    family: impersonation_authority
+    psd2_class: authorized_push_payment
+    channels: [transfer]
+    maps_to_scenario: vishing_securitate
+    story: "Callers appear in turn as a bank employee, a police officer and a representative of the central bank (BNR) or of criminal investigators, and tell the customer that his or her identity or banking data are being used fraudulently. The customer is walked through taking out a personal loan, often around 70,000 to 110,000 lei, withdrawing the money in cash and depositing it at a crypto (Bitcoin) ATM, using QR codes and sometimes repeated deposits of 10,000 lei. The callers stay on the phone while the customer is at the bank or the ATM, and may ask the customer to confirm the operations by calling two given numbers. The customer is left with a loan to repay and a cash-to-crypto conversion that cannot be recovered; banks tell CSALB that the case is under police investigation and that the customer let the criminals in."
+    steps:
+      - "A spoofed call arrives; the caller says he is from the bank, then 'police', then 'central bank', and claims the customer's identity or accounts are being used for fraud."
+      - "The customer is told to take a personal loan, supposedly to protect or recover the money."
+      - "The customer withdraws the loan proceeds in cash, at the counter or ATM, while the caller stays on the line."
+      - "The cash is deposited at a crypto ATM in repeated amounts (for example 10,000 lei) against QR codes the caller supplies."
+      - "The customer is asked to 'approve' the operations by calling given numbers; later the callers vanish and the customer is left with the loan."
+    impersonated: ["bank employees", "police officers", "central bank (BNR) or criminal investigators"]
+    examples_public: ["Banca Națională a României (BNR)", "Poliția Română"]
+    complaint_cues_en:
+      - "They told me my identity was being used and I had to take out a loan to protect my money."
+      - "I withdrew the cash and deposited it in a crypto machine as instructed."
+      - "The person who called stayed on the line while I was at the bank."
+      - "They said they were from the bank, the police and the central bank."
+      - "I deposited 10,000 lei several times at a Bitcoin ATM."
+      - "I was told to confirm the operations by calling two phone numbers."
+      - "Now I have to repay a loan I did not want and the instalment is too high for my income."
+      - "I ask for the loan instalments to be suspended until the police finish their investigation."
+    complaint_cues_ro:
+      - "Mi-au spus că identitatea mea este folosită și că trebuie să iau un credit ca să-mi protejez banii."
+      - "Am retras banii cash și i-am depus la un aparat de criptomonede, așa cum mi-au cerut."
+      - "Persoana care a sunat a rămas la telefon cât timp am fost la bancă."
+      - "Au zis că sunt de la bancă, de la poliție și de la BNR."
+      - "Am depus de mai multe ori câte 10.000 de lei la un bancomat Bitcoin."
+      - "Mi-au zis să confirm operațiunile sunând la două numere de telefon."
+      - "Acum am de plătit un credit pe care nu l-am vrut, iar rata e prea mare pentru venitul meu."
+      - "cer suspendarea ratelor pana se termina ancheta politiei"
+    bank_signals:
+      - "Personal loan disbursed shortly after the calls begin, for a customer with no comparable borrowing history; the instalment can exceed 30% of net income (CSALB case: 1,450 lei per month)."
+      - "Large cash withdrawals, in round amounts, within hours or days of the disbursement, at the counter or at ATMs."
+      - "Repeated round-sum cash movements (for example 10,000 lei, 14 deposits in one case) that match deposits at a crypto ATM outside the bank's perimeter."
+      - "Staff at the counter or branch can observe the customer on the phone with a third party while transacting."
+      - "Loan proceeds do not remain in the account: balance returns to its pre-loan level within the same day or week."
+      - "After the event: the customer asks for suspension of instalments and for no Credit Bureau reporting, citing a police complaint."
+    typical_amount_ron: [70000, 110000]
+    prevalence: "CSALB, 9 September 2026: more than 170 requests about fraud through banking channels so far in 2026, most of them bank loans taken in victims' names; losses up to EUR 20,000 in the cases analysed; every request described in the release was closed or rejected by the bank."
+    sources:
+      - {title: "Banking Loan Fraud Cases on the Rise: Dozens of Cases Reported Each Month by Consumers to CSALB", publisher: "CSALB", url: "https://csalb.ro/wp-content/uploads/2026/09/Engl_Credite-fraudate_Comunicat-de-presa-CSALB_09.09.2026.pdf", date: "2026-09", confidence: P}
+      - {title: "Poliția Română, DNSC, ARB și Mastercard lansează campania națională „Uniți împotriva escrocheriilor”", publisher: "Siguranța Online (Poliția Română, DNSC, ARB)", url: "https://sigurantaonline.ro/politia-romana-dnsc-arb-si-mastercard-lanseaza-campania-nationala-uniti-impotriva-escrocheriilor/", date: "2026-03", confidence: P}
+      - {title: "Emotional Manipulation, Increasingly Used in Fraud Attempts Targeting Romanians' Bank Accounts", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/emotional-manipulation-increasingly-used-in-fraud-attempts-targeting-romanians-bank-accounts/", date: "2025-05", confidence: P}
+      - {title: "Metode de înșelăciune în mediul online și atacurile de tip spoofing", publisher: "Poliția Română (IGPR)", url: "https://politiaromana.ro/ro/stiri-si-media/stiri/metode-de-inselaciune-in-mediul-online-si-atacurile-de-tip-spoofing", date: "2025-10", confidence: P}
+    confidence: P
+    notes: "typical_amount_ron is the range of the loan amounts in two CSALB 2026 cases (70,000 lei in 14 Bitcoin-ATM deposits; 110,000 lei after calls posing as the central bank and investigators); a third case mentions about 100,000 lei. The release uses fictitious names and real counties; no personal data is reproduced here. This is mainly a loan-consent and credit-product complaint (docs/context/14 DSP-16 routes credit taken in the victim's name to the credit-fraud queue) and the cash and crypto-ATM legs leave the bank's perimeter, so no scheme chargeback exists. The signals about repayment history and balance returning to its pre-loan level are inferences; the 1,450 lei instalment and the 14 deposits are stated in the CSALB release."
+
+  - id: investment_fake_platform_deepfake_ad
+    name: "Fake investment platform promoted by deepfake or celebrity ads"
+    name_ro: "Platformă falsă de investiții promovată prin reclame deepfake sau cu persoane publice"
+    family: investment
+    psd2_class: authorized_push_payment
+    channels: [card, transfer]
+    maps_to_scenario: cont_sigur
+    story: "Social-media ads promise fast, safe returns, often using the image and voice of a public figure, including AI-made deepfake videos (the central bank warned in February 2026 about videos using its Governor's image to push investments on a non-existent platform, and a press report of a later warning names a fake app called Profit Gold Românesc), or imitating listed companies such as Hidroelectrica, Transgaz and Transelectrica. The customer leaves contact details in a form, and call-centre 'consultants' phone repeatedly from Romanian or UK numbers. The first investment is small, a few hundred euro, paid by card or by buying crypto sent to wallets the scammers name; the platform shows growing profits and the customer is asked to invest more, sometimes tens of thousands of euro, and to install a remote-access app such as AnyDesk or TeamViewer 'for support'. Withdrawals are blocked with invented fees, taxes or guarantees, and loans may be opened in the customer's name through the banking app. After the loss, fake 'recovery' services or lawyers ask a fee to get the money back."
+    steps:
+      - "Customer sees an ad (a public figure, a deepfake or a listed company's name) promising quick, safe gains and fills in a contact form."
+      - "Call-centre 'consultants' call repeatedly, from Romanian or UK numbers, and guide the first small deposit by card or crypto purchase."
+      - "A fake platform shows profits; the customer is pushed to invest more and to install AnyDesk or TeamViewer."
+      - "Larger transfers follow, sometimes funded by a loan; the scammers may use the remote access to move money or open accounts."
+      - "A withdrawal request triggers demands for fees, taxes or guarantees; contact then stops."
+      - "Fake recovery services appear and ask a commission to retrieve the money."
+    impersonated: ["investment platforms and brokers", "listed companies", "public figures", "central bank"]
+    examples_public: ["Hidroelectrica", "Transgaz", "Transelectrica", "Profit Gold Românesc", "AnyDesk", "TeamViewer", "TikTok", "Banca Națională a României (Governor's image)"]
+    complaint_cues_en:
+      - "I saw an ad with a famous person promoting a safe investment and left my phone number."
+      - "A consultant kept calling me and showing profits on a platform."
+      - "He asked me to install AnyDesk so he could help me."
+      - "I started with a few hundred euros and then sent more."
+      - "When I tried to withdraw I was told to pay a tax or fee first."
+      - "The platform and the phone numbers no longer work."
+      - "Someone then offered to recover my money for a commission."
+      - "A loan was taken in my name through the app after the 'broker' had access."
+    complaint_cues_ro:
+      - "Am văzut o reclamă cu o persoană cunoscută care promova o investiție sigură și am lăsat numărul de telefon."
+      - "Un consultant mă suna mereu și îmi arăta profituri pe o platformă."
+      - "Mi-a cerut să instalez AnyDesk ca să mă ajute."
+      - "Am început cu câteva sute de euro și apoi am mai trimis."
+      - "Când am vrut să retrag mi-au cerut să plătesc întâi o taxă."
+      - "Platforma și numerele de telefon nu mai funcționează."
+      - "Apoi mi-a scris cineva care promitea să-mi recupereze banii contra unui comision."
+      - "am investit pe o platforma de crypto si acum nu mai pot sa scot banii"
+      - "mi-au spus ca am actiuni la hidroelectrica si trebuie sa trimit bani"
+    bank_signals:
+      - "First payments to crypto exchanges, payment processors or foreign accounts start small (a few hundred euro) and escalate over days or weeks."
+      - "Card payments and transfers approved with SCA from the customer's own device, so the SCA evidence favours the bank."
+      - "In the remote-access variant: change of the phone number that receives authorisation codes, loan applications in the app, deposit closures, then transfers (CSALB)."
+      - "Transactions continue after the customer asked the bank to block the account (CSALB case: RON 10,600 taken despite blocked accounts, then a 67,000 lei loan over 60 months through the mobile app)."
+      - "Repeated payments to the same beneficiary or wallet that are described as fees or taxes to unlock a withdrawal."
+      - "Remote-control or screen-sharing tool detected on the device, if the app collects that telemetry."
+      - "Beneficiary accounts abroad or at payment institutions; after the loss, contact with the bank is often delayed because of shame."
+    typical_amount_ron: [1250, 67000]
+    prevalence: "Police (November 2022): over 260 criminal cases for crypto trading scams. DIICOT (May 2023): about 33,000 people and over EUR 89 million damage in a call-centre case active in 2017-2020. CSALB (May 2025): fake investments with remote-access apps were among the most frequent fraud types in 2024."
+    sources:
+      - {title: "Fraudele legate de investiții financiare – investment frauds", publisher: "Siguranța Online (Poliția Română, DNSC, ARB)", url: "https://sigurantaonline.ro/fraudele-legate-de-investitii-financiare-investment-frauds/", date: "2023-11", confidence: P}
+      - {title: "Atenție la înșelăciunile în cadrul tranzacțiilor de criptomonede", publisher: "Poliția Română (IGPR)", url: "https://politiaromana.ro/ro/stiri-si-media/comunicate/atentie-la-inselaciunile-in-cadrul-tranzactiilor-de-criptomonede", date: "2022-11", confidence: P}
+      - {title: "10 Banking Fraud Methods and Channels: What Consumers Report to CSALB", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/10-banking-fraud-methods-and-channels-what-consumers-report-to-csalb/", date: "2025-10", confidence: P}
+      - {title: "Banking Loan Fraud Cases on the Rise: Dozens of Cases Reported Each Month by Consumers to CSALB", publisher: "CSALB", url: "https://csalb.ro/wp-content/uploads/2026/09/Engl_Credite-fraudate_Comunicat-de-presa-CSALB_09.09.2026.pdf", date: "2026-09", confidence: P}
+      - {title: "Emotional Manipulation, Increasingly Used in Fraud Attempts Targeting Romanians' Bank Accounts", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/emotional-manipulation-increasingly-used-in-fraud-attempts-targeting-romanians-bank-accounts/", date: "2025-05", confidence: P}
+      - {title: "Europol Spotlight – Online fraud schemes: a web of deceit", publisher: "Europol", url: "https://www.europol.europa.eu/cms/sites/default/files/documents/Spotlight-Report_Online-fraud-schemes.pdf", date: "2023-12", confidence: P}
+      - {title: "Comunicat de presă: Tentativă de fraudă financiară tip deepfake care folosește imaginea guvernatorului BNR", publisher: "Banca Națională a României", url: "https://www.bnr.ro/25285-2026-02-18-tentativa-de-frauda-financiara-tip-deepfake-care-foloseste-imaginea-guvernatorului-bnr", date: "2026-02", confidence: P}
+      - {title: "Deepfake cu Mugur Isărescu: BNR avertizează asupra unei noi tentative de fraudă online", publisher: "Spotmedia.ro (reporting a BNR warning)", url: "https://spotmedia.ro/stiri/eveniment/deepfake-cu-mugur-isarescu-bnr-avertizeaza-asupra-unei-noi-tentative-de-frauda-online", date: "2026-02", confidence: S}
+      - {title: "DIICOT: aproximativ 33.000 de persoane au fost înșelate prin metoda investment fraud, prejudiciu de 89 milioane euro", publisher: "Economica.net (reporting a DIICOT release)", url: "https://www.economica.net/diicot-aproximativ-33-000-de-persoane-au-fost-inselate-prin-metoda-investment-fraud-prejudiciu-de-89-milioane-euro-diicot_668026.html", date: "2023-05", confidence: S}
+    confidence: P
+    notes: "typical_amount_ron uses only RON amounts in the CSALB cases (1,250 lei first loss; 10,600 lei; 54,000 lei loan; 67,000 lei loan); the EUR 19,900 and GBP 14,600 losses in the same cases are left out because no exchange rate is sourced. The BNR page was retrievable only as a headline (the body is rendered by script), so the ads' content (a supposed partnership to launch an AI-based platform, the Profit Gold Românesc app) comes from the Spotmedia report dated 27 February 2026 of a BNR warning, which may concern a later wave than the 18 February release. The DIICOT and Police figures are older and describe call-centre networks, not the 2026 ad wave. Legal class: authorised push payment (customer sends or approves the payments); the remote-access variant is covered by remote_access_app_takeover. The 'recovery scam' stage is documented by Police (2022) and Europol (2023). First four bank_signals are stated in the cited sources; the rest are inferences."
+
+  - id: romance_scam_crypto
+    name: "Romance scam leading to money requests or crypto 'investments'"
+    name_ro: "Înșelăciune romantică ce duce la cereri de bani sau „investiții” în criptomonede"
+    family: romance
+    psd2_class: authorized_push_payment
+    channels: [transfer, card]
+    maps_to_scenario: cont_sigur
+    story: "The scammer builds a false emotional relationship with the customer on a dating or social-media platform, using a polished or stolen photo and insisting on text and calls only. After weeks of daily contact he or she invents an emergency such as a hospitalisation, an accident or financial trouble and asks for money, or introduces a crypto trading platform and persuades the customer to invest together. Police have seen romance and trading scams intertwined, and Europol describes criminals slowly building trust before convincing victims to put their savings into fraudulent crypto platforms. The customer sends several transfers or card payments, often to foreign accounts or exchanges, and only realises the scam when a withdrawal fails or the contact disappears. Victims are often ashamed and report late."
+    steps:
+      - "Contact on a dating or social platform; the profile looks too perfect and the person avoids meeting or video calls."
+      - "Daily messages build trust and emotional dependence over weeks."
+      - "An emergency is invented (hospital, accident, financial problem), or a crypto platform is proposed as a joint investment."
+      - "The customer sends repeated transfers or card payments, often to different accounts and to crypto exchanges."
+      - "Fees are demanded to release money, or the contact vanishes; the customer reports late."
+    impersonated: ["romantic partner (fictitious profile)"]
+    examples_public: []
+    complaint_cues_en:
+      - "I met someone online and we talked every day for weeks."
+      - "He said he needed money for the hospital or because of an accident."
+      - "We never met in person, there was always an excuse."
+      - "He told me about a crypto platform where we could invest together."
+      - "I sent money several times to different accounts."
+      - "When I could not withdraw, I understood it was a scam."
+      - "I am ashamed, but I want to report it."
+    complaint_cues_ro:
+      - "Am cunoscut pe cineva online și am vorbit zilnic săptămâni întregi."
+      - "A zis că are nevoie de bani pentru spital sau din cauza unui accident."
+      - "Nu ne-am văzut niciodată, de fiecare dată avea o scuză."
+      - "Mi-a vorbit despre o platformă de criptomonede unde puteam investi împreună."
+      - "Am trimis bani de mai multe ori în conturi diferite."
+      - "Când n-am mai putut retrage, am înțeles că e o înșelătorie."
+      - "m-am rusinat sa spun dar vreau sa reclam"
+    bank_signals:
+      - "Repeated transfers over weeks to the same new foreign payee, or to several accounts, with rising amounts."
+      - "First-time payments to crypto exchanges or payment processors after the relationship began."
+      - "Payments approved with SCA from the customer's own device; the customer often overrides or ignores warning prompts."
+      - "Beneficiaries in different countries or payment institutions; descriptions that mention gifts, help, medical or travel costs."
+      - "Customer visits to the branch or calls asking to speed up or raise limits on transfers."
+    prevalence: ""
+    sources:
+      - {title: "Prevenirea înșelăciunilor „romantice” - Romance scam", publisher: "Poliția Română (IGPR)", url: "https://politiaromana.ro/ro/prevenire/recomandari-preventive/prevenirea-criminalitatii-informatice/prevenirea-inselaciunilor-romantice-romance-scam", date: "2026-10", confidence: P}
+      - {title: "Atenție la înșelăciunile în cadrul tranzacțiilor de criptomonede", publisher: "Poliția Română (IGPR)", url: "https://politiaromana.ro/ro/stiri-si-media/comunicate/atentie-la-inselaciunile-in-cadrul-tranzactiilor-de-criptomonede", date: "2022-11", confidence: P}
+      - {title: "Europol Spotlight – Online fraud schemes: a web of deceit", publisher: "Europol", url: "https://www.europol.europa.eu/cms/sites/default/files/documents/Spotlight-Report_Online-fraud-schemes.pdf", date: "2023-12", confidence: P}
+      - {title: "IOCTA 2026 – The evolving threat landscape. How encryption, proxies and AI are expanding cybercrime", publisher: "Europol", url: "https://www.europol.europa.eu/cms/sites/default/files/documents/IOCTA-2026.pdf", date: "2026-04", confidence: P}
+    confidence: P
+    notes: "No Romanian count or loss figure for romance scams was found (IOCTA 2026 names romance fraud among the most common online-fraud typologies reported by Member States, without a Romanian number), so prevalence is empty and typical_amount_ron is omitted. The Police prevention page is undated (retrieval month); the Police crypto communiqué is from November 2022. The bank_signals are all inferences from the mechanism; the cues are composed from the described narrative, not verbatim customer text. Legal class: authorised push payment, no PSD2 refund right (docs/context/14 DSP-13); the customer-support route and the AML referral for receiving accounts apply."
+
+  - id: whatsapp_new_number_relative
+    name: "WhatsApp message from a 'relative' with a broken phone and a new number"
+    name_ro: "Mesaj WhatsApp de la o „rudă” cu telefonul stricat și număr nou"
+    family: family_emergency
+    psd2_class: authorized_push_payment
+    channels: [transfer_instant, transfer]
+    maps_to_scenario: cont_sigur
+    story: "The customer receives a written message, mostly on WhatsApp, from an unknown number: the sender claims to be a son, daughter or other relative whose phone is broken, gives a new number, and soon says he cannot use his banking app and needs an urgent bill paid. The customer is pressured to send money to the account of a 'friend'. Only written messages are used so the voice cannot be checked. The transfer is usually instant to an account in a third person's name; afterwards the real relative, called on the old number, knows nothing. The national campaign launched in March 2026 targets people aged 60 and over and recommends a 'family password' built from shared memories."
+    steps:
+      - "A message arrives from an unknown number: 'hi, it is me, my phone broke, this is my new number'."
+      - "After a short exchange the sender says he cannot reach his banking app and asks the customer to pay an urgent bill or help a friend."
+      - "The customer receives an IBAN in a third person's name and sends an instant transfer."
+      - "A second request may follow within hours or the next day."
+      - "The customer calls the real relative on the old number and learns it was a scam."
+    impersonated: ["family member (son or daughter) with a new number"]
+    examples_public: ["WhatsApp"]
+    complaint_cues_en:
+      - "I got a WhatsApp message from an unknown number saying it was my son and his phone was broken."
+      - "He said he could not use his banking app and asked me to pay an urgent bill for him."
+      - "I sent the money to an account in a stranger's name."
+      - "When I called my son on his old number he knew nothing about it."
+      - "The message was text only, he never wanted to talk on the phone."
+      - "He promised to pay me back the next day."
+    complaint_cues_ro:
+      - "Am primit un mesaj pe WhatsApp de la un număr necunoscut, care zicea că e fiul meu și i s-a stricat telefonul."
+      - "A spus că nu poate folosi aplicația băncii și mi-a cerut să plătesc o factură urgentă pentru el."
+      - "Am trimis banii într-un cont pe numele unei persoane necunoscute."
+      - "Când l-am sunat pe fiul meu pe numărul vechi, nu știa nimic."
+      - "Mesajul era doar text, nu a vrut niciodată să vorbim la telefon."
+      - "mi-a scris fiul meu de pe un numar nou ca a pierdut telefonul si a cerut bani repede"
+    bank_signals:
+      - "First-time payee with a personal name that does not match the relative named in the story; instant transfer outside the customer's usual pattern."
+      - "Small-to-medium amount (CSALB 2025 WhatsApp-impersonation case: 3,500 lei), often with a description such as an urgent invoice or a loan."
+      - "Transfer approved with SCA from the customer's own device; no device or IP anomaly."
+      - "A second transfer to the same or another new payee within hours or the next day."
+      - "The receiving account collects instant transfers from several unrelated senders in a short time and forwards them out quickly (AML referral signal)."
+      - "Customer profile skews to older customers in the campaign description; the bank cannot see the WhatsApp conversation."
+    prevalence: ""
+    sources:
+      - {title: "Poliția Română, DNSC, ARB și Mastercard lansează campania națională „Uniți împotriva escrocheriilor”", publisher: "Siguranța Online (Poliția Română, DNSC, ARB)", url: "https://sigurantaonline.ro/politia-romana-dnsc-arb-si-mastercard-lanseaza-campania-nationala-uniti-impotriva-escrocheriilor/", date: "2026-03", confidence: P}
+      - {title: "10 Banking Fraud Methods and Channels: What Consumers Report to CSALB", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/10-banking-fraud-methods-and-channels-what-consumers-report-to-csalb/", date: "2025-10", confidence: P}
+      - {title: "Prevenirea fraudelor prin aplicații de mesagerie", publisher: "Siguranța Online (Poliția Română, DNSC, ARB)", url: "https://sigurantaonline.ro/prevenirea-fraudelor-prin-aplicatii-de-mesagerie/", date: "2025-05", confidence: P}
+    confidence: P
+    notes: "Documented loss: one CSALB 2025 case of 3,500 lei where a WhatsApp contact impersonated a friend from the victim's contact list (shown in bank_signals, not as a range because there is a single data point). The campaign page names this scenario 'Telefonul stricat'. Legal class: authorised push payment. The older-customer skew is stated by the campaign focus (60+); the other bank_signals are inferences."
+
+  - id: voice_clone_relative_emergency
+    name: "Cloned-voice call from a 'relative' in an accident or legal trouble"
+    name_ro: "Apel cu voce clonată a unei „rude” aflate într-un accident sau în necaz"
+    family: family_emergency
+    psd2_class: authorized_push_payment
+    channels: [transfer_instant, card]
+    maps_to_scenario: cont_sigur
+    story: "The customer, often an older person, receives a phone call with an AI-cloned voice of a family member who claims to have had a serious accident or to be in legal trouble (the 'accident' scenario), or the voice of a grandchild who says he has been robbed and needs money at once (the 'grandchild in distress' scenario). The customer is pressed to send money urgently. In a CSALB case the caller, impersonating the victim's son, obtained a photo of the card and the 3-D Secure approval, and the bank refused a refund because the payment had been authorised. The national campaign recommends agreeing a family password to verify callers."
+    steps:
+      - "Phone call: a voice that sounds like the relative reports an accident, an arrest or a robbery and asks for money immediately."
+      - "The caller discourages checking and keeps the customer on the line."
+      - "The customer makes an urgent transfer, or gives the card details and approves a 3-D Secure request in the app."
+      - "The real relative is reached later and knows nothing; the customer reports the loss."
+    impersonated: ["family member (cloned voice)", "grandchild"]
+    examples_public: []
+    complaint_cues_en:
+      - "I received a call and heard my grandson's voice saying he had been robbed."
+      - "The voice sounded exactly like my son; he said he had a serious accident."
+      - "I only learned afterwards that the voice was fake."
+      - "I approved the payment in the app while we were on the phone."
+      - "The bank says I authorised it with the 3-D Secure approval."
+      - "Someone pretending to be my son asked for a photo of my card and then for the approval code."
+    complaint_cues_ro:
+      - "Am primit un telefon și am auzit vocea nepotului meu care spunea că a fost jefuit."
+      - "Vocea suna exact ca a fiului meu; spunea că a avut un accident grav."
+      - "Abia după aceea am aflat că vocea era falsă."
+      - "Am aprobat plata în aplicație cât timp eram la telefon."
+      - "Banca zice că am autorizat eu plata cu aprobarea 3D Secure."
+      - "Cineva care se dădea drept fiul meu mi-a cerut poza cardului și apoi codul de aprobare."
+      - "mi-a sunat nepotul, cel putin asa credeam, si mi-a cerut bani urgent"
+    bank_signals:
+      - "3-D Secure or in-app approval of a card payment or an instant transfer while the customer is on a call, from the customer's own device."
+      - "Card details given by phone: the payment is card-not-present and authenticated, so ECI 05 and CAVV are present (CSALB case: 5,000 lei, bank refused citing authorisation)."
+      - "First-time payee or merchant, round amount, outside the customer's usual pattern."
+      - "Short time between the start of the unusual activity and the payment (minutes)."
+      - "Customer profile is typically an older person; no device or IP anomaly."
+    prevalence: ""
+    sources:
+      - {title: "Poliția Română, DNSC, ARB și Mastercard lansează campania națională „Uniți împotriva escrocheriilor”", publisher: "Siguranța Online (Poliția Română, DNSC, ARB)", url: "https://sigurantaonline.ro/politia-romana-dnsc-arb-si-mastercard-lanseaza-campania-nationala-uniti-impotriva-escrocheriilor/", date: "2026-03", confidence: P}
+      - {title: "10 Banking Fraud Methods and Channels: What Consumers Report to CSALB", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/10-banking-fraud-methods-and-channels-what-consumers-report-to-csalb/", date: "2025-10", confidence: P}
+    confidence: P
+    notes: "The campaign page lists two cloned-voice scenarios, 'Accidentul' and 'Nepotul la ananghie', and states the voice is cloned with AI; it gives no counts. The CSALB case (a caller impersonating the victim's son) does not state that the voice was cloned. Legal class: authorised push payment or contested authorisation; with a 3-D Secure approval by the customer it behaves like the card_visa_secure builder. Bank_signals are inferences except the CSALB 5,000 lei case."
+
+  - id: whatsapp_account_hijack_pairing_code
+    name: "WhatsApp account hijack through a fake 'vote' link, then loan requests to contacts"
+    name_ro: "Preluarea contului WhatsApp printr-un link fals de „vot”, apoi cereri de bani către contacte"
+    family: account_takeover
+    psd2_class: authorized_push_payment
+    channels: [transfer_instant, transfer]
+    maps_to_scenario: cont_sigur
+    story: "The customer receives a Romanian-language message from a known contact asking for a vote for a girl in a contest whose prize is a scholarship in France. The link opens a page that looks like the messaging app and tells the user to open the app and enter a code. The attackers have already asked the service to link the victim's number to their own device, so the app on the victim's phone expects an eight-character code, and typing it authorises the attackers' device. The attackers then write to the victim's contacts asking for urgent loans or transfers, usually to bank accounts that are not in the requester's name, and re-send the vote lure to spread the scam. For the bank, the paying customer is a contact of the hijacked account, who sends an instant transfer to a person the request never named."
+    steps:
+      - "A contact's already hijacked account sends the 'please vote for her' message with a link."
+      - "The link opens a fake page that looks like the messaging app and tells the user to open the app and enter a code."
+      - "The code is the pairing code the attackers requested for that number; entering it links the attackers' device to the account."
+      - "The attackers message the account's contacts asking for an urgent loan or payment to a third-party account, and re-send the vote lure."
+      - "A contact sends an instant transfer; later the real owner says the account was hacked."
+    impersonated: ["acquaintance whose messaging account was hijacked"]
+    examples_public: ["WhatsApp"]
+    complaint_cues_en:
+      - "A friend wrote to me on WhatsApp asking for an urgent loan; I sent it and later found out his account was hacked."
+      - "The account number he gave me was in somebody else's name."
+      - "I received a message to vote for a girl in a contest and then my own WhatsApp stopped working."
+      - "Messages were sent from my account to all my contacts asking for money."
+      - "I entered a code in WhatsApp when the page told me to vote."
+      - "I transferred the money because the message came from a number I know."
+    complaint_cues_ro:
+      - "Un prieten mi-a scris pe WhatsApp să-i împrumut urgent o sumă; am trimis banii și apoi am aflat că i-a fost spart contul."
+      - "Contul pe care mi l-a dat era pe numele altei persoane."
+      - "Am primit un mesaj să votez o fată într-un concurs și apoi mi s-a blocat WhatsApp-ul."
+      - "Din contul meu s-au trimis mesaje la toate contactele cu cereri de bani."
+      - "Am introdus un cod în WhatsApp când pagina mi-a spus să votez."
+      - "am trimis banii fiindca mesajul venea de la un numar pe care il stiam"
+    bank_signals:
+      - "Instant transfer or transfer to a new payee whose name does not match the person who asked for the money on WhatsApp."
+      - "Small-to-medium amount described as a loan or urgent help, approved from the paying customer's own device."
+      - "Several senders paying the same account within hours, because the lure spreads through the hijacked contact list (AML referral signal)."
+      - "Receiving account at another bank or payment institution that forwards funds out quickly."
+      - "A different customer (the hijacked owner) reports the takeover; there is no bank-side compromise on either account."
+    prevalence: ""
+    sources:
+      - {title: "O nouă metodă de înșelăciune a apărut în spațiul online", publisher: "Poliția Română (IGPR)", url: "https://politiaromana.ro/ro/comunicate/o-noua-metoda-de-inselaciune-a-aparut-in-spatiul-online", date: "2025-01", confidence: P}
+      - {title: "Prevenirea fraudelor prin aplicații de mesagerie", publisher: "Siguranța Online (Poliția Română, DNSC, ARB)", url: "https://sigurantaonline.ro/prevenirea-fraudelor-prin-aplicatii-de-mesagerie/", date: "2025-05", confidence: P}
+      - {title: "Emotional Manipulation, Increasingly Used in Fraud Attempts Targeting Romanians' Bank Accounts", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/emotional-manipulation-increasingly-used-in-fraud-attempts-targeting-romanians-bank-accounts/", date: "2025-05", confidence: P}
+    confidence: P
+    notes: "Police describe the scheme as spreading quickly but give no counts or amounts, so prevalence is empty and typical_amount_ron is omitted. The scheme hijacks a messaging account, not the bank account, so the complaint to the bank comes from the contact who paid; the legal class is an authorised push payment. Police advise logging out the unauthorised device in the app settings and warning contacts. All bank_signals are inferences from the mechanism."
+
+  - id: remote_access_app_takeover
+    name: "Remote-access app installed at a scammer's request, then the banking app is operated from outside"
+    name_ro: "Aplicație de acces la distanță instalată la cererea escrocului, apoi aplicația bancară este folosită de la distanță"
+    family: remote_access
+    psd2_class: unauthorized
+    channels: [transfer, transfer_instant, card]
+    maps_to_scenario: vishing_securitate
+    story: "Under the pretext of investment support, a fraud check by the 'bank', a tax or health-contribution refund, or technical help, the customer or a company representative is persuaded to install a remote-control application such as AnyDesk or TeamViewer, or to share the screen. The attacker then operates the customer's banking app or browser session: he can see balances, apply for loans, close deposits, initiate payments, change passwords and change the phone number that receives authorisation codes. In a business variant warned about by ARB in March 2026, callers posing as ANAF, CNAS or banks offer VAT or health-contribution refunds or announce alleged debts, and ask for screen sharing, banking credentials or transfers to given accounts. Because the payments come from the customer's genuine device and session, banks usually treat them as authorised, while customers say they never approved the transfers."
+    steps:
+      - "A call or message offers help with an 'investment', a 'fraud check', a refund or a debt, and asks the customer to install a remote-control app or to share the screen."
+      - "The customer installs the app and reads out the connection code; the attacker sees and controls the device."
+      - "The attacker opens the banking app or session, views balances and may apply for a loan or close a deposit."
+      - "The attacker changes the phone number or password used for authorisation and initiates transfers, often in several steps."
+      - "The customer notices money gone, uninstalls the app and calls the bank; transfers may continue after the block request."
+    impersonated: ["investment support staff", "bank security", "tax authority (ANAF)", "health insurance fund (CNAS)"]
+    examples_public: ["AnyDesk", "TeamViewer", "ANAF", "CNAS"]
+    complaint_cues_en:
+      - "He asked me to install AnyDesk to help me with the investment."
+      - "I let him see my screen while I was logged in to the banking app."
+      - "My phone was moving by itself and I could not stop it."
+      - "Money left my account while the remote session was open."
+      - "A loan appeared in my name that I never applied for."
+      - "The phone number for receiving codes in my bank profile was changed."
+      - "I uninstalled the app afterwards but it was too late."
+      - "Our company was called about a VAT refund and we shared our screen."
+    complaint_cues_ro:
+      - "Mi-a cerut să instalez AnyDesk ca să mă ajute cu investiția."
+      - "L-am lăsat să-mi vadă ecranul cât eram logat în aplicația băncii."
+      - "Telefonul se mișca singur și nu-l puteam opri."
+      - "Banii au plecat din cont cât timp sesiunea la distanță era deschisă."
+      - "A apărut un credit pe numele meu pe care nu l-am cerut."
+      - "Mi s-a schimbat numărul de telefon pe care primesc codurile în profilul de la bancă."
+      - "am dezinstalat aplicatia dupa dar era prea tarziu"
+      - "Firma noastră a fost sunată pentru o rambursare de TVA și am partajat ecranul."
+    bank_signals:
+      - "Payments from the customer's genuine enrolled device and usual IP, but with an abnormal rhythm: rapid navigation, new payee, amount well above usual."
+      - "Change of the phone number or password used for authorisation shortly before the transfers (CSALB: attackers could change the number that receives the codes)."
+      - "Loan applied for in the app, or a deposit closed, followed by outgoing transfers (CSALB: attackers can apply for loans and close deposits)."
+      - "Successive transfers staying under the security limits (CSALB 2026 case: RON 90,000 taken in successive transactions to circumvent limits)."
+      - "Transfers continue after the customer asked the bank to block access (CSALB 2025 case)."
+      - "Remote-control or screen-sharing tool installed or running, if the app collects device telemetry."
+      - "Business variant: a company's internet-banking user is given away and payments go to accounts dictated by the caller, often before the company notices."
+    prevalence: ""
+    sources:
+      - {title: "Emotional Manipulation, Increasingly Used in Fraud Attempts Targeting Romanians' Bank Accounts", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/emotional-manipulation-increasingly-used-in-fraud-attempts-targeting-romanians-bank-accounts/", date: "2025-05", confidence: P}
+      - {title: "Banking Loan Fraud Cases on the Rise: Dozens of Cases Reported Each Month by Consumers to CSALB", publisher: "CSALB", url: "https://csalb.ro/wp-content/uploads/2026/09/Engl_Credite-fraudate_Comunicat-de-presa-CSALB_09.09.2026.pdf", date: "2026-09", confidence: P}
+      - {title: "În siguranță online (Raiffeisen Bank România, security guidance)", publisher: "Raiffeisen Bank România", url: "https://bank.raiffeisen.ro/ro/in-siguranta-online/home.html", date: "2026-10", confidence: P}
+      - {title: "Fraudele legate de investiții financiare – investment frauds", publisher: "Siguranța Online (Poliția Română, DNSC, ARB)", url: "https://sigurantaonline.ro/fraudele-legate-de-investitii-financiare-investment-frauds/", date: "2023-11", confidence: P}
+      - {title: "Metode de înșelăciune în mediul online și atacurile de tip spoofing", publisher: "Poliția Română (IGPR)", url: "https://politiaromana.ro/ro/stiri-si-media/stiri/metode-de-inselaciune-in-mediul-online-si-atacurile-de-tip-spoofing", date: "2025-10", confidence: P}
+      - {title: "Fraudă în numele ANAF, CNAS și al băncilor. Asociația Română a Băncilor avertizează: Nu accesați linkurile primite", publisher: "Capital.ro (reporting an ARB warning)", url: "https://www.capital.ro/frauda-in-numele-anaf-cnas-si-al-bancilor-asociatia-romana-a-bancilor-avertizeaza-nu-accesati-linkurile-primite.html", date: "2026-03", confidence: S}
+    confidence: P
+    notes: "Legal class is contested: payment orders are issued by the attacker through the victim's device, which points to unauthorised, but banks argue the access was authorised by the customer (CSALB 2026 case of a false-name 'lawyer' who controlled a phone for months, bank demanding repayment on that ground). Per C-70/25 as summarised in docs/context/14, a presumed gross negligence cannot justify refusing the D+1 refund. No count or loss range is given for this pattern alone; the ARB business warning (Capital.ro, 17 March 2026) gives no figures. Because the device is the customer's own, no new-device signal appears, which is why vishing_securitate is the closest builder. The Raiffeisen page is undated (retrieval month). Signals about rhythm and telemetry are inferences."
+
+  - id: sim_swap_otp_interception
+    name: "SIM swap to intercept SMS codes"
+    name_ro: "SIM swap pentru interceptarea codurilor SMS"
+    family: account_takeover
+    psd2_class: unauthorized
+    channels: [transfer, card]
+    maps_to_scenario: sim_swap
+    story: "Criminals who already hold some of the victim's data persuade the mobile operator, through social engineering or forged documents, to move the victim's number onto a SIM card they control. The victim's phone loses signal while the attackers receive every call and SMS, including the bank's one-time codes and password-reset messages. With them they take over online banking or card tokens, add a payee and make transfers or purchases before the customer can get the line back. Police list SIM swap among the technical manoeuvres that accompany spoofed-call schemes, and Europol notes that it is used to obtain the OTP that authorises transfers but that cases fell in 2022, probably because operators tightened customer identification."
+    steps:
+      - "Attackers collect personal data through phishing, vishing or leaks."
+      - "They contact the mobile operator (or an agent) and obtain a replacement SIM or a number transfer."
+      - "The victim's phone loses service while the attackers' SIM receives SMS and calls."
+      - "Using the OTPs, they reset credentials or enrol a device in the banking app, add a payee and move money."
+      - "The customer notices the lost signal or the bank notifications, contacts the operator and the bank, often hours later."
+    impersonated: ["the customer, towards the mobile operator"]
+    examples_public: []
+    complaint_cues_en:
+      - "My phone suddenly lost signal and I had no service for hours."
+      - "I could not receive calls or SMS."
+      - "Later I saw transfers I never made."
+      - "The operator says the SIM was replaced but I did not ask for it."
+      - "I received bank messages about a new device I never enrolled."
+      - "The phone number registered at the bank was changed without my knowledge."
+      - "Transactions continued even after I asked the bank to block my access."
+    complaint_cues_ro:
+      - "Telefonul și-a pierdut brusc semnalul și am rămas fără serviciu ore în șir."
+      - "Nu am mai putut primi apeluri și SMS-uri."
+      - "Mai târziu am văzut transferuri pe care nu le-am făcut."
+      - "Operatorul spune că cartela SIM a fost înlocuită, dar eu nu am cerut asta."
+      - "Am primit mesaje de la bancă despre un dispozitiv nou pe care nu l-am înrolat."
+      - "Numărul de telefon înregistrat la bancă a fost schimbat fără știrea mea."
+      - "mi s-a dus semnalul la telefon si dupa cateva ore mi-au disparut banii din cont"
+      - "tranzactiile au continuat si dupa ce am cerut blocarea"
+    bank_signals:
+      - "SIM replacement or number-port event at the operator (sim_events) in the hours before the first anomalous action, where the bank receives such data."
+      - "OTP SMS delivered to a SIM that changed shortly before; sudden loss of the customer's usual mobile signal reported by the customer."
+      - "Password reset or device enrolment completed with an SMS OTP immediately after the SIM event."
+      - "Phone number registered in the bank profile changed (CSALB 2025 case: home-banking access lost after the number was changed)."
+      - "New payee and one or more transfers within hours, from the new device."
+      - "Customer contacts the bank from another phone number, and the first contact comes after the money has left."
+    prevalence: ""
+    sources:
+      - {title: "Metode de înșelăciune în mediul online și atacurile de tip spoofing", publisher: "Poliția Română (IGPR)", url: "https://politiaromana.ro/ro/stiri-si-media/stiri/metode-de-inselaciune-in-mediul-online-si-atacurile-de-tip-spoofing", date: "2025-10", confidence: P}
+      - {title: "Europol Spotlight – Online fraud schemes: a web of deceit", publisher: "Europol", url: "https://www.europol.europa.eu/cms/sites/default/files/documents/Spotlight-Report_Online-fraud-schemes.pdf", date: "2023-12", confidence: P}
+      - {title: "10 Banking Fraud Methods and Channels: What Consumers Report to CSALB", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/10-banking-fraud-methods-and-channels-what-consumers-report-to-csalb/", date: "2025-10", confidence: P}
+    confidence: P
+    notes: "No Romanian count or loss figure for SIM swap was found; Europol (published 2023) says SIM-swap cases fell in 2022 across the EU, so current prevalence in Romania is unverified. The CSALB 2025 case describes a malicious e-mail followed by a phone-number change and emptied accounts without naming a SIM swap, so it is used only for the number-change and continued-transactions signals. Legal class: unauthorised. The Europol month (2023-12) is taken from the PDF metadata; the report states 2023. All other bank_signals are inferences from the mechanism."
+
+  - id: android_banking_malware_takeover
+    name: "Android malware installed from a link, then the banking app is abused"
+    name_ro: "Malware Android instalat dintr-un link, apoi aplicația bancară este folosită abuziv"
+    family: account_takeover
+    psd2_class: unauthorized
+    channels: [transfer, transfer_instant]
+    maps_to_scenario: phishing_link
+    story: "The victim is lured, through a link in an SMS or a WhatsApp message, a fake update or a look-alike app, into installing a malicious Android application. The application works as a remote-access tool or banking trojan: it can read SMS, see the screen, run in the background and let the attackers operate the phone. In a CSALB case the malware arrived through an application installed via WhatsApp; the criminals opened an online bank account in the victim's name, took a loan of 29,000 lei and stole 90,000 lei in successive transactions that stayed below security limits, half of it from an account where the victim was an authorised representative for other people. The bank answered that the payments had been authenticated in the home-banking app with the security code or biometrics and executed according to the IBAN given. DNSC warned in 2024 about the Rafel RAT, spread through fake apps, mails, SMS and social media."
+    steps:
+      - "Victim receives a link (SMS, WhatsApp, e-mail or social media) that leads to a malicious app or a fake update."
+      - "The app asks for broad permissions and installs; it hides and may read SMS and control the screen."
+      - "Attackers connect to the device, sometimes for hours, and operate the banking app or open an online account and loan in the victim's name."
+      - "Funds are moved in several successive transactions, often staying under security limits, to other accounts."
+      - "The victim notices a loan notice, an SMS or empty accounts and reports the loss to the bank and the police."
+    impersonated: ["messaging and utility apps", "system updates"]
+    examples_public: ["WhatsApp", "Black WhatsApp", "Story Saver for Instagram"]
+    complaint_cues_en:
+      - "I installed an app from a link I received on WhatsApp."
+      - "After that, strange things happened on my phone."
+      - "Someone opened a bank account and applied for a loan in my name."
+      - "Transfers were made from my phone without my approval."
+      - "The bank says the payments were authenticated with my security code or fingerprint, but I did not do it."
+      - "There were many smaller transfers one after another."
+      - "My phone seemed to be controlled by someone else for hours."
+    complaint_cues_ro:
+      - "Am instalat o aplicație dintr-un link primit pe WhatsApp."
+      - "După aceea telefonul a început să se comporte ciudat."
+      - "Cineva a deschis un cont și a cerut un credit pe numele meu."
+      - "S-au făcut transferuri de pe telefonul meu fără aprobarea mea."
+      - "Banca spune că plățile au fost autentificate cu codul sau amprenta mea, dar eu nu am făcut asta."
+      - "Au fost multe transferuri mai mici, unul după altul."
+      - "am dat click pe un link din sms si am instalat o aplicatie, apoi mi-au golit conturile"
+    bank_signals:
+      - "SCA satisfied with the app security code or biometrics on the customer's enrolled device, so the bank sees valid authentication (stated in the bank's reply in the CSALB case)."
+      - "Online account opened and loan applied for in the customer's name shortly before the transfers (CSALB case)."
+      - "Funds withdrawn in a series of successive transactions designed to stay under security limits (CSALB case)."
+      - "Transfers between the customer's own accounts first, then out, including from an account where the customer is only an authorised representative."
+      - "Device with an outdated operating system or integrity flags; in the DNSC Rafel RAT warning, 87.5% of the devices involved ran Android versions that no longer received security updates."
+      - "Sessions at unusual hours or lasting hours, with abnormal speed; no new-device enrolment because the customer's own phone is used."
+    typical_amount_ron: [29000, 90000]
+    prevalence: "BNR, December 2025 financial stability report, citing DNSC: in 2024 computer fraud rose by about 40% and the malware phenomenon by almost 287%; these are all-malware figures, not banking-trojan figures."
+    sources:
+      - {title: "Banking Loan Fraud Cases on the Rise: Dozens of Cases Reported Each Month by Consumers to CSALB", publisher: "CSALB", url: "https://csalb.ro/wp-content/uploads/2026/09/Engl_Credite-fraudate_Comunicat-de-presa-CSALB_09.09.2026.pdf", date: "2026-09", confidence: P}
+      - {title: "Raport asupra stabilității financiare, decembrie 2025", publisher: "Banca Națională a României", url: "https://www.bnr.ro/uploads/2025-12-09raportasuprastabilit%C4%83%C8%9Biifinanciare-decembrie2025_documentpdf_545_1765290572.pdf", date: "2025-12", confidence: P}
+      - {title: "DNSC avertizează asupra unei amenințări cibernetice ce vizează utilizatorii de Android (Rafel RAT)", publisher: "AGERPRES (DNSC warning)", url: "https://agerpres.ro/economic/2024/07/04/dnsc-avertizeaza-asupra-unei-amenintari-cibernetice-ce-vizeaza-utilizatorii-de-android--1323008", date: "2024-07", confidence: S}
+    confidence: P
+    notes: "typical_amount_ron is the loan (29,000 lei) and the total taken (90,000 lei) in the single CSALB 2026 case; it is not a population range. The Rafel RAT warning does not mention banking apps, and reading SMS (which could expose OTPs) is the only banking-relevant capability it lists, so the link to bank takeover rests on the CSALB case. A CSALB 2026 case does not state the Android version or the malware family. Legal class: unauthorised if the attacker initiated the payments; the bank's reply in the CSALB case argues authentication was valid. Signals about hours-long sessions and own-account moves beyond the CSALB description are inferences."
+
+  - id: loan_taken_in_victim_name
+    name: "Loan or credit card taken in the victim's name (identity theft, video identification, app access)"
+    name_ro: "Credit sau card de credit luat pe numele victimei (furt de identitate, identificare video, acces în aplicație)"
+    family: account_takeover
+    psd2_class: unauthorized
+    channels: [transfer]
+    maps_to_scenario: phishing_link
+    story: "Using stolen credentials, remote access to a phone, or an identity-verification video that the victim recorded for a fake 'investment broker' on social media, criminals open an online account or apply for a personal loan or credit card in the victim's name. The proceeds are moved at once to external accounts, crypto platforms or cash. The victim learns of the debt from the loan notification or the first instalment and asks the bank to cancel the loan, to suspend the instalments and not to report delays to the Credit Bureau. The central bank's representative in CSALB warns that video-identification recordings can be reused for deepfakes. In the cases CSALB listed in 2026, banks had closed or rejected every request, often because the police were investigating and the customer had given the criminals access."
+    steps:
+      - "The victim gives away credentials, phone access or a recorded identification video (for example to a fake broker or investment app)."
+      - "The criminals complete onboarding or a loan application in the victim's name, in the app or online."
+      - "The loan is disbursed and quickly transferred to external accounts or turned into cash or crypto."
+      - "The victim sees the loan notice or the first instalment, reports to the bank and the police and disputes the contract."
+      - "The bank refuses, arguing the customer's own authentication or access."
+    impersonated: ["investment brokers", "bank employees"]
+    examples_public: ["Facebook"]
+    complaint_cues_en:
+      - "A loan appeared in my name that I never applied for."
+      - "I only did a video identification for an 'investment broker' I found on Facebook."
+      - "The money from the loan was moved to other accounts within hours."
+      - "I reported it to the police and I ask the bank to cancel the loan."
+      - "I ask for the instalments to be suspended and not to be reported to the credit bureau."
+      - "The bank says I gave them access, but I never consented to this loan."
+      - "The monthly instalment is more than 30% of my income."
+    complaint_cues_ro:
+      - "A apărut un credit pe numele meu pe care nu l-am cerut niciodată."
+      - "Am făcut doar o identificare video pentru un „broker de investiții” de pe Facebook."
+      - "Banii din credit au fost mutați în alte conturi în câteva ore."
+      - "Am reclamat la poliție și cer băncii să anuleze creditul."
+      - "Cer suspendarea ratelor și să nu fiu raportat la Biroul de Credit."
+      - "Banca spune că eu le-am dat acces, dar eu nu am consimțit la acest credit."
+      - "mi-au luat un credit pe nume fara stirea mea si banii au plecat in alte conturi"
+    bank_signals:
+      - "Online account opening or loan origination completed with remote or video identification, followed within hours by outgoing transfers of the proceeds to external accounts."
+      - "Loan amounts in the documented cases range from 29,000 to 110,000 lei, at or near the customer's maximum; a 60-month loan was taken through the mobile app despite the customer having blocked the accounts."
+      - "Contact details (phone, e-mail) at origination differ from those on file, or are changed right after."
+      - "New device enrolled at origination; no borrowing history; instalment above 30% of net income in at least one case."
+      - "Identification session performed shortly after the customer interacted with a third party (the 'broker'); the video could have been reused."
+      - "After the event: police complaint reference, request to suspend instalments and not to report to the Credit Bureau."
+    typical_amount_ron: [29000, 110000]
+    prevalence: "CSALB, 9 September 2026: more than 170 requests about fraud through banking channels so far in 2026, most of them bank loans taken in victims' names; losses up to EUR 20,000 in the analysed cases; all described requests closed or rejected by the banks. CSALB, October 2025: banks accepted conciliation in 8 fraud cases that year."
+    sources:
+      - {title: "Banking Loan Fraud Cases on the Rise: Dozens of Cases Reported Each Month by Consumers to CSALB", publisher: "CSALB", url: "https://csalb.ro/wp-content/uploads/2026/09/Engl_Credite-fraudate_Comunicat-de-presa-CSALB_09.09.2026.pdf", date: "2026-09", confidence: P}
+      - {title: "10 Banking Fraud Methods and Channels: What Consumers Report to CSALB", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/10-banking-fraud-methods-and-channels-what-consumers-report-to-csalb/", date: "2025-10", confidence: P}
+    confidence: P
+    notes: "typical_amount_ron is the range of loan amounts in the CSALB cases (29,000; 54,000; 66,000; 67,000; about 100,000; 110,000 lei). This is a credit-contract dispute rather than a payment dispute: docs/context/14 (DSP-16, from OUG 50/2010) routes credit taken in the victim's name to the credit-fraud queue, with a 30-day answer and a request to suspend Credit Bureau reporting. The release uses fictitious names with real counties; no personal data is reproduced here. Where the customer took the loan personally under instruction, see authority_impersonation_loan_crypto_atm. Signals not drawn from the CSALB text are inferences."
+
+  - id: card_data_theft_cnp
+    name: "Stolen card details used for card-not-present purchases"
+    name_ro: "Datele cardului furate și folosite pentru plăți online fără card fizic"
+    family: card_not_present
+    psd2_class: unauthorized
+    channels: [card]
+    maps_to_scenario: card_ecom_fara_3ds
+    story: "Card details (number, expiry, CVV) are obtained through phishing, a data breach, an infostealer or digital skimming of an online shop's checkout page, and are sold on card-dump sites. Fraudsters use them for online purchases, typically at merchants that do not apply strong customer authentication or that are outside the EEA. The EBA/ECB report for 2024 finds that remote card payments were about 83% of all card fraud, that in most card fraud the fraudster directly issues the payment order with stolen credentials, and that fraud rates were about seventeen times higher when the payee was outside the EEA. The customer sees an unknown online payment, often at a foreign website, without having received any code or approval request, and reports it while the payment may still be pending. Raiffeisen's 2025 annual report says about 64% of its registered complaints are contested card transactions."
+    steps:
+      - "Card data are stolen by phishing, a breach, an infostealer or digital skimming of a checkout page and are sold on card-dump sites."
+      - "Fraudsters use the data at online merchants, typically ones that do not apply 3-D Secure or are outside the EEA."
+      - "Purchases go through without a code or approval request to the cardholder."
+      - "The customer sees a notification or a statement line for a merchant never used and blocks the card."
+      - "The customer disputes the payment; it may still be pending, and the bank may or may not be able to stop it."
+    impersonated: []
+    examples_public: []
+    complaint_cues_en:
+      - "There is an online card payment at a foreign website I have never used."
+      - "My card is with me and I did not give the details to anyone."
+      - "I did not receive any code or approval request."
+      - "Several payments went through within a few minutes."
+      - "It happened at night while I was asleep."
+      - "I blocked the card as soon as I saw the notification."
+      - "The merchant is abroad and the payment is still pending."
+    complaint_cues_ro:
+      - "Apare o plată online cu cardul la un site din străinătate pe care nu l-am folosit niciodată."
+      - "Cardul este la mine și nu am dat datele nimănui."
+      - "Nu am primit niciun cod și nicio cerere de aprobare."
+      - "Au trecut mai multe plăți în câteva minute."
+      - "S-a întâmplat noaptea, cât dormeam."
+      - "Am blocat cardul imediat ce am văzut notificarea."
+      - "plata e inca in asteptare si comerciantul e din strainatate"
+      - "nu am facut eu tranzactia asta online, cardul era la mine"
+    bank_signals:
+      - "E-commerce authorisation with no 3-D Secure (no CAVV, ECI 07) or under an SCA exemption, often at a merchant outside the EEA where SCA is not legally required."
+      - "First-time merchant and merchant country; merchant category unrelated to the customer's habits."
+      - "Several payments within minutes, sometimes at night."
+      - "No banking-app session or SCA event around the payment."
+      - "Payment still pending authorisation (not yet settled) when the customer reports it."
+      - "Card-present activity of the real card elsewhere in the same period."
+    prevalence: "Raiffeisen Bank România Annual Report 2025: about 64% of registered complaints are contested card transactions (all causes); complaints fell 3% vs 2024. EBA/ECB, 2024: remote card payment fraud about 83% of card fraud; EUR 1.329 billion losses on EU/EEA-issued cards (+29%). ARB, end of 2024: card fraud rate 0,005% in Romania."
+    sources:
+      - {title: "2025 Report on Payment Fraud (EBA/REP/2025/40)", publisher: "EBA and ECB", url: "https://www.ecb.europa.eu/press/intro/publications/pdf/ecb.ebaecb202512.en.pdf", date: "2025-12", confidence: P}
+      - {title: "Joint EBA-ECB report on payment fraud: strong authentication remains effective but fraudsters are adapting", publisher: "ECB", url: "https://www.ecb.europa.eu/press/pr/date/2025/html/ecb.pr251215~e133d9d683.en.html", date: "2025-12", confidence: P}
+      - {title: "Raport Anual 2025, p. 41", publisher: "Raiffeisen Bank România", url: "https://www.raiffeisen.ro/content/dam/rbi/retail/eu/ro/documents/rapoarte/anuale/2025-Raport-anual-Raiffeisen-Bank.pdf.coredownload.inline.pdf", date: "2026-04", confidence: P}
+      - {title: "Europol Spotlight – Online fraud schemes: a web of deceit", publisher: "Europol", url: "https://www.europol.europa.eu/cms/sites/default/files/documents/Spotlight-Report_Online-fraud-schemes.pdf", date: "2023-12", confidence: P}
+      - {title: "Poliția Română, DNSC, ARB și Mastercard lansează campania națională „Uniți împotriva escrocheriilor”", publisher: "Siguranța Online (Poliția Română, DNSC, ARB)", url: "https://sigurantaonline.ro/politia-romana-dnsc-arb-si-mastercard-lanseaza-campania-nationala-uniti-impotriva-escrocheriilor/", date: "2026-03", confidence: P}
+    confidence: P
+    notes: "The 64% figure is verified in the annual report text (the page number 41 follows docs/context/14). EU-wide EBA/ECB figures are not Romanian; the report also has a country-by-country chapter that was not read here. Legal class: unauthorised, D+1 refund applies (docs/context/14). The Raiffeisen figure counts all contested card transactions, so it overstates pure stolen-data fraud. No public Romanian amount range was found, so typical_amount_ron is omitted. The signals are inferences from the EBA/ECB description (stolen credentials, non-EEA payee, no SCA) and from the project's own scenario; Romanian banks do not publish log fields."
+
+  - id: card_testing_carding_bots
+    name: "Card testing by bots before larger purchases"
+    name_ro: "Testarea cardurilor de către boți înaintea unor achiziții mai mari"
+    family: card_not_present
+    psd2_class: unauthorized
+    channels: [card]
+    maps_to_scenario: card_ecom_fara_3ds
+    story: "Bots test whether stolen or generated card data are valid by sending many automated authorisation attempts to online merchants, often at the same time. Europol describes this carding as usually performed by bots that test the validity of stolen card data and then make purchases, with criminals running simultaneous automated operations to attempt purchase authorisation. The cardholder may see a few tiny or declined online charges at unknown sites, followed by a larger purchase, or only the decline notifications, and often has no idea how the details were obtained. No Romanian-specific source describing the pattern was found."
+    steps:
+      - "Card details from a breach, skimmer or dump are loaded into a bot."
+      - "The bot fires many small authorisation attempts across merchants, often in parallel."
+      - "Cards that pass are used for larger purchases or sold on."
+      - "The cardholder sees tiny or declined charges, then a bigger one, and blocks the card."
+    impersonated: []
+    examples_public: []
+    complaint_cues_en:
+      - "I received several notifications for tiny card payments I did not make."
+      - "Payments of a few lei at different websites within minutes."
+      - "My card was declined at first, then a large payment went through."
+      - "I never used these websites."
+      - "The bank texted me about a declined attempt that was not mine."
+    complaint_cues_ro:
+      - "Am primit mai multe notificări pentru plăți foarte mici cu cardul pe care nu le-am făcut."
+      - "Plăți de câțiva lei la site-uri diferite, în câteva minute."
+      - "Întâi mi s-a refuzat o plată, apoi a trecut una mare."
+      - "Nu am folosit niciodată aceste site-uri."
+      - "banca mi-a trimis sms ca o tranzactie a fost refuzata dar nu eu am facut-o"
+    bank_signals:
+      - "Many authorisation attempts for the same card within seconds or minutes, at different merchants or from different IPs, run by automated clients."
+      - "A high share of declines for invalid CVV, expiry or card number."
+      - "Very small amounts first, then a larger purchase once a card is confirmed valid."
+      - "Attempts without 3-D Secure at merchants with weak controls; the same BIN range may be hit repeatedly."
+      - "The real card has no history at these merchants and there is no banking-app session."
+    prevalence: ""
+    sources:
+      - {title: "Europol Spotlight – Online fraud schemes: a web of deceit", publisher: "Europol", url: "https://www.europol.europa.eu/cms/sites/default/files/documents/Spotlight-Report_Online-fraud-schemes.pdf", date: "2023-12", confidence: P}
+    confidence: S
+    notes: "Only one official sentence supports the mechanism (Europol, a 2023 report), and no Romanian bank, authority or CSALB source describing card testing was found, so confidence is S and prevalence is empty. Every bank_signal is an inference in the style of standard card-fraud monitoring, not a documented Romanian pattern; use it as a synthetic-data design choice. The cues are composed from the mechanism, not taken from real complaints. The Europol month (2023-12) is taken from the PDF metadata; the report states 2023."
+
+  - id: wallet_token_provisioning_fraud
+    name: "Card enrolled in a mobile wallet on the fraudster's device"
+    name_ro: "Card înrolat într-un portofel digital pe dispozitivul fraudatorului"
+    family: account_takeover
+    psd2_class: unauthorized
+    channels: [card]
+    maps_to_scenario: card_visa_secure
+    story: "The victim's card is added to a mobile wallet (Google Pay in the CSALB cases) on a device the criminals control. In one CSALB case the victim was manipulated into giving the card details and authorising the enrolment on a foreign device, and unauthorised wallet payments followed; in another, after a phone theft, the card enrolled on the stolen device was used for ten unauthorised transactions totalling 50,071 lei. Europol describes the technique: fraudsters obtain the OTP linked to tokenised cards and connect the stolen card data to existing mobile payment systems to buy goods or take cash. Token payments carry device-level authentication, so the bank often treats them as authenticated and the scheme chargeback route is weak."
+    steps:
+      - "The criminals obtain the card details, by social engineering or from a stolen phone, and trigger the wallet enrolment."
+      - "The bank sends an enrolment OTP or approval request; the victim is tricked into giving or approving it, or the thief already holds the phone."
+      - "The card is tokenised on the criminals' device."
+      - "A burst of contactless or in-app payments follows, sometimes ten or more transactions."
+      - "The customer notices the notifications or the loss of the phone and reports the card."
+    impersonated: []
+    examples_public: ["Google Pay"]
+    complaint_cues_en:
+      - "My card was added to a phone that is not mine."
+      - "There are contactless payments I did not make."
+      - "My phone was stolen and the card was used ten times."
+      - "I was convinced to give my card details and approve an enrolment and now wallet payments appear."
+      - "The bank says the card was enrolled with a valid code."
+      - "I never added my card to a digital wallet."
+    complaint_cues_ro:
+      - "Cardul meu a fost adăugat pe un telefon care nu e al meu."
+      - "Apar plăți contactless pe care nu le-am făcut."
+      - "Mi-a fost furat telefonul și cardul a fost folosit de zece ori."
+      - "Am fost convins să dau datele cardului și să aprob o înrolare, iar acum apar plăți cu portofelul digital."
+      - "Banca zice că cardul a fost înrolat cu un cod valid."
+      - "nu mi-am adaugat eu cardul in google pay"
+    bank_signals:
+      - "Token provisioning event for a new device (a device PAN reference) shortly after an OTP or approval for enrolment."
+      - "Burst of token payments in a short window after provisioning (CSALB case: ten transactions, 50,071 lei in total)."
+      - "Token device differs from the customer's enrolled devices; payment locations differ from the customer's usual location."
+      - "Payments authenticated at device level (token cryptogram, wallet unlock), so ECI and CAVV evidence favours the bank."
+      - "Customer reports a stolen phone or a recent call asking for card details and codes."
+    prevalence: ""
+    sources:
+      - {title: "10 Banking Fraud Methods and Channels: What Consumers Report to CSALB", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/10-banking-fraud-methods-and-channels-what-consumers-report-to-csalb/", date: "2025-10", confidence: P}
+      - {title: "Europol Spotlight – Online fraud schemes: a web of deceit", publisher: "Europol", url: "https://www.europol.europa.eu/cms/sites/default/files/documents/Spotlight-Report_Online-fraud-schemes.pdf", date: "2023-12", confidence: P}
+    confidence: P
+    notes: "Two CSALB 2025 cases and one Europol paragraph support the mechanism; no Romanian count was found. The 50,071 lei is the total of ten transactions in one case, so no range is given. Legal class: unauthorised when the customer did not consent to the payments; if the customer approved the enrolment, banks argue authorisation (the second CSALB case gives no bank answer). docs/context/14 notes that Visa treats an authenticated tokenised transaction as not disputable under 10.4, so the loss may stay with the bank; the Visa rules were not re-opened here. The first two bank_signals are stated in the sources; the rest are inferences. The Europol month (2023-12) is taken from the PDF metadata."
+
+  - id: fake_fine_or_refund_sms
+    name: "Fake parking fee, online fine or refund notice leading to a card-data page"
+    name_ro: "Taxă de parcare, amendă online sau rambursare falsă care duce la o pagină de date de card"
+    family: phishing
+    psd2_class: unauthorized
+    channels: [card]
+    maps_to_scenario: phishing_link
+    story: "Messages or pop-ups in the name of a public authority or a parking operator tell the customer there is an unpaid parking fee, an online fine or a refund. A DNSC alert reported on 27 July 2026 describes SMS messages about an unpaid parking fee and a 'last chance to pay without penalties' that open a fake page imitating official ones and asking for personal and banking data. Another DNSC alert, reported on 15 June 2026, describes pop-ups served by ad networks on websites announcing an 'online fine of 2,480 lei', using the name and logo of DNSC itself and redirecting to a page that asks for card details. Europol lists overpayments, tax requests and announcements of detected crimes among the usual phishing narratives. The card data typed in are used for card payments, with or without an OTP."
+    steps:
+      - "Customer receives an SMS about an unpaid parking fee, or sees a pop-up announcing an online fine or a refund."
+      - "The link or pop-up leads to a page that imitates an official payment page and carries an institution's logo."
+      - "The page asks for personal data and the card number, expiry and CVV, and may ask for the SMS code."
+      - "The attackers use the data for card payments; the customer sees an unknown charge."
+      - "The customer calls the bank and files a report with the police."
+    impersonated: ["tax and fines authorities", "national cybersecurity directorate (fake fine pop-ups)", "parking operators"]
+    examples_public: ["DNSC"]
+    complaint_cues_en:
+      - "I got an SMS about an unpaid parking fee with a last chance to pay without penalties."
+      - "A pop-up on a website said I had to pay an online fine."
+      - "The page had the logo of an authority and asked for my card details."
+      - "I entered my card details to pay the fine."
+      - "Afterwards money left my account."
+      - "I thought it was an official refund of an overpayment."
+    complaint_cues_ro:
+      - "Am primit un SMS despre o taxă de parcare neachitată, cu ultima șansă de plată fără penalități."
+      - "O fereastră pop-up de pe un site spunea că trebuie să plătesc o amendă online."
+      - "Pagina avea sigla unei instituții și cerea datele cardului."
+      - "Am introdus datele cardului ca să plătesc amenda."
+      - "După aceea au plecat bani din cont."
+      - "am crezut ca e o rambursare oficiala"
+      - "mesajul zicea ca am o amenda de parcare si trebuie sa platesc urgent"
+    bank_signals:
+      - "Card-not-present payments at foreign or first-time merchants after the customer typed card data (and possibly an OTP) on a page branded as an authority."
+      - "OTP or 3-D Secure challenges that match no payment the customer intended, sometimes several in a row."
+      - "The lure amount (a parking fee, a 2,480 lei fine) does not match the disputed payment amounts."
+      - "No banking-app login; card flow only."
+      - "Customer reports within hours, while the payment may still be pending."
+    prevalence: ""
+    sources:
+      - {title: "Atenție la SMS-urile cu taxe de parcare! DNSC avertizează asupra unei campanii de fraudă cibernetică", publisher: "Capital.ro (reporting a DNSC alert)", url: "https://www.capital.ro/atentie-la-sms-urile-cu-taxe-de-parcare-dnsc-avertizeaza-asupra-unei-campanii-de-frauda-cibernetica.html", date: "2026-07", confidence: S}
+      - {title: "DNSC: Noi tentative de fraude online. Escrocii folosesc amenzi false pentru a fura banii din conturi", publisher: "Capital.ro (reporting a DNSC alert)", url: "https://www.capital.ro/dnsc-noi-tentative-de-fraude-online-escrocii-folosesc-amenzi-false-pentru-a-fura-banii-din-conturi.html", date: "2026-06", confidence: S}
+      - {title: "Europol Spotlight – Online fraud schemes: a web of deceit", publisher: "Europol", url: "https://www.europol.europa.eu/cms/sites/default/files/documents/Spotlight-Report_Online-fraud-schemes.pdf", date: "2023-12", confidence: P}
+      - {title: "Raport asupra stabilității financiare, decembrie 2025", publisher: "Banca Națională a României", url: "https://www.bnr.ro/uploads/2025-12-09raportasuprastabilit%C4%83%C8%9Biifinanciare-decembrie2025_documentpdf_545_1765290572.pdf", date: "2025-12", confidence: P}
+    confidence: S
+    notes: "The DNSC alert pages cannot be fetched by automated tools, so both alerts are known from Capital.ro's reports; the first article gives no amounts or domain names. The 2,480 lei is the fake fine in the notice, not a loss. BNR's stability report lists impersonation of public-institution staff as a leading social-engineering scenario. Company-targeted ANAF and CNAS refund calls with screen sharing are covered by remote_access_app_takeover. All bank_signals are inferences from the card-data mechanism."
+
+  - id: qr_code_phishing
+    name: "Fake QR code stickers on parking payment panels"
+    name_ro: "Autocolante cu coduri QR false pe panourile de plată a parcării"
+    family: phishing
+    psd2_class: unauthorized
+    channels: [card]
+    maps_to_scenario: phishing_link
+    story: "In July 2025 fraudsters stuck fake QR codes over the genuine ones on parking payment panels in Bucharest and Constanța. Drivers who scanned them were redirected to cloned payment sites, typed their card details, and the payments went to unknown accounts. In Constanța the operator alerted the police on 24 July, at least one victim lost 700 lei, a criminal case for computer fraud was opened and the city temporarily suspended QR payment for parking; in Bucharest the municipal parking company found panels with QR stickers in a different colour. Bucharest police carried out five house searches on 6 November 2025 and found two suspects, one of whom is in jail in Belgium for similar offences, and investigators said the data was used to collect vehicle registration numbers and payment instrument details."
+    steps:
+      - "Fraudsters stick a lookalike QR code over the real one on a parking payment panel."
+      - "A driver scans it to pay for parking and lands on a cloned payment site."
+      - "The site asks for card details; the data are captured and used for payments to unknown accounts."
+      - "The driver notices the charge or that the parking is not paid; the operator or the police are alerted."
+    impersonated: ["parking payment operators"]
+    examples_public: ["Compania Municipală Parcări București (CMPB)"]
+    complaint_cues_en:
+      - "I scanned the QR code on the parking panel to pay and the page asked for my card details."
+      - "The sticker with the QR code looked different from the original."
+      - "After I paid for parking, money disappeared from my card."
+      - "The payment went to an account I do not know."
+      - "The page looked like the official parking payment site."
+    complaint_cues_ro:
+      - "Am scanat codul QR de pe panoul de parcare ca să plătesc, iar pagina a cerut datele cardului."
+      - "Autocolantul cu codul QR arăta diferit față de cel original."
+      - "După ce am plătit parcarea, mi-au dispărut bani de pe card."
+      - "Plata a ajuns într-un cont pe care nu îl cunosc."
+      - "Pagina arăta ca site-ul oficial de plată a parcării."
+      - "am scanat un cod qr la parcare si mi-au luat banii de pe card"
+    bank_signals:
+      - "Card payment to a merchant or processor that is not the parking operator, shortly after a parking payment attempt reported by the customer."
+      - "Payment amount of a few hundred lei (documented single loss: 700 lei) or several charges after the data were captured."
+      - "Merchant descriptor or acquirer differs from the official parking operator's."
+      - "If an OTP is requested, the 3-D Secure code is typed on the same cloned page."
+      - "Several customers at the same location in the same date window report similar charges (location clustering for the bank's analytics)."
+    prevalence: ""
+    sources:
+      - {title: "Au vrut să plătească parcarea, dar au rămas fără bani: șoferi din București și Constanța, victimele unei fraude cu coduri QR false", publisher: "Playtech.ro", url: "https://playtech.ro/2025/au-vrut-sa-plateasca-parcarea-dar-au-ramas-fara-bani-soferi-din-bucuresti-si-constanta-victimele-unei-fraude-cu-coduri-qr-false/", date: "2025-07", confidence: S}
+      - {title: "Poliția Capitalei: au fost depistate persoanele care au lipit pe panourile pentru plata parcării din Sectorul 1 stickere cu coduri QR diferite de cele originale", publisher: "G4Media.ro", url: "https://www.g4media.ro/politia-capitalei-au-fost-depistate-persoanele-care-au-lipit-pe-panourile-pentru-plata-parcarii-in-sectorul-1-stickere-cu-coduri-qr-diferite-de-cele-originale-ca-sa-insele-cetatenii.html", date: "2025-11", confidence: S}
+    confidence: S
+    notes: "Both sources are press reports (no DNSC or Police page on this scheme could be opened), and neither gives a loss total; 700 lei is the one loss reported, so typical_amount_ron is omitted. The Bucharest and Constanța cases may or may not be the same operation; the G4Media report places the stickering on 19 July and the police report on 24 July. The mechanism is the same as quishing in general (a QR code replaces a typed link), but no Romanian source on QR phishing aimed at bank logins was found. bank_signals are inferences from the card-data mechanism and the clustering idea is a suggestion for the generator."
+
+  - id: business_email_compromise_ceo_invoice
+    name: "CEO fraud, fake-supplier invoice and mailbox takeover against companies"
+    name_ro: "Frauda „mesaj de la șef”, factura cu IBAN schimbat și preluarea căsuței de e-mail a firmei"
+    family: app_scam
+    psd2_class: authorized_push_payment
+    channels: [transfer, transfer_instant]
+    maps_to_scenario: cont_sigur
+    story: "Three related schemes target companies. In CEO fraud a finance employee is contacted by phone or e-mail by someone posing as a senior executive, who asks for an urgent and confidential transfer, often to an account abroad, and pressures the employee to skip the normal approvals. In invoice fraud a fake supplier or business partner, or a hijacked mailbox, asks the company to pay an invoice to a changed IBAN. In mailbox takeover, attackers take over company mailboxes, set up forwarding and alter documents inside genuine conversations; in a case reported in August 2026 the unauthorised transfers exceeded EUR 20,000. Europol notes that victims sometimes make several transfers before they notice, that the money is split quickly across accounts in several countries, and that deepfake audio has been used to imitate a chief executive. The ARB-backed guide advises dual approval ('four eyes') and confirming payment instructions through a second channel."
+    steps:
+      - "Attackers study the company, or take over a mailbox, to learn structure, suppliers and payment routines."
+      - "An employee in finance receives an urgent, confidential request from the 'CEO', or an invoice or a notice of a changed IBAN from a 'supplier'."
+      - "The employee is pushed to skip the usual authorisation steps."
+      - "The transfer is made to an account controlled by the fraudster, often abroad; several payments may follow."
+      - "The money is moved on quickly through accounts in several countries; the company finds out when the real supplier asks for payment or the executive denies the request."
+    impersonated: ["senior executives (CEO or CFO)", "suppliers and business partners"]
+    examples_public: []
+    complaint_cues_en:
+      - "Our director's e-mail asked us to make an urgent confidential transfer."
+      - "The supplier sent a new IBAN and we paid the invoice to it."
+      - "The supplier says they never received the payment."
+      - "Someone called pretending to be the CEO and told me to skip the usual approval."
+      - "The e-mail conversation looked genuine, but the account number was different."
+      - "We discovered that our mailbox had been taken over."
+      - "We made several transfers before we noticed."
+    complaint_cues_ro:
+      - "Directorul nostru ne-a cerut pe e-mail un transfer urgent și confidențial."
+      - "Furnizorul ne-a trimis un IBAN nou și am plătit factura în acel cont."
+      - "Furnizorul spune că nu a primit plata."
+      - "Cineva a sunat dându-se drept directorul și mi-a zis să sar peste aprobările obișnuite."
+      - "Conversația pe e-mail părea reală, dar numărul de cont era altul."
+      - "Am descoperit că ni s-a preluat adresa de e-mail."
+      - "am facut mai multe plati pana ne-am dat seama"
+      - "furnizorul ne-a anuntat ca si-a schimbat contul bancar"
+    bank_signals:
+      - "Payment to a new beneficiary, often abroad, initiated by an authorised user outside the usual approval path or with a single approval instead of dual control."
+      - "For an existing supplier: same beneficiary name but a different IBAN (other bank or country) from the previous payments."
+      - "Amount above the customer's usual for that beneficiary; urgency; outside working hours."
+      - "Remittance information that quotes a genuine invoice number or the executive's name."
+      - "Several transfers over a few days before the fraud is noticed."
+      - "Recipient accounts forward the money quickly to other jurisdictions (AML referral signal)."
+    prevalence: "DNSC 2025 report (via Digi24): 1,125 account-compromise incidents (+353%, from 248 in 2024). A Romanian case in August 2026: unauthorised transfers over EUR 20,000 after two company mailboxes were taken over (StartupCafe, quoting DNSC)."
+    sources:
+      - {title: "Cele mai frecvente tipuri de fraudă din România", publisher: "Siguranța Online (Poliția Română, DNSC, ARB)", url: "https://sigurantaonline.ro/cele-mai-frecvente-tipuri-de-fraude-din-romania/", date: "2021-10", confidence: P}
+      - {title: "Europol Spotlight – Online fraud schemes: a web of deceit", publisher: "Europol", url: "https://www.europol.europa.eu/cms/sites/default/files/documents/Spotlight-Report_Online-fraud-schemes.pdf", date: "2023-12", confidence: P}
+      - {title: "IOCTA 2026 – The evolving threat landscape. How encryption, proxies and AI are expanding cybercrime", publisher: "Europol", url: "https://www.europol.europa.eu/cms/sites/default/files/documents/IOCTA-2026.pdf", date: "2026-04", confidence: P}
+      - {title: "Hackerii au furat peste 20.000 EUR după ce au preluat emailurile unei firme; conturile sparte au crescut de peste 4 ori în România", publisher: "StartupCafe.ro (quoting DNSC data)", url: "https://startupcafe.ro/hackerii-au-furat-peste-20-000-eur-dupa-ce-au-preluat-emailurile-unei-firme-conturile-sparte-au-crescut-de-peste-4-ori-in-romania-105127", date: "2026-08", confidence: S}
+      - {title: "Atacurile cibernetice s-au înmulțit în 2025. DNSC: Incidentele de compromitere a conturilor au crescut cu 353%", publisher: "Digi24 (reporting the DNSC 2025 annual report)", url: "https://www.digi24.ro/digieconomic/digital/atacurile-cibernetice-s-au-inmultit-in-2025-dnsc-incidentele-de-compromitere-a-conturilor-au-crescut-cu-353-114743", date: "2026-08", confidence: S}
+    confidence: P
+    notes: "Business-customer typology (the schema has no segment field). The ARB-backed guide dates from October 2021, outside the 2023-2026 window, but Europol's spotlight (2023) and IOCTA 2026 (BEC and CEO fraud named among the most common online-fraud typologies) show it is current. The StartupCafe case describes the mailbox takeover and unauthorised transfers but not an IBAN change. The Europol month (2023-12) is taken from the PDF metadata. No Romanian BEC loss range is published, so typical_amount_ron is omitted (one case: over EUR 20,000). Legal class: authorised push payment by an employee; where the mailbox or the banking credentials were taken over and the attacker issued the payment, it is unauthorised. The signals are inferences from the described mechanism."
+
+  - id: money_mule_recruitment
+    name: "Money mule recruitment through easy-income offers"
+    name_ro: "Recrutarea de cărăuși de bani prin oferte de venit ușor"
+    family: app_scam
+    psd2_class: authorized_push_payment
+    channels: [transfer, transfer_instant]
+    maps_to_scenario: inel_carausi
+    story: "Recruits are offered easy income through social media, messaging apps or fake job ads. A Police warning from February 2024 describes messages promising money for liking posts as a second job, with small payments of 10 to 50 lei to build trust, followed by invitations to invest larger sums and to join chat groups run by fake specialists. Other recruiters ask people to receive money from third parties and move it on, to lend their account, card or banking app, or to share login and security codes, for a commission. These accounts then receive the proceeds of the frauds in this file and pass them on within minutes to other accounts, cash or crypto. Europol notes that mules are recruited mainly on social media and that some fraud victims are used as mules without knowing it; Raiffeisen warns that involvement can have legal consequences even when the person was misled."
+    steps:
+      - "A message offers money for simple tasks (liking posts, receiving and forwarding payments, 'testing' an account)."
+      - "Small payments of 10 to 50 lei arrive to build trust."
+      - "The recruit is asked to receive larger sums from third parties and forward them, or to hand over the card, app access or codes."
+      - "The account collects the proceeds of frauds and passes them on within minutes, keeping a commission."
+      - "The account is flagged or frozen; the holder says he thought it was a job."
+    impersonated: ["employers and 'second-job' recruiters", "social-media platforms"]
+    examples_public: []
+    complaint_cues_en:
+      - "I got a message that I could earn money by liking posts, and they paid me a few lei at first."
+      - "They asked me to receive a payment on my account and send it on to another account."
+      - "I thought it was a job; I did not know the money came from a scam."
+      - "My account was blocked and I do not understand why."
+      - "I let someone use my card and they promised me a commission."
+      - "The money I sent ended up in an account of a person who says they only forwarded it."
+    complaint_cues_ro:
+      - "Am primit un mesaj că pot câștiga bani dacă apreciez postări și mi-au plătit câțiva lei la început."
+      - "Mi-au cerut să primesc o plată în contul meu și să o trimit mai departe în alt cont."
+      - "Am crezut că e un job; nu știam că banii vin dintr-o înșelătorie."
+      - "Mi s-a blocat contul și nu înțeleg de ce."
+      - "Am lăsat pe cineva să folosească cardul meu și mi-au promis un comision."
+      - "banii mei au ajuns in contul unei persoane care zice ca doar i-a trimis mai departe"
+    bank_signals:
+      - "Small inbound payments of 10 to 50 lei from many senders before the larger flows (the trust-building stage the Police describe)."
+      - "Many inbound credits from unrelated payers in a short window, followed by outbound transfers or cash withdrawals within minutes or the same day."
+      - "New or dormant account suddenly active; inflow inconsistent with the holder's declared income or age."
+      - "Shared device, IP or phone number across several accounts; sessions from places the holder does not live."
+      - "Account named in several fraud referrals from victims' banks (AML referral)."
+      - "Funds converted to crypto or moved to accounts abroad soon after arrival."
+    prevalence: ""
+    sources:
+      - {title: "Înșelăciunea „Apreciază postări pentru bani!”", publisher: "Poliția Română (IGPR)", url: "https://politiaromana.ro/ro/stiri-si-media/comunicate/inselaciunea-apreciaza-postari-pentru-bani", date: "2024-02", confidence: P}
+      - {title: "În siguranță online (Raiffeisen Bank România, security guidance)", publisher: "Raiffeisen Bank România", url: "https://bank.raiffeisen.ro/ro/in-siguranta-online/home.html", date: "2026-10", confidence: P}
+      - {title: "Emotional Manipulation, Increasingly Used in Fraud Attempts Targeting Romanians' Bank Accounts", publisher: "CSALB", url: "https://csalb.ro/en/press-releases/emotional-manipulation-increasingly-used-in-fraud-attempts-targeting-romanians-bank-accounts/", date: "2025-05", confidence: P}
+      - {title: "Europol Spotlight – Online fraud schemes: a web of deceit", publisher: "Europol", url: "https://www.europol.europa.eu/cms/sites/default/files/documents/Spotlight-Report_Online-fraud-schemes.pdf", date: "2023-12", confidence: P}
+      - {title: "Metode de înșelăciune în mediul online și atacurile de tip spoofing", publisher: "Poliția Română (IGPR)", url: "https://politiaromana.ro/ro/stiri-si-media/stiri/metode-de-inselaciune-in-mediul-online-si-atacurile-de-tip-spoofing", date: "2025-10", confidence: P}
+    confidence: P
+    notes: "Written from the mule's side: the complaint usually arises when the mule's account is frozen or when a victim's bank traces the funds to it. The 10 to 50 lei trust payments are documented by Police (they are not a loss). The Police text frames the task scam as an investment funnel; the pass-through role of the account comes from Raiffeisen, CSALB, Europol and the Police spoofing page. No Romanian count of mules is published in the sources opened (a survey on willingness to act as a mule was seen only in a snippet and is not used). The bank_signals other than the 10 to 50 lei payments are the AML-side mirror of the other typologies and are inferences. The Raiffeisen page is undated (retrieval month); the Europol month (2023-12) is taken from the PDF metadata."
+
+  - id: first_party_friendly_fraud
+    name: "First-party ('friendly') fraud: the cardholder disputes a purchase he made"
+    name_ro: "Fraudă de tip „prietenesc”: titularul contestă o achiziție pe care a făcut-o el"
+    family: first_party
+    psd2_class: not_fraud
+    channels: [card]
+    maps_to_scenario: frauda_client
+    story: "The cardholder made, authorised or benefited from a card-absent purchase and later disputes it as unauthorised or not received. The complaint text reads like a genuine fraud claim, so the distinguishing evidence is history and identifiers, not wording. Visa's Compelling Evidence 3.0 lets a merchant show that a disputed transaction is consistent with the cardholder's earlier, undisputed activity: at least two earlier transactions on the same payment credential, not reported as fraud by the issuer, processed within the 365 days before the disputed one and generally more than 120 days before, matched on device ID or fingerprint or IP address plus another identifier such as the customer login ID or the delivery address. In the bank's own flow, the same history (device, IP, login, delivery address, earlier undisputed purchases) helps the rules engine separate a first-party claim from third-party fraud."
+    steps:
+      - "The cardholder makes or approves a card-absent purchase, often with 3-D Secure from his own device."
+      - "He later tells the bank he does not recognise the payment, or that the goods or service were not received."
+      - "The bank compares the disputed payment with earlier undisputed ones: device, IP, login, delivery address."
+      - "Matching history is documented; the claim is routed to a human for a decision and, if the legal conditions are met, a fraud notice to the authority."
+    impersonated: []
+    examples_public: []
+    complaint_cues_en:
+      - "I do not recognise this online payment on my statement."
+      - "I never authorised this transaction."
+      - "I did not receive the goods."
+      - "I did not make this purchase, someone must have used my card."
+      - "The merchant must refund me."
+      - "I do not recognise this transaction and I want to dispute it."
+    complaint_cues_ro:
+      - "Nu recunosc această plată online de pe extras."
+      - "Nu am autorizat această tranzacție."
+      - "Nu am primit produsele."
+      - "Nu am făcut eu achiziția asta, probabil cineva mi-a folosit cardul."
+      - "Vreau să mi se returneze banii de la comerciant."
+      - "nu recunosc tranzactia asta, vreau sa o contest"
+    bank_signals:
+      - "Disputed transaction shares the device ID, fingerprint or IP address with at least two earlier undisputed transactions at the same merchant (CE3.0 criteria)."
+      - "Earlier transactions on the same credential processed within the 365 days before the disputed one, none reported as fraud by the issuer, and generally more than 120 days before it."
+      - "Matching identifiers: customer login ID or a delivery address equal to the cardholder's own."
+      - "3-D Secure approval came from the customer's enrolled device and usual IP."
+      - "Pattern of repeated disputes by the same customer (prior disputes) or a dispute filed after the delivery was confirmed."
+    prevalence: ""
+    sources:
+      - {title: "Visa Dispute Management Guide for Merchants (October 2026)", publisher: "Visa", url: "https://by.visa.com/dam/VCOM/global/support-legal/documents/merchants-dispute-management-guidelines.pdf", date: "2026-10", confidence: P}
+    confidence: U
+    notes: "Marked U on purpose: the Visa guide documents the CE3.0 evidence mechanism for card-absent fraud disputes, but it never uses the label 'first-party' or describes customers acting dishonestly, and no Romanian source on the prevalence of first-party card fraud was found. Merchant-side benchmarks (for example 60-80% of chargebacks as some form of friendly fraud) appear in the team's research notes but only from vendor sources not re-opened here, and they are not used. The psd2_class is not_fraud because no third-party fraud occurred; under C-70/25 as summarised in docs/context/14 the D+1 refund can be withheld only on reasonable grounds to suspect fraud by the customer, communicated to the competent authority, which needs a human decision and four-eyes. The first three bank_signals follow the Visa CE3.0 criteria; the rest are inferences."
+
+  - id: fake_webshop_non_delivery
+    name: "Fake or non-delivering online shop paid by card"
+    name_ro: "Magazin online fals sau care nu livrează, plătit cu cardul"
+    family: merchant_dispute
+    psd2_class: not_fraud
+    channels: [card, transfer]
+    maps_to_scenario: marfa_nelivrata
+    story: "A website or social-media shop offers branded goods at prices far below the market. The customer pays by card, usually with 3-D Secure, or by bank transfer, and the goods never arrive, are not as ordered, or the seller stops answering. ANPC's 2026 guide on online commerce lists the warning signs (spelling errors, very low prices, pressure to buy, missing seller details, fake reviews) and notes that a card payment offers refund procedures in many EU/EEA countries if the product does not arrive or does not match the order. For a card payment the customer authorised, the route is a merchant dispute (Visa condition 13.1 Merchandise/Services Not Received, where the merchant must show delivery, availability or use), not a PSD2 unauthorised-payment refund. When the shop is plainly fraudulent, the case is a scam as well as a merchant dispute."
+    steps:
+      - "The customer finds an offer well below market price and pays by card (often with 3-D Secure) or by transfer."
+      - "An order confirmation arrives, or none; the tracking number does not work."
+      - "The delivery date passes with no goods; the customer writes to the shop and gets no answer."
+      - "The site disappears or stays silent; the customer asks the bank to dispute the payment."
+    impersonated: ["online shops"]
+    examples_public: []
+    complaint_cues_en:
+      - "I ordered online and paid by card but the goods never arrived."
+      - "The website no longer exists and the seller does not answer."
+      - "The price was much lower than elsewhere."
+      - "The tracking number I received is not valid."
+      - "I want to dispute the payment (chargeback)."
+      - "I wrote to the shop and got no reply."
+      - "The product I received is not what I ordered."
+    complaint_cues_ro:
+      - "Am comandat online și am plătit cu cardul, dar produsul nu a ajuns."
+      - "Site-ul nu mai există, iar vânzătorul nu răspunde."
+      - "Prețul era mult mai mic decât în alte locuri."
+      - "Numărul de urmărire primit nu este valid."
+      - "Vreau să contest plata (chargeback)."
+      - "Am scris magazinului și nu am primit niciun răspuns."
+      - "am comandat un telefon pe un site si nu a mai venit nimic"
+    bank_signals:
+      - "Card payment authenticated with 3-D Secure (ECI 05, CAVV present) to a merchant first seen by the bank, often a small acquirer or payment facilitator."
+      - "The merchant appears in several customers' disputes in the same period (cluster), or its domain is recently registered."
+      - "No delivery confirmation recorded by the time the shop promised, and the dispute is filed after that date."
+      - "Payment is a single purchase at the advertised price; no earlier history between the customer and the merchant."
+      - "Customer contact with the merchant before the dispute is claimed but not evidenced in the bank's logs."
+    prevalence: ""
+    sources:
+      - {title: "Cum recunoști un magazin online fals înainte să plătești. ANPC a lansat un ghid oficial pentru cumpărături pe internet sigure", publisher: "Alba24.ro (summarising the ANPC 2026 guide)", url: "https://alba24.ro/cum-recunosti-un-magazin-online-fals-inainte-sa-platesti-anpc-a-lansat-un-ghid-oficial-pentru-cumparaturi-pe-internet-sigure-1149034.html", date: "2026-07", confidence: S}
+      - {title: "Visa Dispute Management Guide for Merchants (October 2026)", publisher: "Visa", url: "https://by.visa.com/dam/VCOM/global/support-legal/documents/merchants-dispute-management-guidelines.pdf", date: "2026-10", confidence: P}
+      - {title: "Raport Anual 2025, p. 41", publisher: "Raiffeisen Bank România", url: "https://www.raiffeisen.ro/content/dam/rbi/retail/eu/ro/documents/rapoarte/anuale/2025-Raport-anual-Raiffeisen-Bank.pdf.coredownload.inline.pdf", date: "2026-04", confidence: P}
+    confidence: S
+    notes: "No Romanian count or loss figure for non-delivery was found, so prevalence is empty. The ANPC guide was read only through the Alba24 summary (the guide PDF was not opened), which does not state a delivery deadline or the chargeback steps. The Raiffeisen annual report says about 64% of its 2025 complaints are contested card transactions, a context figure that covers all causes. Scheme dispute windows and the 'contact the merchant first' step are in docs/context/14 and were not re-verified here. Several bank_signals are inferences from the mechanism."
+
+  - id: duplicate_card_charge
+    name: "Same purchase charged twice on the card"
+    name_ro: "Aceeași achiziție debitată de două ori pe card"
+    family: processing_error
+    psd2_class: not_fraud
+    channels: [card]
+    maps_to_scenario: plata_dubla
+    story: "The customer sees the same purchase charged twice on the same card, amount and date at the same merchant, typically after a terminal or system error that caused a transaction to be processed again, or sees a charge after having already paid by another means such as cash, bank transfer, another card or a voucher. Visa's guidance separates Duplicate Processing, where both transactions have the same card, amount and date, from Paid by Other Means, and warns that charges that look alike can still be valid if they are separate orders, invoices or service dates. The bank checks the pair and, if it is a genuine duplicate, asks the merchant to reverse one of the two."
+    steps:
+      - "The customer pays at a terminal or checkout and an error or timeout occurs."
+      - "The transaction is processed again, or the customer pays a second time to be safe."
+      - "Two charges with the same card, amount and date appear at the same merchant, one possibly still pending."
+      - "The customer contacts the merchant, then the bank, to have the second charge reversed."
+    impersonated: []
+    examples_public: []
+    complaint_cues_en:
+      - "I was charged twice for the same purchase."
+      - "The same amount appears twice on the same day at the same merchant."
+      - "The terminal gave an error and I paid again."
+      - "I paid in cash but my card was charged as well."
+      - "The merchant says they cannot refund the second charge."
+      - "One of the two payments is still pending."
+    complaint_cues_ro:
+      - "Am fost taxat de două ori pentru aceeași cumpărătură."
+      - "Aceeași sumă apare de două ori în aceeași zi la același comerciant."
+      - "Terminalul a dat eroare și am plătit din nou."
+      - "Am plătit cash, dar mi s-a debitat și cardul."
+      - "Comerciantul zice că nu poate returna a doua plată."
+      - "una din cele doua plati e inca in asteptare"
+      - "mi-au scos banii de doua ori de pe card"
+    bank_signals:
+      - "Two settled card transactions with the same card, amount, date and merchant, seconds or minutes apart (the Visa Duplicate Processing criteria)."
+      - "Same merchant and terminal identifiers on both; the second may carry a different authorisation code or no new customer authentication."
+      - "One of the pair still pending authorisation while the other is settled."
+      - "Customer-reported payment by other means (cash, transfer, voucher) around the same time."
+      - "Merchant reversal arrives late or never; no fraud indicators on the card."
+    prevalence: ""
+    sources:
+      - {title: "Visa Dispute Management Guide for Merchants (October 2026)", publisher: "Visa", url: "https://by.visa.com/dam/VCOM/global/support-legal/documents/merchants-dispute-management-guidelines.pdf", date: "2026-10", confidence: P}
+      - {title: "Raport Anual 2025, p. 41", publisher: "Raiffeisen Bank România", url: "https://www.raiffeisen.ro/content/dam/rbi/retail/eu/ro/documents/rapoarte/anuale/2025-Raport-anual-Raiffeisen-Bank.pdf.coredownload.inline.pdf", date: "2026-04", confidence: P}
+    confidence: S
+    notes: "The scheme definition is official (Visa, October 2026), but no Romanian source on how often duplicate charges occur or what customers write was found, so confidence is S and prevalence is empty. docs/context/14 cites a 2020 press report of a Raiffeisen IT incident in which a payment was debited four times; that report was not re-opened here. Legal class: a processing error, not fraud; the customer is entitled to a correction, and the pre-authorisation hold that looks like a double charge is a different case (docs/context/14, L209 art. 180-181). The Raiffeisen annual report figure covers all contested card transactions. Most bank_signals follow the Visa criteria; the terminal and authorisation-code details are inferences."

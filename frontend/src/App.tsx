@@ -12,6 +12,8 @@ const CasePage = lazy(() => import("./pages/client/CasePage"));
 const RulesPage = lazy(() => import("./pages/client/RulesPage"));
 const EvalPage = lazy(() => import("./pages/client/EvalPage"));
 const McpPage = lazy(() => import("./pages/client/McpPage"));
+const NewCasePage = lazy(() => import("./pages/client/NewCasePage"));
+const KnowledgePage = lazy(() => import("./pages/client/KnowledgePage"));
 const BankPage = lazy(() => import("./pages/demo/BankPage"));
 const FakePage = lazy(() => import("./pages/demo/FakePage"));
 const LeadsPage = lazy(() => import("./pages/aml/LeadsPage"));
@@ -26,6 +28,8 @@ if (typeof window !== "undefined") {
     void import("./pages/client/CasePage");
     void import("./pages/client/RulesPage");
     void import("./pages/client/EvalPage");
+    void import("./pages/client/NewCasePage");
+    void import("./pages/client/KnowledgePage");
   };
   if ("requestIdleCallback" in window) window.requestIdleCallback(warm, { timeout: 4000 });
   else setTimeout(warm, 2500);
@@ -58,6 +62,7 @@ function ZoneRoutes() {
           <Route path="piste/:leadId" element={<S label="Lead"><LeadPage /></S>} />
           <Route path="osint" element={<S label="OSINT"><OsintPage /></S>} />
           <Route path="zid" element={<S label="Access log"><AccessLogPage /></S>} />
+          <Route path="knowledge" element={<S label="Knowledge"><KnowledgePage /></S>} />
           <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
@@ -69,8 +74,10 @@ function ZoneRoutes() {
       <Route path="demo/delivery" element={<S label="Demo courier page"><FakePage /></S>} />
       <Route element={<AppShell />}>
         <Route path="cases" element={<S label="Cases"><CasesPage /></S>} />
+        <Route path="cases/new" element={<S label="New case"><NewCasePage /></S>} />
         <Route path="cases/:id" element={<S label="Case"><CasePage /></S>} />
         <Route path="rules" element={<S label="Rules"><RulesPage /></S>} />
+        <Route path="knowledge" element={<S label="Knowledge"><KnowledgePage /></S>} />
         <Route path="evaluation" element={<S label="Evaluation"><EvalPage /></S>} />
         <Route path="mcp" element={<S label="MCP"><McpPage /></S>} />
         <Route path="*" element={<NotFound />} />

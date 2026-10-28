@@ -349,7 +349,11 @@ export type CustomEventName =
   | "wall_block"
   | "interrupt"
   | "ledger_seal"
-  | "hold_signal";
+  | "hold_signal"
+  /** `data` = RoutingEntry: the router ran or skipped an agent, and why. */
+  | "routing"
+  /** `data` = MatchResult: who the customer is and which payment they dispute. */
+  | "match";
 
 export interface AgentEvent {
   type: EventType;
@@ -413,11 +417,16 @@ export interface ScenarioInfo {
   expected_verdict: Verdict | string;
 }
 
+export type IntakeSource = "app" | "email" | "branch" | "call_center" | "web_form";
+
+/** A complaint typed or pasted by an operator. Everything except the text is optional: the intake agent fills the gaps. */
 export interface NewComplaint {
-  customer_ref: string;
   text: string;
-  transaction_refs: string[];
-  attachments: Attachment[];
+  customer_ref?: string;
+  transaction_refs?: string[];
+  source?: IntakeSource;
+  channel_hint?: Channel;
+  attachments?: Attachment[];
 }
 
 export type CreateCaseBody = { scenario_id: string } | { complaint: NewComplaint };
@@ -434,6 +443,10 @@ export interface CaseSummary {
   deadline: ISODate | null;
   sla_seconds_left: number | null;
   requires_human: boolean;
+  /** The situation in a few plain words, e.g. "Paid after a fake courier text". */
+  scenario_phrase?: string | null;
+  approved_by?: string | null;
+  approved_at?: ISODate | null;
 }
 
 export interface DebateArgument {
@@ -500,9 +513,13 @@ export interface Interrupt {
   amount?: number;
   deadline?: ISODate | null;
   rule_ids?: string[];
-  answer?: { action?: string; approver?: string; note?: string } | null;
+  answer?: { action?: string; approver?: string; note?: string; tx_id?: string | null } | null;
   /** Zona AML: recomandarea regulilor (de ex. „RTS_PROPUS”) atașată întreruperii. */
   recommendation?: string | null;
+  /** `kind: "pick_transaction"`: the payments a person picks from. */
+  candidates?: TxCandidate[];
+  /** Some backends nest the interrupt's own data one level down. */
+  payload?: { kind?: string; prompt?: string; candidates?: TxCandidate[]; [k: string]: unknown } | null;
 }
 
 export interface CaseDetail {
@@ -525,6 +542,187 @@ export interface CaseDetail {
   aml_referral?: { status?: string; victim_ref?: string } | null;
   decision_seconds?: number | null;
   llm_mode?: string | null;
+  /** Identification: the customer and the disputed payment. */
+  match?: MatchResult | null;
+  /** The router's choices: which agents ran on this case, and why. */
+  routing?: RoutingEntry[];
+  /** The knowledge passages the letter, the debate or the report relied on. */
+  grounding?: GroundingEntry[];
+  /** Every number in the drafted text, checked against the evidence. */
+  numeric_check?: NumericCheck | null;
+  /** Other disputes that share indicators with this one (same payee, same link). */
+  campaign?: CaseCampaign | null;
+  /** One plain-language sentence per decision, with the rule behind it. */
+  reasons?: DecisionReason[];
+}
+
+// ------------------------------------------------------------------ identification, routing, knowledge
+
+export interface TxCandidate {
+  tx_id: string;
+  amount: number;
+  currency?: string;
+  ts: ISODate;
+  payee: string;
+  channel?: Channel | string | null;
+  direction?: "in" | "out" | string | null;
+  /** 0..1 */
+  score: number;
+  reasons?: string[];
+}
+
+export interface MatchResult {
+  customer_ref: string | null;
+  customer_match_reason: string | null;
+  tx_id: string | null;
+  /** 0..1 */
+  confidence: number;
+  needs_human: boolean;
+  reason: string;
+  candidates: TxCandidate[];
+}
+
+export interface IntakePreviewBody {
+  text: string;
+  customer_ref?: string;
+  source?: IntakeSource;
+  channel_hint?: Channel;
+  attachments?: Attachment[];
+  received_at?: ISODate;
+}
+
+export interface IntakeCustomer {
+  customer_ref: string;
+  alias: string;
+  match_reason: string;
+  /** 0..1 */
+  confidence: number;
+}
+
+export interface IntakeExtracted {
+  amounts?: Array<number | Money>;
+  dates?: string[];
+  urls?: string[];
+  phones_masked?: string[];
+  contacted_by?: string | null;
+  impersonated_entity?: string | null;
+}
+
+export interface IntakePreview {
+  language: string;
+  injection_suspected: boolean;
+  customer: IntakeCustomer | null;
+  match: MatchResult;
+  extracted: IntakeExtracted;
+}
+
+export interface CustomerHit {
+  customer_ref: string;
+  alias: string;
+  city?: string | null;
+  /** A count, or the masked accounts. */
+  accounts?: number | Array<string | { iban_masked?: string; [k: string]: unknown }>;
+  last_tx_at?: ISODate | null;
+}
+
+export interface RoutingEntry {
+  node: string;
+  run: boolean;
+  reason: string;
+}
+
+export type KbKind = "rule" | "law" | "guidance" | "typology" | "case_study" | "precedent";
+
+export interface KbWhy {
+  bm25_rank?: number | null;
+  dense_rank?: number | null;
+  rrf?: number | null;
+  dense?: boolean;
+}
+
+/** One retrieved passage. `id` looks like "rule:PAY-03", "ctx:<file>#<slug>", "typ:<id>", "prec:<case_id>". */
+export interface KbHit {
+  id: string;
+  kind: KbKind | string;
+  title: string;
+  text: string;
+  source: string;
+  confidence: "P" | "S" | "U" | null;
+  rule_ids: string[];
+  score: number;
+  why: KbWhy;
+  meta: Record<string, unknown>;
+}
+
+/** `answer` holds sentences with [1], [2] markers, 1-based into `citations`. */
+export interface KbAnswer {
+  question: string;
+  answer: string;
+  citations: KbHit[];
+  grounded: boolean;
+  mode: "live" | "replay" | "offline" | string;
+}
+
+export interface KbStats {
+  chunks: Record<string, number>;
+  embedding_model?: string | null;
+  dense?: boolean;
+  built_at?: ISODate | null;
+}
+
+export interface GroundingEntry {
+  used_in: "letter" | "debate" | "rts" | string;
+  hit: KbHit;
+}
+
+export interface NumericMismatch {
+  value: string;
+  expected: string;
+  where: string;
+}
+
+export interface NumericCheck {
+  passed: boolean;
+  checked: number;
+  mismatches: NumericMismatch[];
+  rewritten: boolean;
+}
+
+export interface SharedIndicator {
+  kind: string;
+  value_masked: string;
+}
+
+export interface CaseCampaign {
+  campaign_id: string;
+  case_ids: string[];
+  shared_indicators: SharedIndicator[];
+  /** 0..1 */
+  similarity: number;
+}
+
+export interface DecisionReason {
+  rule_id: string;
+  /** The verdict code the sentence explains (e.g. "RAMBURSEAZA"). */
+  decision: string;
+  sentence: string;
+}
+
+/** A closed case that looks like this one. Information for a person only: the rules never read it. */
+export interface Precedent {
+  hit: KbHit;
+  outcome: Record<string, unknown>;
+  case_id_masked: string;
+}
+
+export type ApproveAction = "approve" | "reject" | "pick_transaction";
+
+export interface ApproveBody {
+  action: ApproveAction;
+  note?: string;
+  approver?: string;
+  /** With `pick_transaction`: the payment the person picked, or null for "none of these". */
+  tx_id?: string | null;
 }
 
 export interface DecisionBrief {

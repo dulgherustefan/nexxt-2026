@@ -5,11 +5,12 @@
  */
 import qrcode from "qrcode-generator";
 import { disputeLabel, money, scenarioLabel, verdictLabel } from "../api/format";
-import type { AgentEvent, CaseDetail, Decision, EventType, Fact, NodeStatus, RuleHit } from "../api/types";
+import type { AgentEvent, CaseDetail, Decision, EventType, Fact, GroundingEntry, MatchResult, NodeStatus, RoutingEntry, RuleHit } from "../api/types";
 import { matchNode, STAGES, STAGE_BY_ID, STAGE_EDGES, type StageSpec } from "../lib/pipeline";
 import { fmtDay, fmtDayTime, isoRo } from "./calendar";
 import { canonical, merkleRoot, sha256 } from "./sha256";
-import { storyFor, type DecisionSeed, type FactSeed, type Story, type StoryCtx } from "./stories";
+import { kbPassage } from "./kb";
+import { plainReason, storyFor, type DecisionSeed, type FactSeed, type Story, type StoryCtx } from "./stories";
 
 export interface Approval {
   action: "approve" | "reject";
@@ -25,6 +26,8 @@ export interface RunState {
   cursorB1: number;
   cursorB2: number;
   approval: Approval | null;
+  /** A person's answer to "which payment?": the run waits at Identification until it arrives. */
+  pick?: { at: number; txId: string | null; approver: string } | null;
   done: boolean;
 }
 
@@ -54,6 +57,8 @@ export interface EngineHooks {
   nextSeq: () => number;
   onDiode?: (c: MockCase, story: Story, at: number) => void;
   onRefund?: (c: MockCase, at: number) => void;
+  /** Other open disputes in the same campaign (same payee and link). */
+  linkedCases?: (c: MockCase) => string[];
 }
 
 interface Exec {
@@ -75,6 +80,8 @@ export interface Timeline {
   B2: Step[];
   aEnd: number;
   needsApproval: boolean;
+  /** The time of the "which payment?" interrupt, or null when the payment is already known. */
+  gate: number | null;
 }
 
 // ------------------------------------------------------------------ helpers
@@ -205,6 +212,10 @@ function decisionStep(x: Exec, d: DecisionSeed) {
   if (i >= 0) list[i] = dec;
   else list.push(dec);
   if (x.c.detail.rules) x.c.detail.rules.decisions = list;
+  const why = plainReason(d, x.c.ctx, x.story);
+  const reasons = (x.c.detail.reasons ??= []).filter((r) => r.decision !== dec.decision);
+  reasons.push({ rule_id: why.rule_id, decision: dec.decision, sentence: why.sentence });
+  x.c.detail.reasons = reasons;
   emit(x, "CUSTOM", {
     step: d.stage,
     name: "decision",
@@ -268,9 +279,161 @@ export function sealCase(c: MockCase, at: number): SealState {
   return seal;
 }
 
+// ------------------------------------------------------------------ identification, routing, grounding
+
+const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+
+/** The match for a case whose payment came with it (Demo Bank, the seeded inbox). */
+function defaultMatch(c: MockCase, story: Story): MatchResult {
+  const payee = story.beneficiary ? `Transfer to ${story.beneficiary.iban_masked}` : story.channel === "card" ? "Card payment" : "Transfer";
+  return {
+    customer_ref: c.customerRef,
+    customer_match_reason: "Signed in to the Demo Bank app.",
+    tx_id: c.ctx.txId,
+    confidence: 0.99,
+    needs_human: false,
+    reason: "The customer picked the payment in the app.",
+    candidates: [{ tx_id: c.ctx.txId, amount: c.ctx.amount, currency: "RON", ts: isoRo(c.ctx.executedAt), payee, channel: story.channel, direction: "out", score: 0.99, reasons: ["Picked by the customer in the app"] }],
+  };
+}
+
+function matchOf(x: Exec): MatchResult {
+  return x.c.ctx.intake?.match ?? defaultMatch(x.c, x.story);
+}
+
+function matchSummary(m: MatchResult, alias: string): string {
+  if (!m.customer_ref) return "No customer found from the message.";
+  const who = `${alias} (${m.customer_ref}): ${m.customer_match_reason ?? "identified"}`;
+  if (m.tx_id) return `${who} Payment ${m.tx_id}: ${m.reason} Score ${m.confidence.toFixed(2)}.`;
+  if (m.candidates.length && m.needs_human) return `${who} ${plural(m.candidates.length, "payment", "payments")} could match: a person picks one.`;
+  return `${who} ${m.reason}`;
+}
+
+function identifyStep(x: Exec) {
+  const m = matchOf(x);
+  x.c.detail.match = clone(m);
+  factStep(x, {
+    key: "match",
+    stage: "identificare",
+    kind: "intake.match",
+    tool: "bank-core.find_disputed_payment",
+    summary: matchSummary(m, x.c.ctx.alias),
+    content: { customer_ref: m.customer_ref, tx_id: m.tx_id, confidence: m.confidence, candidates: m.candidates.length, needs_human: m.needs_human },
+  });
+  emit(x, "CUSTOM", { step: "identificare", name: "match", message: m.reason, data: clone(m) as unknown as Record<string, unknown> });
+}
+
+function route(x: Exec, entry: RoutingEntry, step = "router") {
+  const list = (x.c.detail.routing ??= []).filter((r) => r.node !== entry.node);
+  list.push(entry);
+  x.c.detail.routing = list;
+  emit(x, "CUSTOM", { step, name: "routing", message: `${entry.run ? "Runs" : "Skipped"}: ${entry.node}. ${entry.reason}`, data: { ...entry } });
+}
+
+/** The router's plan for the evidence collectors: who runs on this case, and why. */
+function collectorPlan(story: Story, ctx: StoryCtx): RoutingEntry[] {
+  const noTx = Boolean(ctx.intake?.noTx);
+  const has = (stage: string) => story.facts.some((f) => f.stage === stage);
+  const none = "No payment identified yet, so there is nothing to check.";
+  return [
+    noTx
+      ? { node: "colector_tranzactie", run: false, reason: none }
+      : { node: "colector_tranzactie", run: true, reason: "The payment is identified: get it and the payee from core banking." },
+    noTx ? { node: "colector_sca", run: false, reason: none }
+      : has("colector.sca")
+        ? { node: "colector_sca", run: true, reason: story.channel === "card" ? "A card payment: check how it was authenticated." : "Check what the approval screen showed the customer." }
+        : { node: "colector_sca", run: false, reason: "How the payment was approved doesn't change this kind of claim." },
+    noTx ? { node: "colector_dispozitiv", run: false, reason: none }
+      : has("colector.dispozitiv")
+        ? { node: "colector_dispozitiv", run: true, reason: "Check the device and the session behind the payment." }
+        : { node: "colector_dispozitiv", run: false, reason: "Nothing in the claim points to a new device or a remote session." },
+    has("colector.domeniu")
+      ? { node: "colector_domeniu", run: true, reason: "The message has a link: check the website." }
+      : { node: "colector_domeniu", run: false, reason: noTx ? none : "No link in the message." },
+    story.beneficiary && !noTx
+      ? { node: "colector_campanie", run: true, reason: "Fraud with a payee: look for other disputes with the same payee or link." }
+      : { node: "colector_campanie", run: false, reason: "No payee or link to compare with other disputes." },
+  ];
+}
+
+function campaignStep(x: Exec) {
+  const b = x.story.beneficiary;
+  const others = x.hooks.linkedCases?.(x.c) ?? [];
+  if (b && others.length) {
+    x.c.detail.campaign = {
+      campaign_id: "CAMP-2026-07",
+      case_ids: [x.c.caseId, ...others],
+      shared_indicators: [
+        { kind: "payee_account", value_masked: b.iban_masked },
+        ...(b.domain ? [{ kind: "domain", value_masked: b.domain }] : []),
+      ],
+      similarity: 0.92,
+    };
+  }
+  factStep(x, {
+    key: "campaign",
+    stage: "colector.campanie",
+    kind: "case.campaign",
+    tool: "cases.link_by_indicators",
+    summary: others.length
+      ? `${plural(others.length, "other dispute", "other disputes")} paid the same account ${b?.iban_masked ?? ""} after the same fake page.`
+      : "No other dispute shares this payee or link yet.",
+    content: { linked: others.length },
+  });
+}
+
+function ground(x: Exec, usedIn: GroundingEntry["used_in"], ids: string[]) {
+  const hits = ids.map((id, i) => kbPassage(id, i + 1)).filter((h): h is NonNullable<typeof h> => Boolean(h));
+  const keep = (x.c.detail.grounding ?? []).filter((g) => g.used_in !== usedIn);
+  x.c.detail.grounding = [...keep, ...hits.map((hit) => ({ used_in: usedIn, hit }))];
+}
+
+function letterSources(story: Story): string[] {
+  const ids: string[] = [];
+  if (story.verdict === "RAMBURSEAZA" || story.verdict === "RAMBURSEAZA_CU_APROBARE") ids.push("ctx:l209#art-173-174");
+  if (story.verdict === "RESPINGE_TARDIV") ids.push("ctx:l209#art-169");
+  if (story.verdict === "INFORMATII_SUPLIMENTARE") ids.push("rule:DSP-58");
+  return [...ids, "ctx:l209#art-224", "ctx:l209#art-225"];
+}
+
+/** Every amount, date and time in the letter, checked against the evidence. One story shows a corrected number. */
+function numericCheck(x: Exec) {
+  const body = x.c.detail.letter?.body ?? "";
+  const checked = (body.match(/RON [\d,.]+|\b\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w* \d{4}\b|\b\d{2}:\d{2}\b/g) ?? []).length;
+  const fixed = x.story.scenario === "card_visa_secure";
+  x.c.detail.numeric_check = {
+    passed: true,
+    checked: Math.max(checked, 1),
+    mismatches: fixed ? [{ value: money(x.c.ctx.amount + 45), expected: money(x.c.ctx.amount), where: "letter" }] : [],
+    rewritten: fixed,
+  };
+}
+
+const PHRASES: Record<string, string> = {
+  demo_t1: "Paid after a fake courier text",
+  phishing_link: "Paid after a fake courier text",
+  inel_carausi: "Paid the same account as other victims",
+  injectie_document: "Fake courier text, PDF with hidden instructions",
+  card_ecom_fara_3ds: "Online card payment the customer doesn't recognize",
+  card_visa_secure: "Online card payment approved with Visa Secure",
+  vishing_securitate: "Approved a payment during a fake bank call",
+  cont_sigur: "Moved money to a “safe account”",
+  marfa_nelivrata: "Paid for goods that never came",
+  sim_swap: "Transfer after the phone lost signal",
+  frauda_client: "Disputes a card payment made in person",
+  reclamatie_tardiva: "Old card payment, reported after 13 months",
+  plata_dubla: "Charged twice for one payment",
+};
+
+export function scenarioPhrase(scenario: string, ctx: StoryCtx): string {
+  if (ctx.intake?.noTx) return "Payment not identified yet";
+  if (ctx.intake?.pickNeeded && !ctx.intake.match.tx_id) return "Payment to be picked by a person";
+  return PHRASES[scenario] ?? scenario.replace(/_/g, " ");
+}
+
 // ------------------------------------------------------------------ the timeline
 
-export function buildTimeline(story: Story): Timeline {
+export function buildTimeline(story: Story, ctx?: StoryCtx): Timeline {
   const A: Step[] = [];
   const B1: Step[] = [];
   const B2: Step[] = [];
@@ -292,12 +455,57 @@ export function buildTimeline(story: Story): Timeline {
   byStage("receptor").forEach((f, i) => at(0.8 + i * 0.5, (x) => factStep(x, f)));
   t = 0.8 + byStage("receptor").length * 0.5;
   at(t, (x) => {
-    x.c.detail.complaint = { text: x.c.detail.complaint?.text || story.complaintText, attachments: story.attachments, received_at: isoRo(x.c.ctx.receivedAt) };
-    x.c.detail.extracted = story.extracted;
+    x.c.detail.complaint = { text: x.c.detail.complaint?.text || story.complaintText, attachments: x.c.detail.complaint?.attachments ?? story.attachments, received_at: isoRo(x.c.ctx.receivedAt) };
+    x.c.detail.extracted = { ...story.extracted, ...(x.c.ctx.intake?.extracted ?? {}) };
     const inj = story.extracted.injection_suspected;
     if (inj) emit(x, "CUSTOM", { step: "receptor", name: "policy_denied", message: "Prompt injection in the document: treated as data and flagged.", data: { reason: "injection_suspected" } });
     finish(x, "receptor", inj ? "Typed fields extracted; the injection was flagged and ignored." : "Typed fields extracted from the untrusted text.");
   });
+
+  // Identification: the customer and the payment. A person picks the payment when the match isn't sure.
+  t += 0.2;
+  at(t, (x) => start(x, "identificare", "Finding the customer and the disputed payment."));
+  at(t + 0.45, (x) => identifyStep(x));
+  t += 0.8;
+  let gate: number | null = null;
+  if (ctx?.intake?.pickNeeded) {
+    gate = t;
+    at(t, (x) => {
+      const m = matchOf(x);
+      x.c.detail.interrupt = { pending: true, kind: "pick_transaction", prompt: "Which payment does the customer dispute?", options: [], candidates: clone(m.candidates) };
+      x.c.detail.summary.status = "ASTEAPTA_APROBARE";
+      x.c.detail.summary.requires_human = true;
+      // the refund clock runs from the customer's report (DSP-58), whether or not the payment is known yet
+      x.c.detail.summary.deadline = x.c.ctx.t1;
+      setNode(x, "identificare", "waiting", "Waiting for a person to pick the payment.");
+      emit(x, "CUSTOM", {
+        step: "identificare",
+        name: "interrupt",
+        message: "Which payment does the customer dispute? A person picks it.",
+        data: { pending: true, kind: "pick_transaction", candidates: clone(m.candidates), payload: { kind: "pick_transaction", candidates: clone(m.candidates) } },
+      });
+    });
+    t += 0.05;
+    at(t, (x) => {
+      const p = x.c.run?.pick;
+      const m = matchOf(x);
+      x.c.detail.interrupt = { pending: false, kind: "pick_transaction", options: [], answer: { action: "pick_transaction", approver: p?.approver, tx_id: p?.txId ?? null } };
+      x.c.detail.match = clone(m);
+      x.c.detail.summary.amount = { value: x.c.ctx.amount, currency: "RON" };
+      x.c.detail.summary.status = "IN_ANALIZA";
+      x.c.detail.summary.requires_human = false;
+      x.c.detail.summary.scenario_phrase = scenarioPhrase(x.c.scenario, x.c.ctx);
+      emit(x, "CUSTOM", { step: "identificare", name: "interrupt", message: p?.txId ? `${p.approver} picked ${p.txId}.` : `${p?.approver ?? "A person"}: none of these payments.`, data: { pending: false, kind: "pick_transaction", resolution: "pick_transaction", tx_id: p?.txId ?? null, approver: p?.approver } });
+      emit(x, "CUSTOM", { step: "identificare", name: "match", message: m.reason, data: clone(m) as unknown as Record<string, unknown> });
+      finish(x, "identificare", p?.txId ? `Payment ${p.txId}, picked by ${p.approver}.` : "No payment picked: VersoML asks the customer.");
+    });
+    t += 0.3;
+  } else {
+    at(t, (x) => {
+      const m = matchOf(x);
+      finish(x, "identificare", m.tx_id ? `${x.c.ctx.alias} · payment ${m.tx_id} · score ${m.confidence.toFixed(2)}` : m.customer_ref ? "Customer found, no payment matches." : "Customer not identified.");
+    });
+  }
 
   // Classifier
   t += 0.2;
@@ -327,12 +535,32 @@ export function buildTimeline(story: Story): Timeline {
     finish(x, "ceasornicar", refund ? `Refund due by ${fmtDayTime(refund.due_at)}.` : due ? `Answer due by ${fmtDay(due)}.` : "Deadlines calculated.");
   });
 
+  // The router picks the collectors this case needs
+  const plan = ctx ? collectorPlan(story, ctx) : [];
+  t += 0.2;
+  at(t, (x) => start(x, "router", "Choosing the agents this case needs."));
+  plan.forEach((r, i) => at(t + 0.25 + i * 0.1, (x) => route(x, r)));
+  t += 0.25 + plan.length * 0.1 + 0.15;
+  at(t, (x) => finish(x, "router", `${plan.filter((r) => r.run).length} of ${plan.length} evidence collectors needed.`));
+
   // The collectors, in parallel
-  const collectors = ["colector.tranzactie", "colector.sca", "colector.dispozitiv", "colector.domeniu"];
+  const collectors = ["colector.tranzactie", "colector.sca", "colector.dispozitiv", "colector.domeniu", "colector.campanie"];
   const cStart = t + 0.2;
   let collectorsEnd = cStart;
   collectors.forEach((cid, k) => {
     const s0 = cStart + k * 0.08;
+    const planned = plan.find((r) => r.node === cid.replace(".", "_"));
+    if (planned && !planned.run) {
+      at(s0, (x) => finish(x, cid, planned.reason, "skipped", { skipped: true }));
+      return;
+    }
+    if (cid === "colector.campanie") {
+      at(s0, (x) => start(x, cid, stageOf(cid)?.hint ?? "Looking for linked cases."));
+      at(s0 + 0.8, (x) => campaignStep(x));
+      at(s0 + 1.3, (x) => finish(x, cid, x.c.detail.campaign ? `Linked to ${plural(x.c.detail.campaign.case_ids.length - 1, "other dispute", "other disputes")}.` : "No linked disputes."));
+      collectorsEnd = Math.max(collectorsEnd, s0 + 1.3);
+      return;
+    }
     at(s0, (x) => start(x, cid, stageOf(cid)?.hint ?? "Collecting evidence."));
     const fs = byStage(cid);
     fs.forEach((f, j) => at(s0 + 0.6 + j * 0.95 + k * 0.22, (x) => factStep(x, f)));
@@ -414,6 +642,19 @@ export function buildTimeline(story: Story): Timeline {
 
   // Prosecutor and Defender (only on the recovery track)
   t = rbStart + 0.6;
+  const cantPlanned = Boolean(story.debate) || story.decisions.some((d) => d.stage === "cantaritor");
+  const noDebate = story.refund === "none" ? "No refund, so there is nothing to recover from the customer." : "Nothing points to negligence by the customer.";
+  at(t - 0.05, (x) => {
+    route(x, story.debate
+      ? { node: "procuror", run: true, reason: "The customer may have been negligent: argue both sides before anyone asks them to repay." }
+      : { node: "procuror", run: false, reason: noDebate });
+    route(x, story.debate
+      ? { node: "avocat", run: true, reason: "Argue for the customer, with a different model." }
+      : { node: "avocat", run: false, reason: noDebate });
+    route(x, cantPlanned
+      ? { node: "cantaritor", run: true, reason: "Score both sides with the fixed rubric." }
+      : { node: "cantaritor", run: false, reason: "Nothing to weigh." });
+  });
   let debateEnd = t + 0.4;
   if (story.debate) {
     const runSide = (step: "procuror" | "avocat", lines: Array<{ text: string; cites?: string[] }>, offset: number) => {
@@ -457,6 +698,7 @@ export function buildTimeline(story: Story): Timeline {
           recommendation: story.debate.recommendation,
           ran: true,
         };
+        ground(x, "debate", ["ctx:c-70-25#ruling", "ctx:l209#art-179-2", "ctx:l209#art-171-172", "ctx:l209#art-220"]);
       }
     });
     cantDecisions.forEach((d, i) => at(t + 0.2 + i * 0.2, (x) => decisionStep(x, d)));
@@ -471,19 +713,28 @@ export function buildTimeline(story: Story): Timeline {
 
   // Recovery
   t += 0.2;
-  at(t, (x) => start(x, "recuperare", "Preparing the recovery drafts: recall, chargeback and the DNSC report."));
+  const noTx = Boolean(ctx?.intake?.noTx);
+  at(t - 0.05, (x) => route(x, noTx
+    ? { node: "recuperare", run: false, reason: "No payment identified yet." }
+    : { node: "recuperare", run: true, reason: story.recovery?.chargeback?.eligible ? "A card payment: check what a chargeback can recover." : story.recovery?.recall ? "A transfer: prepare the recall to the payee's bank." : "Check whether the money can be recovered from the fraudster." }));
+  if (noTx) at(t, (x) => finish(x, "recuperare", "No payment identified yet.", "skipped", { skipped: true }));
+  else at(t, (x) => start(x, "recuperare", "Preparing the recovery drafts: recall, chargeback and the DNSC report."));
   byStage("recuperare").forEach((f, i) => at(t + 0.5 + i * 0.6, (x) => factStep(x, f)));
   t += 0.5 + byStage("recuperare").length * 0.6;
   story.decisions.filter((d) => d.stage === "recuperare").forEach((d, i) => at(t + i * 0.2, (x) => decisionStep(x, d)));
   t += story.decisions.filter((d) => d.stage === "recuperare").length * 0.2 + 0.2;
   at(t, (x) => {
     x.c.detail.recovery = story.recovery ?? { chargeback: null, recall: null, dnsc_report: null };
+    if (noTx) return;
     const cb = story.recovery?.chargeback;
     finish(x, "recuperare", cb?.eligible ? `Chargeback ${cb.reason_code ?? ""} can recover the money.` : story.recovery?.recall ? "Recall draft ready." : "Nothing to recover from the fraudster.");
   });
 
   // Letter and letter check
   t += 0.2;
+  at(t - 0.05, (x) => route(x, story.letter
+    ? { node: "redactor", run: true, reason: "The customer gets a written answer to every point." }
+    : { node: "redactor", run: false, reason: "A person writes the letter after the decision." }));
   if (story.letter) {
     const letter = story.letter;
     at(t, (x) => start(x, "redactor", "Drafting the reply: every point answered, with citations."));
@@ -492,6 +743,7 @@ export function buildTimeline(story: Story): Timeline {
     at(t, (x) => {
       const r = resolveLetter(x, letter.body);
       x.c.detail.letter = { case_id: x.c.caseId, subject: letter.subject, body: r.body, cites: r.cites, points_answered: letter.points, filter: null, status: "draft" };
+      ground(x, "letter", letterSources(story));
       finish(x, "redactor", `Answers ${plural(letter.points.length, "point", "points")}, with ${plural(r.cites.length, "citation", "citations")}.`);
     });
     t += 0.2;
@@ -503,6 +755,7 @@ export function buildTimeline(story: Story): Timeline {
         x.c.detail.letter.filter = { passed: true, blocked_terms: [], canaries_found: 0, classifier_flag: false, pii_findings: [], reasons: [] };
         x.c.detail.letter.status = "approved";
       }
+      numericCheck(x);
       finish(x, "filtru_zid", "Passed: 0 banned terms, 0 canary tokens.");
     });
   } else {
@@ -521,6 +774,9 @@ export function buildTimeline(story: Story): Timeline {
       if (!ap) return;
       const dec = x.c.detail.decisions?.find((d) => d.question === "rambursare_t1");
       x.c.detail.interrupt = { pending: false, kind: x.c.detail.interrupt?.kind, options: [] };
+      x.c.detail.interrupt.answer = { action: ap.action, approver: ap.approver, note: ap.note };
+      x.c.detail.summary.approved_by = ap.approver;
+      x.c.detail.summary.approved_at = isoRo(ap.at);
       emit(x, "CUSTOM", { step: "rambursare", name: "interrupt", message: ap.action === "approve" ? `Approved by ${ap.approver}.` : `Rejected by ${ap.approver}.`, data: { pending: false, resolution: ap.action, approver: ap.approver } });
       const isRefund = story.refund === "approval";
       if ((isRefund && ap.action === "approve") || (!isRefund && ap.action === "reject" && story.verdict === "EXCEPTIE_FRAUDA_CLIENT")) {
@@ -528,7 +784,10 @@ export function buildTimeline(story: Story): Timeline {
         if (dec) {
           dec.decided_by = "rules+human";
           dec.requires_human = false;
-          if (!isRefund) dec.decision = "RAMBURSEAZA";
+          if (!isRefund) {
+            dec.decision = "RAMBURSEAZA";
+            x.c.detail.reasons = [...(x.c.detail.reasons ?? []), { rule_id: "PAY-03", decision: "RAMBURSEAZA", sentence: `${ap.approver} didn't confirm the exception, so the bank refunds by the deadline.` }];
+          }
           dec.next_actions = ["Refund issued (simulated instruction)"];
         }
         x.c.detail.summary.status = "RAMBURSAT";
@@ -572,7 +831,7 @@ export function buildTimeline(story: Story): Timeline {
     },
   });
 
-  return { A: A.sort((a, b) => a.t - b.t), B1, B2, aEnd, needsApproval };
+  return { A: A.sort((a, b) => a.t - b.t), B1, B2, aEnd, needsApproval, gate };
 }
 
 function refundFact(x: Exec, approver: string) {
@@ -603,6 +862,9 @@ export function newCaseDetail(caseId: string, scenario: string, ctx: StoryCtx, s
       deadline: null,
       sla_seconds_left: null,
       requires_human: false,
+      scenario_phrase: scenarioPhrase(scenario, ctx),
+      approved_by: null,
+      approved_at: null,
     },
     complaint: { text: story.complaintText, attachments: story.attachments, received_at: isoRo(ctx.receivedAt) },
     extracted: null,
@@ -620,6 +882,12 @@ export function newCaseDetail(caseId: string, scenario: string, ctx: StoryCtx, s
     interrupt: { pending: false },
     hold: { received: false },
     ledger: { count: 0, root: null, sealed: false },
+    match: null,
+    routing: [],
+    grounding: [],
+    numeric_check: null,
+    campaign: null,
+    reasons: [],
   };
 }
 
@@ -634,14 +902,21 @@ export function storyOf(c: MockCase): Story {
 export function advance(c: MockCase, now: number, hooks: EngineHooks): boolean {
   const run = c.run;
   if (!run || run.done) return false;
+  // "none of these" switches the story to asking the customer; the steps up to the gate are the same in both
   const story = storyOf(c);
-  const tl = buildTimeline(story);
+  const tl = buildTimeline(story, c.ctx);
   let changed = false;
   const exec = (stepAt: number): Exec => ({ c, story, at: Math.min(now, stepAt), hooks });
+  // after a person picks the payment, the rest of the run follows from the moment they picked it
+  const gate = tl.gate;
+  const shift = () => (gate !== null && run.pick ? run.pick.at - (run.startedAt + gate * 1000) : 0);
+  const timeOf = (t: number) => run.startedAt + t * 1000 + (gate !== null && t > gate ? shift() : 0);
 
-  while (run.cursorA < tl.A.length && run.startedAt + tl.A[run.cursorA].t * 1000 <= now) {
+  while (run.cursorA < tl.A.length) {
     const s = tl.A[run.cursorA];
-    s.apply(exec(run.startedAt + s.t * 1000));
+    if (gate !== null && s.t > gate && !run.pick) break;
+    if (timeOf(s.t) > now) break;
+    s.apply(exec(timeOf(s.t)));
     run.cursorA += 1;
     changed = true;
   }
@@ -657,7 +932,8 @@ export function advance(c: MockCase, now: number, hooks: EngineHooks): boolean {
     }
   }
   if (!aDone) return changed;
-  const b2Base = tl.needsApproval && run.approval ? Math.max(run.approval.at + 1200, run.startedAt + tl.aEnd * 1000) : run.startedAt + tl.aEnd * 1000;
+  const aEndAt = timeOf(tl.aEnd);
+  const b2Base = tl.needsApproval && run.approval ? Math.max(run.approval.at + 1200, aEndAt) : aEndAt;
   if (tl.needsApproval && run.cursorB1 < tl.B1.length) return changed;
   while (run.cursorB2 < tl.B2.length && b2Base + tl.B2[run.cursorB2].t * 1000 <= now) {
     const s = tl.B2[run.cursorB2];
@@ -671,7 +947,7 @@ export function advance(c: MockCase, now: number, hooks: EngineHooks): boolean {
 /** For the pre-run cases: runs at once on a fake clock, optionally with an approval. */
 export function prerun(c: MockCase, startedAt: number, hooks: EngineHooks, approval: Omit<Approval, "at"> | null, approvalDelayS = 240) {
   c.run = { runId: `run-${c.caseId}-seed`, startedAt, cursorA: 0, cursorB1: 0, cursorB2: 0, approval: null, done: false };
-  const tl = buildTimeline(storyOf(c));
+  const tl = buildTimeline(storyOf(c), c.ctx);
   const aEndAt = startedAt + tl.aEnd * 1000;
   advance(c, aEndAt + 10, hooks);
   if (tl.needsApproval && approval) {

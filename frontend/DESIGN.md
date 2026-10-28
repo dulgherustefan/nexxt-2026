@@ -44,6 +44,8 @@ In the console, neutrals cover over 90% of every screen: no gradients, no glows,
 - Needs a person: `<Banner tone="now">`: white card with a yellow live dot, one sentence saying why, one primary action.
 - Deadlines: `<DeadlineText>` says "Due tomorrow, 23:59"; the full date is in the tooltip. Never write "T+1" in the UI.
 - Empty states: say what's missing and offer one action ("No cases yet. Run a sample case.").
+- Citations: numbered markers in the text (a small hairline tag, like an ID) jump to the source list; each source shows its kind, source, confidence word with the mark ([P], [S], [U]) and rule IDs, and opens the full passage in a side sheet. "Why this result" stays folded.
+- Optional detail (other candidates, similar past cases, the router's reasons) starts folded or lives in the trace sheet. Past cases always say they are information, not a decision input.
 - Errors: say what happened and what to do. No "please", no "sorry", no "successfully".
 
 ## Agent work, shown minimally

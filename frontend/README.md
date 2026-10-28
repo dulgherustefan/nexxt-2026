@@ -31,8 +31,10 @@ The dev server also listens on your network address (`host: true`), so phones on
 |---|---|
 | `/` | Homepage. It paints right away, without waiting for the server. |
 | `/cases` | Cases, most urgent first |
-| `/cases/:id` | One case: the decision, the deadline, the evidence, recovery and the letter |
+| `/cases/new` | A new case from a pasted complaint, in any language: check who the customer is and which payment, then open it. Sample situations are one click away. |
+| `/cases/:id` | One case: the decision, the deadline, identification, the evidence, recovery, the letter and its legal sources |
 | `/rules` | The rule catalog and the parameters the bank sets |
+| `/knowledge` | Ask the knowledge base or search it: answers with numbered citations. The AML zone serves the same page, search only. |
 | `/evaluation` | The evaluation report: refund decisions, deadlines, privacy, prompt injections, the claim classifier |
 | `/mcp` | MCP setup for Claude Desktop, Cursor and HTTP clients, and the tools the server offers |
 | `/bank` | Demo Bank, the customer's phone app. `?client=CUST-DEMO-02` opens the second customer. |
@@ -48,6 +50,7 @@ The console switches to demo data by itself when `GET /api/meta` doesn't answer 
 - "Run demo case" runs a case end to end in about 25 seconds: intake, evidence, decision (it waits for your approval when one is needed), recovery and the reply letter. Each fact gets a real SHA-256 hash, chained into a Merkle root with a QR code. Only the signature is simulated.
 - The whole story: the fake courier page, a RON 3,200.00 payment in Demo Bank, "I didn't make this payment", the case starts, you approve it in the console, and the phone shows the refund.
 - "Reset demo data" under the sidebar status clears everything. Deleting the `versoml.mock.*` keys from `localStorage` does the same.
+- New case: the examples under the message (Romanian, German, call notes, an unknown customer, hidden instructions) cover the match, no-match and injection states. The inbox also holds a case that waits for a person to pick the payment (Customer 0464).
 
 All data is synthetic: made-up banks (BDEM, XBNK, YBNK), `.example` domains and customers with aliases. Reports in mock mode, such as the evaluation, carry a "Demo data" label.
 
@@ -76,4 +79,8 @@ On top of the shapes in `src/api/types.ts`:
 - The evidence check sends the `{case_id, facts, seal}` object from `GET /api/ledger/{id}` to `POST /api/verify`. "Export JSON" downloads the same object.
 - `PUT /api/rules/params` gets only the changed keys. A 400 whose `detail` reads `key: reason; key2: reason` puts each reason under its field.
 - `GET /api/eval` returns `var/eval/report.json`, or `{status: "missing", message}` until the first `uv run versoml eval --fast`. The page lists the client metrics from `sections`; the raw JSON stays one click away.
-- `GET /api/rules`: rules in the `AML` pack or the `aml` zone, and `aml_*` parameters, aren't shown. `GET /api/mcp`: only client-zone tools are listed, and AML servers are left out of the configs people copy.
+- `GET /api/rules`: rules in the `AML` pack or the `aml` zone, and `aml_*` parameters, aren't shown.
+- Intake and knowledge: `POST /api/intake/preview`, `GET /api/customers?q=`, `GET /api/cases/{id}/precedents`, `GET /api/kb/search`, `POST /api/kb/ask`, `GET /api/kb/stats` and, in the AML zone, `GET /api/aml/kb/search` (shapes in `src/api/types.ts`). The preview and the answer get 60 s before timing out.
+- `POST /api/cases` with `{complaint}` sends only what the operator chose: the text, `customer_ref` if they picked one, `transaction_refs` if they picked a payment, `source`, `channel_hint`, `attachments`.
+- A pending interrupt with `kind: "pick_transaction"` (on `CaseDetail.interrupt`, its `payload`, or the SSE event's `data`) shows the candidates; the answer is `POST /api/cases/{id}/approve` with `{action: "pick_transaction", tx_id}` (`null` = none of these).
+- `CaseDetail.reasons[].decision` is matched against the decision's verdict code (then its question); a reason whose `rule_id` is among the decision's rules wins. `GET /api/mcp`: only client-zone tools are listed, and AML servers are left out of the configs people copy.

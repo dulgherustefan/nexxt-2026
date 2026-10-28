@@ -1,11 +1,11 @@
 import { DeviceMobile, Play, Plus } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { duration, hasAmount, money, verdictLabel } from "../../api/format";
+import { dateTime, duration, hasAmount, money, verdictLabel } from "../../api/format";
 import { useApi, useResource } from "../../api/runtime";
-import type { CaseSummary, ScenarioInfo, Stats } from "../../api/types";
+import type { CaseSummary, Stats } from "../../api/types";
 import { Button, cx, DeadlineText, EmptyState, ErrorNote, PageHeader, Skeleton, Tabs } from "../../ui/kit";
-import { caseStatus, scenarioLabel, Sheet, StatusLine } from "./caseUi";
+import { caseStatus, scenarioLabel, StatusLine } from "./caseUi";
 
 type Filter = "you" | "running" | "today" | "closed" | "all";
 
@@ -36,7 +36,6 @@ export default function CasesPage() {
   const cases = useResource(() => api.cases(), [api], { pollMs: 3000 });
   const stats = useResource(() => api.stats(), [api], { pollMs: 5000 });
   const [filter, setFilter] = useState<Filter>("all");
-  const [sheet, setSheet] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
 
@@ -76,7 +75,7 @@ export default function CasesPage() {
         actions={
           <>
             <Button icon={<Play size={14} weight="fill" />} busy={starting} onClick={() => startCase("demo_t1")}>Run demo case</Button>
-            <Button variant="primary" icon={<Plus size={14} weight="bold" />} onClick={() => setSheet(true)}>New case</Button>
+            <Button variant="primary" icon={<Plus size={14} weight="bold" />} onClick={() => navigate("/cases/new")}>New case</Button>
           </>
         }
       />
@@ -129,7 +128,6 @@ export default function CasesPage() {
         <p className="mt-3 text-[0.8667rem] text-danger">Updates from the server stopped. Showing the last list received.</p>
       )}
 
-      {sheet && <NewCaseSheet onClose={() => setSheet(false)} onStart={startCase} busy={starting} />}
     </>
   );
 }
@@ -210,12 +208,12 @@ function CaseList({ cases, onOpen }: { cases: CaseSummary[]; onOpen: (id: string
                   <span className="min-w-0 leading-tight">
                     <span className="block truncate font-medium">{c.customer_alias}</span>
                     <span className="mt-0.5 block truncate text-[0.8rem] text-muted">
-                      {scenarioLabel(c.scenario)} · <span className="id-text text-[0.8rem] text-subtle">{c.case_id}</span>
+                      {c.scenario_phrase || scenarioLabel(c.scenario)} · <span className="id-text text-[0.8rem] text-subtle">{c.case_id}</span>
                     </span>
                   </span>
                 </span>
                 <span className="tnum text-right font-medium md:hidden">{hasAmount(c.amount) ? money(c.amount) : "—"}</span>
-                <span className="text-[0.8667rem] md:text-[0.9333rem]" title={c.verdict ? verdictLabel(c.verdict) : undefined}>
+                <span className="text-[0.8667rem] md:text-[0.9333rem]" title={statusTitle(c)}>
                   <StatusLine status={String(c.status)} requiresHuman={c.requires_human} />
                 </span>
                 <span className="text-right text-[0.8667rem] md:text-left md:text-[0.9333rem]">
@@ -231,47 +229,8 @@ function CaseList({ cases, onOpen }: { cases: CaseSummary[]; onOpen: (id: string
   );
 }
 
-// ---------------------------------------------------------------- new case
-
-function NewCaseSheet({ onClose, onStart, busy }: { onClose: () => void; onStart: (id: string) => void; busy: boolean }) {
-  const api = useApi();
-  const scenarios = useResource(() => api.scenarios(), [api]);
-  const [choice, setChoice] = useState<string>("demo_t1");
-  return (
-    <Sheet
-      title="New case"
-      description="Pick a situation. The case starts right away."
-      onClose={onClose}
-      footer={<>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="primary" busy={busy} disabled={!choice} onClick={() => onStart(choice)}>Start case</Button>
-      </>}
-    >
-      {scenarios.error && !scenarios.data ? (
-        <ErrorNote error={scenarios.error} what="the scenarios" onRetry={scenarios.reload} />
-      ) : !scenarios.data ? (
-        <div className="flex flex-col gap-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
-      ) : (
-        <fieldset className="flex flex-col gap-1.5">
-          <legend className="sr-only">Situation</legend>
-          {scenarios.data.map((s: ScenarioInfo) => (
-            <label
-              key={s.id}
-              className={cx(
-                "flex cursor-pointer gap-3 rounded-xl px-4 py-3 transition-colors",
-                choice === s.id ? "bg-canvas ring-1 ring-inset ring-ink" : "ring-1 ring-inset ring-line hover:bg-canvas",
-              )}
-            >
-              <input type="radio" name="scenario" value={s.id} checked={choice === s.id} onChange={() => setChoice(s.id)} className="mt-1 accent-ink" />
-              <span className="min-w-0">
-                <span className="block font-medium">{s.title || scenarioLabel(s.id)}</span>
-                {s.description && <span className="mt-0.5 block text-[0.8667rem] text-muted">{s.description}</span>}
-                {s.expected_verdict && <span className="mt-1 block text-[0.8rem] text-subtle">Expected outcome: {verdictLabel(String(s.expected_verdict))}</span>}
-              </span>
-            </label>
-          ))}
-        </fieldset>
-      )}
-    </Sheet>
-  );
+/** The verdict and who signed it, for the status tooltip. */
+function statusTitle(c: CaseSummary): string | undefined {
+  const parts = [c.verdict ? verdictLabel(c.verdict) : null, c.approved_by ? `Signed by ${c.approved_by}${c.approved_at ? `, ${dateTime(c.approved_at)}` : ""}` : null];
+  return parts.filter(Boolean).join(" · ") || undefined;
 }

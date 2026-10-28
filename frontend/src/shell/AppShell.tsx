@@ -1,5 +1,6 @@
 import {
   ArrowSquareOut,
+  BookOpenText,
   ChartLineUp,
   DeviceMobile,
   FileMagnifyingGlass,
@@ -30,6 +31,7 @@ interface NavItem {
 const CLIENT_NAV: NavItem[] = [
   { to: "/cases", label: "Cases", icon: Tray },
   { to: "/rules", label: "Rules", icon: Scales },
+  { to: "/knowledge", label: "Knowledge", icon: BookOpenText },
   { to: "/evaluation", label: "Evaluation", icon: ChartLineUp },
   { to: "/mcp", label: "MCP", icon: Plugs },
 ];
@@ -38,6 +40,7 @@ const AML_NAV: NavItem[] = [
   { to: "/", label: "Leads", icon: ListMagnifyingGlass, end: true },
   { to: "/osint", label: "OSINT check", icon: FileMagnifyingGlass },
   { to: "/zid", label: "Access log", icon: Scales },
+  { to: "/knowledge", label: "Knowledge", icon: BookOpenText },
 ];
 
 /** What is answering right now, in words: a live model, recorded answers, or rules only. */
@@ -153,7 +156,9 @@ function Sidebar({ onNavigate, onPhoneDemo }: { onNavigate?: () => void; onPhone
   );
 }
 
-const PAGE_TITLES: Record<string, string> = { "/cases": "Cases", "/rules": "Rules", "/evaluation": "Evaluation", "/mcp": "MCP" };
+const PAGE_TITLES: Record<string, string> = {
+  "/cases": "Cases", "/cases/new": "New case", "/rules": "Rules", "/knowledge": "Knowledge", "/evaluation": "Evaluation", "/mcp": "MCP",
+};
 
 export function AppShell() {
   const [open, setOpen] = useState(false);

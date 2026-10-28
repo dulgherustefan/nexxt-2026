@@ -15,6 +15,7 @@ import type {
   Deadline,
   DisputeType,
   ExtractedClaim,
+  MatchResult,
   Question,
   Recovery,
   Sink,
@@ -34,6 +35,22 @@ export interface StoryCtx {
   cmp35: string;
   victimRef: string;
   txId: string;
+  /** Free-form intake: who the customer is, which payment, and whether a person still has to pick it. */
+  intake?: IntakeCtx;
+}
+
+export interface IntakeCtx {
+  match: MatchResult;
+  /** The run stops at Identification until a person picks the payment. */
+  pickNeeded: boolean;
+  /** No payment identified (unknown customer, no match, or "none of these"): VersoML asks the customer. */
+  noTx: boolean;
+  customerKnown: boolean;
+  source?: string;
+  language?: string;
+  extracted?: Partial<ExtractedClaim>;
+  /** The start of the operator's text, for the intake facts. */
+  claim?: string;
 }
 
 export interface FactSeed {
@@ -1202,7 +1219,161 @@ export function ecomStory(c: StoryCtx): Story {
   };
 }
 
+// ================================================================== no payment identified: ask the customer
+
+/**
+ * The same claim, but nobody could tell which payment it is (unknown customer, no match, or a
+ * person answered "none of these"). The intake and classifier steps stay identical, so a run that
+ * paused at Identification continues on this timeline without losing its place.
+ */
+export function needInfoStory(base: Story, c: StoryCtx): Story {
+  const known = c.intake?.customerKnown ?? false;
+  const ask = known
+    ? "the date, the amount and the payee of the payment you dispute"
+    : "your customer reference or the phone number on your account, and the date, amount and payee of the payment you dispute";
+  return {
+    ...base,
+    facts: [
+      ...base.facts.filter((f) => f.stage === "receptor" || f.stage === "clasificator"),
+      {
+        key: "decision",
+        stage: "reguli",
+        kind: "rule.decision",
+        tool: "rules.evaluate",
+        summary: "Rules engine: ask the customer which payment they dispute. The refund clock runs from their report (DSP-58).",
+        content: { verdict: "INFORMATII_SUPLIMENTARE", rule_ids: ["DSP-58", "CMP-01"], engine_version: "1" },
+      },
+      { key: "letter", stage: "redactor", kind: "letter.draft", tool: "letters.draft_letter", summary: "The letter asks for the missing details and keeps every point of the claim open.", content: { points: 2 } },
+      { key: "filter", stage: "filtru_zid", kind: "wall.letter_filter", tool: "letters.check_letter", summary: "Wall filter: 0 banned terms, 0 canary tokens. The letter can go out.", content: { passed: true } },
+    ],
+    hits: [
+      {
+        rule_id: "DSP-58",
+        title: "When the refund clock starts",
+        basis: "Law 209/2019, art. 173 (inference)",
+        confidence: "U",
+        outcome: "starts at the customer's report",
+        explanation: `The refund clock started when the customer reported the payment (${fmtDayTime(c.receivedAt, true)}). It keeps running while the bank waits for the details.`,
+        inputs: ["complaint"],
+      },
+      answerHit(c),
+      {
+        rule_id: "DSP-57",
+        title: "Dispute text is data, not instructions",
+        basis: "proposal, docs/context/13",
+        confidence: "U",
+        outcome: "nothing in the message changes the decision",
+        explanation: "The customer's message only feeds the identification. It cannot pick a payment or a decision on its own.",
+        inputs: ["complaint"],
+      },
+    ],
+    deadlines: [T1(c), C15(c)],
+    decisions: [
+      {
+        stage: "reguli",
+        question: "rambursare_t1",
+        decision: "INFORMATII_SUPLIMENTARE",
+        rule_ids: ["DSP-58", "CMP-01"],
+        supporting: ["complaint"],
+        rationale: [
+          { text: known ? "The customer is known, but no payment on their accounts matches the claim." : "The message does not say who the customer is, so no account can be checked yet.", cites: ["complaint"] },
+          { text: "The refund clock still runs from the customer's report.", cites: [] },
+        ],
+        next_actions: [`Ask the customer for ${ask}`],
+        requires_human: false,
+        deadline: c.t1,
+      },
+    ],
+    refund: "none",
+    approvalPrompt: undefined,
+    debate: undefined,
+    recovery: { chargeback: null, recall: null, dnsc_report: null },
+    letter: {
+      subject: "We need a few details about the payment",
+      body:
+        `Dear customer,\n\nWe have received your message and opened case ${c.caseId}. [[complaint]]\n\n` +
+        `1. What we need. To check the payment, please send us ${ask}.\n\n` +
+        "2. Your rights. If the payment was not authorized, the deadline for the refund runs from the moment you told us. Never share the codes we send you by text message.\n\n" +
+        letterFooter(c),
+      points: ["Which payment the claim is about", "The customer's rights while the bank checks"],
+    },
+    statusAfterRules: "IN_ANALIZA",
+    statusFinal: "IN_ANALIZA",
+    verdict: "INFORMATII_SUPLIMENTARE",
+    hold: false,
+    beneficiary: undefined,
+  };
+}
+
+// ================================================================== the reason behind each decision, in one sentence
+
+/** The plain-language reason for a decision, and the rule it rests on. Rule IDs come from the decision itself. */
+export function plainReason(d: DecisionSeed, c: StoryCtx, story: Story): { rule_id: string; sentence: string } {
+  const pick = (...ids: string[]) => ids.find((id) => d.rule_ids.includes(id)) ?? d.rule_ids[0] ?? "—";
+  const due = fmtDayTime(c.t1);
+  switch (d.decision) {
+    case "RAMBURSEAZA":
+      return { rule_id: pick("PAY-04", "PAY-03"), sentence: `The customer didn't authorize the payment and the amount is under the cap, so the bank refunds it by ${due} without a signature.` };
+    case "RAMBURSEAZA_CU_APROBARE":
+      return { rule_id: pick("DSP-59", "PAY-03"), sentence: `The bank must refund by ${due}. The amount is above the ${CAP} cap, so a person confirms the refund first.` };
+    case "NU_SE_APLICA_T1":
+      return story.disputeType === "eroare_procesare"
+        ? { rule_id: pick("DSP-52"), sentence: "The customer made the payment, but it was processed twice: a processing error, recovered by chargeback." }
+        : { rule_id: pick("DSP-13", "DSP-50"), sentence: "The customer approved the payment themselves, so the next-business-day refund doesn't apply automatically. A person confirms it." };
+    case "EXCEPTIE_FRAUDA_CLIENT":
+      return { rule_id: pick("DSP-05"), sentence: "A suspicion of customer fraud was reported to the authority: the only case where the refund can wait, and a person signs it." };
+    case "RESPINGE_TARDIV":
+      return { rule_id: pick("PAY-01"), sentence: "The customer reported the payment more than 13 months after the debit, so the bank doesn't have to refund it. A person signs the rejection." };
+    case "INFORMATII_SUPLIMENTARE":
+      return { rule_id: pick("DSP-58"), sentence: "VersoML can't tell which payment the claim is about, so it asks the customer. The refund clock runs from their report." };
+    case "NU_RECOMANDAM_RECUPERARE":
+      return d.question === "recuperare_escroc"
+        ? { rule_id: pick("DSP-27"), sentence: "Visa Secure authenticated the payment, so a chargeback can't recover it." }
+        : { rule_id: pick("PAY-06", "DSP-06"), sentence: "The evidence doesn't show gross negligence, so the bank doesn't ask the customer to repay." };
+    case "RECUPERARE_PROPUSA":
+      return { rule_id: pick("DSP-06", "PAY-06"), sentence: "The customer saw the amount and approved it, so a person can decide to ask them to repay. The refund stays." };
+    case "RECHEMARE":
+      return { rule_id: pick("REC-02"), sentence: "The money went to another bank in Romania, so the bank asks it to send the money back." };
+    case "CHARGEBACK":
+      return { rule_id: pick("DSP-52"), sentence: "A card payment: the bank can get the money back from the merchant's bank with a chargeback." };
+    default:
+      return { rule_id: d.rule_ids[0] ?? "—", sentence: d.rationale[0]?.text ?? "" };
+  }
+}
+
+const SOURCE_WORD: Record<string, string> = { email: "by email", call_center: "through the call center", branch: "at a branch", web_form: "through the web form", app: "in the app" };
+const CONTACT_WORD: Record<string, string> = { sms: "a text message", apel: "a phone call", email: "an email", mesagerie: "a messaging app", site: "a website" };
+
+/** A typed or pasted complaint: the intake facts describe that text, not the story's sample message. Same keys, same count. */
+function withIntakeFacts(story: Story, c: StoryCtx): Story {
+  const i = c.intake;
+  if (!i?.claim || i.source === "app") return story;
+  const ex = i.extracted ?? {};
+  const bits = [
+    ex.contacted_by && CONTACT_WORD[ex.contacted_by] ? `contacted by ${CONTACT_WORD[ex.contacted_by]}` : null,
+    ex.impersonated_entity ? `pretending to be ${ex.impersonated_entity}` : null,
+    ex.mentioned_amounts?.length ? `amounts ${ex.mentioned_amounts.map((a) => money(a)).join(", ")}` : null,
+    ex.mentioned_urls?.length ? `link: ${ex.mentioned_urls[0].replace(/^https?:\/\//, "").split("/")[0]}` : null,
+    `instructions to the system: ${ex.injection_suspected ? "yes, treated as data" : "none"}`,
+  ].filter(Boolean);
+  const claim = i.claim.length >= 140 ? `${i.claim.slice(0, 137).trimEnd()}…` : i.claim;
+  return {
+    ...story,
+    facts: story.facts.map((f) => {
+      if (f.stage !== "receptor") return f;
+      if (f.key === "complaint") return { ...f, summary: `The customer's message, received ${SOURCE_WORD[i.source ?? ""] ?? "by the bank"}: “${claim}”` };
+      if (f.key === "extract") return { ...f, summary: `The isolated model extracted: ${bits.join(", ")}.` };
+      return f;
+    }),
+  };
+}
+
 export function storyFor(scenario: string, c: StoryCtx): Story {
+  const base = withIntakeFacts(baseStoryFor(scenario, c), c);
+  return c.intake?.noTx ? needInfoStory(base, c) : base;
+}
+
+function baseStoryFor(scenario: string, c: StoryCtx): Story {
   switch (scenario) {
     case "card_visa_secure":
       return visaSecureStory(c);

@@ -4,22 +4,23 @@
  * in one tab continues in another (the leader tab advances the runs).
  */
 import { money } from "../api/format";
-import type { AgentEvent, BankState, RuleParams, WallState } from "../api/types";
+import type { AgentEvent, Attachment, BankState, RuleParams, WallState } from "../api/types";
 import { seedAml, advanceAml, ingestReferral, type AmlDb } from "./aml";
 import { addBusinessDays, endOfNextBusinessDay, isoRo } from "./calendar";
 import { advance, newCaseDetail, prerun, type EngineHooks, type MockCase } from "./engine";
+import { directoryEntry, matchFor, previewIntake } from "./intake";
 import { ATTACKS, PARAMS, WALL_LAYERS, seedDenials } from "./fixtures";
 import { sha256 } from "./sha256";
-import { storyFor, type Story, type StoryCtx } from "./stories";
+import { storyFor, type IntakeCtx, type Story, type StoryCtx } from "./stories";
 
-// v5: the English seed. Bumping the keys drops a cached v4 database, which still holds Romanian text.
-const KEY = "versoml.mock.db.v5";
-const REV = "versoml.mock.rev.v5";
-const LEADER = "versoml.mock.leader.v5";
+// v6: identification, routing, citations and linked cases. Bumping the keys drops a cached v5 database.
+const KEY = "versoml.mock.db.v6";
+const REV = "versoml.mock.rev.v6";
+const LEADER = "versoml.mock.leader.v6";
 const H = 3600_000;
 
 export interface MockDb {
-  v: 5;
+  v: 6;
   rev: number;
   seq: number;
   caseCounter: number;
@@ -66,7 +67,7 @@ function load(): MockDb {
       const raw = localStorage.getItem(KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as MockDb;
-        if (parsed && parsed.v === 5) {
+        if (parsed && parsed.v === 6) {
           memory = parsed;
           localRev = parsed.rev;
           return memory;
@@ -150,6 +151,7 @@ function hooksFor(db: MockDb): EngineHooks {
       if (!story.beneficiary) return;
       ingestReferral(db.aml, { caseId: c.caseId, victimRef: c.ctx.victimRef, amount: c.ctx.amount, executedAt: c.ctx.executedAt, at, scenario: story.scenario }, nextSeq);
     },
+    linkedCases: (c: MockCase) => campaignMembers(db, c.caseId),
     onRefund: (c: MockCase, at: number) => {
       const acct = db.bank[c.customerRef];
       if (!acct) return;
@@ -177,6 +179,15 @@ function hooksFor(db: MockDb): EngineHooks {
 
 // ------------------------------------------------------------------ cases
 
+/** The phishing stories all pay the same mule account after the same fake page: one campaign. */
+const CAMPAIGN_FAMILY = new Set(["demo_t1", "phishing_link", "inel_carausi", "injectie_document"]);
+
+export function campaignMembers(db: MockDb, caseId: string): string[] {
+  const me = db.cases[caseId];
+  if (!me || !CAMPAIGN_FAMILY.has(me.scenario) || me.ctx.intake?.noTx) return [];
+  return db.order.filter((id) => id !== caseId && CAMPAIGN_FAMILY.has(db.cases[id]?.scenario) && !db.cases[id]?.ctx.intake?.noTx);
+}
+
 export function victimRefFor(caseId: string): string {
   return `VCT-${sha256(caseId).slice(0, 4)}`;
 }
@@ -197,7 +208,10 @@ export function makeCtx(caseId: string, receivedAt: number, amount: number, alia
   };
 }
 
-export function createMockCase(db: MockDb, args: { scenario: string; customerRef: string; amount?: number; alias?: string; receivedAt?: number; txId?: string; complaintText?: string }): MockCase {
+export function createMockCase(db: MockDb, args: {
+  scenario: string; customerRef: string; amount?: number; alias?: string; receivedAt?: number; txId?: string; complaintText?: string;
+  attachments?: Attachment[]; intake?: IntakeCtx; executedAt?: number;
+}): MockCase {
   db.caseCounter += 1;
   const caseId = `CT-2026-${String(db.caseCounter).padStart(6, "0")}`;
   const receivedAt = args.receivedAt ?? Date.now();
@@ -205,6 +219,8 @@ export function createMockCase(db: MockDb, args: { scenario: string; customerRef
   const alias = args.alias ?? aliasFor(args.customerRef);
   const ctx = makeCtx(caseId, receivedAt, amount, alias);
   if (args.txId) ctx.txId = args.txId;
+  if (args.executedAt) ctx.executedAt = args.executedAt;
+  if (args.intake) ctx.intake = args.intake;
   const story = storyFor(args.scenario, ctx);
   const c: MockCase = {
     caseId,
@@ -219,6 +235,7 @@ export function createMockCase(db: MockDb, args: { scenario: string; customerRef
     createdAt: receivedAt,
   };
   if (args.complaintText && c.detail.complaint) c.detail.complaint.text = args.complaintText;
+  if (args.attachments && c.detail.complaint) c.detail.complaint.attachments = args.attachments;
   db.cases[caseId] = c;
   db.order.unshift(caseId);
   return c;
@@ -230,11 +247,12 @@ export function startRun(db: MockDb, caseId: string, now = Date.now()): string {
   c.events = [];
   c.keyToFact = {};
   c.seal = null;
+  if (c.ctx.intake?.pickNeeded && c.run?.pick) c.ctx.intake.pickNeeded = false;
   const story = storyFor(c.scenario, c.ctx);
   const fresh = newCaseDetail(caseId, c.scenario, c.ctx, story);
   fresh.complaint = c.detail.complaint ?? fresh.complaint;
   c.detail = fresh;
-  c.run = { runId, startedAt: now, cursorA: 0, cursorB1: 0, cursorB2: 0, approval: null, done: false };
+  c.run = { runId, startedAt: now, cursorA: 0, cursorB1: 0, cursorB2: 0, approval: null, pick: null, done: false };
   return runId;
 }
 
@@ -277,7 +295,7 @@ function aliasFor(ref: string): string {
 
 function seed(now: number): MockDb {
   const db: MockDb = {
-    v: 5,
+    v: 6,
     rev: 0,
     seq: 0,
     caseCounter: 114,
@@ -309,7 +327,27 @@ function seed(now: number): MockDb {
     const c = createMockCase(db, { scenario: s.scenario, customerRef: s.ref, receivedAt, alias: `Customer ${s.ref.slice(5)}` });
     prerun(c, receivedAt + 20_000, hooks, s.approval ?? null, 210);
   }
+  seedPickCase(db, hooks, now - 1.1 * H);
   return db;
+}
+
+/** An email about "about RON 500, last week": two online payments fit, so the run waits for a person to pick one. */
+function seedPickCase(db: MockDb, hooks: EngineHooks, receivedAt: number) {
+  const text = "Hello, there is an online card payment of about 500 lei from last week that I did not make. I still have my card. Customer 0464.";
+  const preview = previewIntake(db, { text, source: "email", received_at: new Date(receivedAt).toISOString() }, receivedAt);
+  const entry = directoryEntry("CUST-0464");
+  const match = preview.match.candidates.length ? preview.match : matchFor(null, []);
+  const c = createMockCase(db, {
+    scenario: "card_ecom_fara_3ds",
+    customerRef: "CUST-0464",
+    receivedAt,
+    amount: 0,
+    alias: entry?.alias ?? "Customer 0464",
+    complaintText: text,
+    attachments: [],
+    intake: { match, pickNeeded: match.needs_human && match.candidates.length > 0, noTx: false, customerKnown: true, source: "email", language: "en" },
+  });
+  prerun(c, receivedAt + 20_000, hooks, null);
 }
 
 function seedBank(now: number): MockDb["bank"] {

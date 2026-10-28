@@ -1,9 +1,10 @@
 import { CheckCircle, X } from "@phosphor-icons/react";
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
-import { dateTime, money, scenarioLabel as baseScenarioLabel } from "../../api/format";
-import type { AgentEvent, Decision, Money, PipelineNode } from "../../api/types";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { dateTime, duration, money, scenarioLabel as baseScenarioLabel, verdictLabel } from "../../api/format";
+import { useApi, useResource } from "../../api/runtime";
+import type { AgentEvent, Decision, Money, PipelineNode, RoutingEntry, ScenarioInfo } from "../../api/types";
 import { HIDDEN_STEPS, matchNode, normalizeStatus, STAGE_BY_ID } from "../../lib/pipeline";
-import { cx, Dot, StepIcon, STEP_STATUS_LABEL, type Tone, useNowTick } from "../../ui/kit";
+import { Button, cx, Dot, ErrorNote, Skeleton, StepIcon, STEP_STATUS_LABEL, type Tone, useNowTick } from "../../ui/kit";
 
 // ---------------------------------------------------------------- one set of case statuses across the app
 
@@ -110,8 +111,8 @@ export function verdictSentence(
 // ---------------------------------------------------------------- agent steps
 
 const PHASES: Array<{ id: string; label: string; doing: string; ids: string[] }> = [
-  { id: "intake", label: "Intake", doing: "Reading the claim", ids: ["receptor", "clasificator", "ceasornicar"] },
-  { id: "evidence", label: "Evidence", doing: "Collecting evidence", ids: ["colector_tranzactie", "colector_sca", "colector_dispozitiv", "colector_domeniu"] },
+  { id: "intake", label: "Intake", doing: "Reading the claim", ids: ["receptor", "identificare", "clasificator", "ceasornicar", "router"] },
+  { id: "evidence", label: "Evidence", doing: "Collecting evidence", ids: ["colector_tranzactie", "colector_sca", "colector_dispozitiv", "colector_domeniu", "colector_campanie"] },
   { id: "decision", label: "Decision", doing: "Applying the rules", ids: ["motor_reguli", "rambursare"] },
   { id: "recovery", label: "Recovery", doing: "Preparing recovery", ids: ["procuror", "avocat", "cantaritor", "recuperare"] },
   { id: "reply", label: "Reply", doing: "Writing the reply", ids: ["redactor", "filtru_zid", "sigiliu"] },
@@ -135,6 +136,29 @@ export interface StepRow {
   hint?: string;
   start?: number;
   end?: number;
+  /** The router's choice for this step, when it made one. */
+  route?: RoutingEntry;
+}
+
+/** What a step is doing right now, when it says more than its phase. */
+const STEP_DOING: Record<string, string> = {
+  identificare: "Finding the customer and the payment",
+  router: "Choosing the agents",
+  colector_campanie: "Looking for linked cases",
+};
+
+/** The router's choices: what the case detail saved, then what the live events brought. */
+export function useRouting(saved: RoutingEntry[] | undefined, events: AgentEvent[]): RoutingEntry[] {
+  return useMemo(() => {
+    const out = new Map<string, RoutingEntry>();
+    for (const r of saved ?? []) if (r?.node) out.set(r.node, r);
+    for (const e of events) {
+      if (e.type !== "CUSTOM" || e.name !== "routing") continue;
+      const d = e.data as Partial<RoutingEntry> | undefined;
+      if (d?.node && typeof d.run === "boolean") out.set(d.node, { node: d.node, run: d.run, reason: String(d.reason ?? "") });
+    }
+    return [...out.values()];
+  }, [saved, events]);
 }
 
 function ms(v: string | null | undefined): number | undefined {
@@ -144,7 +168,7 @@ function ms(v: string | null | undefined): number | undefined {
 }
 
 /** Each step's state: first what the server saved, then what the live events brought. */
-export function useStepRows(nodes: PipelineNode[] | undefined, events: AgentEvent[]): StepRow[] {
+export function useStepRows(nodes: PipelineNode[] | undefined, events: AgentEvent[], routing: RoutingEntry[] = []): StepRow[] {
   return useMemo(() => {
     const rows = new Map<string, StepRow>();
     for (const n of nodes ?? []) {
@@ -174,18 +198,22 @@ export function useStepRows(nodes: PipelineNode[] | undefined, events: AgentEven
         r.end = t;
         if (e.message) r.summary = e.message;
       } else if (e.type === "CUSTOM" && e.name === "interrupt") {
-        r.status = "waiting";
+        if (e.data?.pending !== false) r.status = "waiting";
       } else if (e.type === "CUSTOM" && (e.name === "policy_denied" || e.name === "wall_block")) {
         r.status = "blocked";
       }
     }
+    for (const route of routing) {
+      const r = rows.get(route.node);
+      if (r) r.route = route;
+    }
     return [...rows.values()];
-  }, [nodes, events]);
+  }, [nodes, events, routing]);
 }
 
 function secondsText(ms0: number): string {
   const s = ms0 / 1000;
-  return s < 10 ? `${s.toFixed(1)} s` : `${Math.round(s)} s`;
+  return s < 10 ? `${s.toFixed(1)} s` : s < 90 ? `${Math.round(s)} s` : duration(s);
 }
 
 function timing(rows: StepRow[], now: number) {
@@ -200,8 +228,8 @@ function timing(rows: StepRow[], now: number) {
  * The agents, in one line. While running: what they're doing now and five phase segments.
  * When done: a single sentence. The full step list opens on request.
  */
-export function AgentStatus({ rows: input, settled, waiting, onOpenTrace }: {
-  rows: StepRow[]; settled: boolean; waiting: boolean; onOpenTrace: () => void;
+export function AgentStatus({ rows: input, settled, waiting, waitingLabel = "Waiting for your approval", onOpenTrace }: {
+  rows: StepRow[]; settled: boolean; waiting: boolean; waitingLabel?: string; onOpenTrace: () => void;
 }) {
   const rows = settled ? input.map((r) => (r.status === "idle" ? { ...r, status: "skipped" } : r)) : input;
   const now = useNowTick(250);
@@ -220,16 +248,19 @@ export function AgentStatus({ rows: input, settled, waiting, onOpenTrace }: {
   const stopped = rows.filter((r) => r.status === "blocked" || r.status === "error");
   const doneCount = rows.filter((r) => r.status === "done" || r.status === "skipped").length;
   const runningPhase = phases.find((p) => p.state === "running");
+  const runningStep = rows.find((r) => r.status === "running" && STEP_DOING[r.id]);
+  const routed = rows.filter((r) => r.route);
+  const skippedByRouter = routed.filter((r) => r.route && !r.route.run).length;
   const finished = rows.length > 0 && !runningPhase && !waiting && doneCount + stopped.length === rows.length;
 
   const headline = stopped.length
     ? { tone: "danger" as Tone, text: `${stopped[0].label} stopped` }
     : waiting
-      ? { tone: "now" as Tone, text: "Waiting for your approval" }
+      ? { tone: "now" as Tone, text: waitingLabel }
       : finished
         ? { tone: "ok" as Tone, text: "Agents finished" }
         : runningPhase
-          ? { tone: "dark" as Tone, text: runningPhase.doing }
+          ? { tone: "dark" as Tone, text: runningStep ? STEP_DOING[runningStep.id] : runningPhase.doing }
           : { tone: "neutral" as Tone, text: "Starting" };
 
   return (
@@ -268,6 +299,14 @@ export function AgentStatus({ rows: input, settled, waiting, onOpenTrace }: {
           </li>
         ))}
       </ol>
+      {routed.length > 0 && (
+        <p className="mt-2.5 border-t border-line pt-2.5 text-[0.8rem] text-muted">
+          The router ran {routed.length - skippedByRouter} of {routed.length} optional agents.{" "}
+          <button type="button" onClick={onOpenTrace} className="font-medium text-ink-soft underline decoration-line-strong underline-offset-2 hover:text-ink hover:decoration-ink">
+            See why
+          </button>
+        </p>
+      )}
     </section>
   );
 }
@@ -286,7 +325,10 @@ export function StepList({ rows: input, settled = false }: { rows: StepRow[]; se
 
   return (
     <div>
-      <p className="tnum text-[0.9333rem] text-muted">{rows.length} steps{total ? ` · ${total} end to end` : ""}</p>
+      <p className="tnum text-[0.9333rem] text-muted">
+        {rows.length} steps{total ? ` · ${total} end to end` : ""}
+        {rows.some((r) => r.route) ? ` · the router skipped ${rows.filter((r) => r.route && !r.route.run).length}` : ""}
+      </p>
       <ol className="mt-3">
         {phases.map((phase) => (
           <li key={phase.id} className="border-t border-line py-3 first:border-t-0">
@@ -312,7 +354,13 @@ export function StepList({ rows: input, settled = false }: { rows: StepRow[]; se
                           />
                         )}
                       </div>
-                      {r.summary && r.status !== "idle" && <p className="mt-1.5 line-clamp-2 text-[0.8667rem] text-muted">{r.summary}</p>}
+                      {r.summary && r.status !== "idle" && r.status !== "skipped" && <p className="mt-1.5 line-clamp-2 text-[0.8667rem] text-muted">{r.summary}</p>}
+                      {r.route && (
+                        <p className={cx("mt-1 text-[0.8rem]", r.route.run ? "text-ink-soft" : "text-subtle")}>
+                          <span className="font-medium">{r.route.run ? "Why it ran:" : "Not needed:"}</span> {r.route.reason}
+                        </p>
+                      )}
+                      {!r.route && r.status === "skipped" && r.summary && <p className="mt-1 text-[0.8rem] text-subtle">{r.summary}</p>}
                     </div>
                     <span className="tnum text-right text-[0.8rem] text-muted">
                       {r.start && end ? secondsText(end - r.start) : STEP_STATUS_LABEL[r.status] ?? ""}
@@ -367,5 +415,51 @@ export function Sheet({ title, onClose, children, footer, description }: {
         {footer && <footer className="flex justify-end gap-2 border-t border-line px-6 py-4">{footer}</footer>}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- sample cases
+
+/** Start a case from one of the prepared situations. The case starts right away. */
+export function SampleCaseSheet({ onClose, onStart, busy }: { onClose: () => void; onStart: (id: string) => void; busy: boolean }) {
+  const api = useApi();
+  const scenarios = useResource(() => api.scenarios(), [api]);
+  const [choice, setChoice] = useState<string>("demo_t1");
+  return (
+    <Sheet
+      title="Start from a sample"
+      description="Pick a prepared situation. The case starts right away."
+      onClose={onClose}
+      footer={<>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="primary" busy={busy} disabled={!choice} onClick={() => onStart(choice)}>Start case</Button>
+      </>}
+    >
+      {scenarios.error && !scenarios.data ? (
+        <ErrorNote error={scenarios.error} what="the scenarios" onRetry={scenarios.reload} />
+      ) : !scenarios.data ? (
+        <div className="flex flex-col gap-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
+      ) : (
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="sr-only">Situation</legend>
+          {scenarios.data.map((s: ScenarioInfo) => (
+            <label
+              key={s.id}
+              className={cx(
+                "flex cursor-pointer gap-3 rounded-xl px-4 py-3 transition-colors",
+                choice === s.id ? "bg-canvas ring-1 ring-inset ring-ink" : "ring-1 ring-inset ring-line hover:bg-canvas",
+              )}
+            >
+              <input type="radio" name="scenario" value={s.id} checked={choice === s.id} onChange={() => setChoice(s.id)} className="mt-1 accent-ink" />
+              <span className="min-w-0">
+                <span className="block font-medium">{s.title || scenarioLabel(s.id)}</span>
+                {s.description && <span className="mt-0.5 block text-[0.8667rem] text-muted">{s.description}</span>}
+                {s.expected_verdict && <span className="mt-1 block text-[0.8rem] text-subtle">Expected outcome: {verdictLabel(String(s.expected_verdict))}</span>}
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+    </Sheet>
   );
 }

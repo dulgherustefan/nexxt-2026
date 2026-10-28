@@ -23,12 +23,14 @@ import type {
   Zone,
 } from "../api/types";
 import { LEAD_ID, osintLookup } from "./aml";
+import { appMatch, directoryEntry, INJECTION, previewIntake, searchCustomers } from "./intake";
+import { amlKbSearch, kbAsk, kbSearch, kbStats, precedentsFor } from "./kb";
 import { isoRo } from "./calendar";
 import { advance, PUBLIC_KEY, type MockCase } from "./engine";
 import { MCP, RULES, SCENARIOS, evalReport } from "./fixtures";
 import { canonical, merkleRoot, sha256 } from "./sha256";
-import { ATTACKS, caseEventSource, createMockCase, leadEventSource, read, startDriver, startRun, transact } from "./store";
-import { MULE_IBAN_SHORT, RUBRIC } from "./stories";
+import { ATTACKS, campaignMembers, caseEventSource, createMockCase, leadEventSource, read, startDriver, startRun, transact } from "./store";
+import { MULE_IBAN_SHORT, RUBRIC, storyFor } from "./stories";
 import type { StreamSource } from "../api/sse";
 
 const ZONE_KEY = "versoml.mock.zone";
@@ -65,7 +67,29 @@ function summaryOf(c: MockCase): CaseSummary {
 function detailOf(c: MockCase): CaseDetail {
   const d = clone(c.detail);
   d.summary.sla_seconds_left = slaLeft(d.summary.deadline);
+  // linked cases follow the database: a dispute that arrives later joins the campaign
+  const members = campaignMembers(read(), c.caseId);
+  const looked = d.routing?.some((r) => r.node === "colector_campanie" && r.run);
+  const b = looked && members.length ? storyFor(c.scenario, c.ctx).beneficiary : undefined;
+  if (b) {
+    d.campaign = {
+      campaign_id: "CAMP-2026-07",
+      case_ids: [c.caseId, ...members],
+      shared_indicators: [{ kind: "payee_account", value_masked: b.iban_masked }, ...(b.domain ? [{ kind: "domain", value_masked: b.domain }] : [])],
+      similarity: d.campaign?.similarity ?? 0.92,
+    };
+  }
   return d;
+}
+
+/** The same rough routing as before, for claims in English and Romanian. */
+function scenarioFromText(text: string): string {
+  if (INJECTION.test(text)) return "injectie_document";
+  if (/apel|sunat|securitate|\bcall(?:ed|ing)?\b|security|angerufen/i.test(text)) return "vishing_securitate";
+  if (/\bsim\b|semnal|\bsignal\b/i.test(text)) return "sim_swap";
+  if (/de două ori|dublă|\btwice\b|\bdouble\b|\bduplicate\b|zweimal/i.test(text)) return "plata_dubla";
+  if (/\b(card|online|karte|kartenzahlung)\b/i.test(text) && !/\b(sms|link|curier|courier)\b/i.test(text)) return "card_ecom_fara_3ds";
+  return "phishing_link";
 }
 
 /** Tipping-off terms, in English and in Romanian (customers and staff may still write either). */
@@ -223,16 +247,50 @@ export function createMockApi(zone: Zone): Api {
         if ("scenario_id" in body) {
           return createMockCase(db, { scenario: body.scenario_id, customerRef: body.scenario_id === "demo_t1" ? "CUST-DEMO-01" : `CUST-${Math.floor(Math.random() * 900 + 100)}` }).caseId;
         }
-        const text = body.complaint.text;
-        // the same rough routing as before, now also for claims written in English
-        const scenario = /apel|sunat|securitate|\bcall(?:ed|ing)?\b|security/i.test(text)
-          ? "vishing_securitate"
-          : /\bsim\b|semnal|\bsignal\b/i.test(text)
-            ? "sim_swap"
-            : /de două ori|dublă|\btwice\b|\bdouble\b|\bduplicate\b/i.test(text)
-              ? "plata_dubla"
-              : "phishing_link";
-        return createMockCase(db, { scenario, customerRef: body.complaint.customer_ref || "CUST-NOU", complaintText: text }).caseId;
+        const cp = body.complaint;
+        const text = cp.text;
+        const now = Date.now();
+        const preview = previewIntake(db, { text, customer_ref: cp.customer_ref, source: cp.source, channel_hint: cp.channel_hint, attachments: cp.attachments }, now);
+        const picked = cp.transaction_refs?.[0];
+        const ref = preview.customer?.customer_ref ?? null;
+        let match = preview.match;
+        if (picked) {
+          const cand = match.candidates.find((x) => x.tx_id === picked);
+          match = cand
+            ? { ...match, tx_id: picked, confidence: 1, needs_human: false, reason: "Picked by the operator when the case was opened.", candidates: [cand, ...match.candidates.filter((x) => x !== cand)] }
+            : { ...match, tx_id: picked, confidence: 1, needs_human: false, reason: "Given by the operator when the case was opened." };
+        }
+        const chosen = match.tx_id ? match.candidates.find((x) => x.tx_id === match.tx_id) : undefined;
+        const pickNeeded = !match.tx_id && Boolean(ref) && match.candidates.length > 0;
+        const noTx = !match.tx_id && !pickNeeded;
+        return createMockCase(db, {
+          scenario: scenarioFromText([text, ...(cp.attachments ?? []).map((a) => a.content)].join("\n")),
+          customerRef: ref ?? "CUST-UNKNOWN",
+          alias: preview.customer?.alias ?? directoryEntry(ref)?.alias ?? "Unidentified customer",
+          amount: chosen?.amount ?? 0,
+          txId: chosen?.tx_id,
+          executedAt: chosen ? new Date(chosen.ts).getTime() : undefined,
+          complaintText: text,
+          attachments: cp.attachments ?? [],
+          intake: {
+            match,
+            pickNeeded,
+            noTx,
+            customerKnown: Boolean(ref),
+            source: cp.source ?? "email",
+            language: preview.language,
+            claim: text.replace(/\s+/g, " ").trim(),
+            extracted: {
+              mentioned_urls: preview.extracted.urls ?? [],
+              mentioned_amounts: (preview.extracted.amounts ?? []).map((a) => (typeof a === "number" ? a : a.value)),
+              mentioned_phones: preview.extracted.phones_masked ?? [],
+              contacted_by: (preview.extracted.contacted_by as never) ?? null,
+              impersonated_entity: preview.extracted.impersonated_entity ?? null,
+              injection_suspected: preview.injection_suspected,
+              language: preview.language,
+            },
+          },
+        }).caseId;
       });
       return delay({ case_id: id });
     },
@@ -266,13 +324,63 @@ export function createMockApi(zone: Zone): Api {
       const status = transact((db, hooks) => {
         const c = db.cases[id];
         if (!c) throw notFound(`Case ${id}`, `/api/cases/${id}/approve`);
-        if (!c.detail.interrupt?.pending || !c.run) throw new ApiError("No approval is waiting for this case.", 409, `/api/cases/${id}/approve`);
+        const path = `/api/cases/${id}/approve`;
+        if (!c.detail.interrupt?.pending || !c.run) throw new ApiError("No approval is waiting for this case.", 409, path);
         const now = Date.now();
-        c.run.approval = { action: body.action, at: now, approver: body.approver || "OPERATOR-DEMO", note: body.note };
+        const approver = body.approver || "OPERATOR-DEMO";
+        const picking = c.detail.interrupt.kind === "pick_transaction";
+        if (picking !== (body.action === "pick_transaction")) {
+          throw new ApiError(picking ? "Pick the payment first." : "No payment is waiting to be picked.", 409, path);
+        }
+        if (body.action === "pick_transaction") {
+          const intake = c.ctx.intake;
+          if (!intake) throw new ApiError("No payment is waiting to be picked.", 409, path);
+          const cand = body.tx_id ? intake.match.candidates.find((x) => x.tx_id === body.tx_id) : undefined;
+          if (body.tx_id && !cand) throw new ApiError(`Payment ${body.tx_id} isn't one of the candidates.`, 422, path);
+          if (cand) {
+            c.ctx.amount = cand.amount;
+            c.ctx.txId = cand.tx_id;
+            c.ctx.executedAt = new Date(cand.ts).getTime();
+            intake.match = { ...intake.match, tx_id: cand.tx_id, confidence: 1, needs_human: false, reason: `Picked by ${approver}.` };
+          } else {
+            intake.noTx = true;
+            intake.match = { ...intake.match, tx_id: null, needs_human: false, reason: `${approver} found none of these payments. VersoML asks the customer which payment it is.` };
+          }
+          c.run.pick = { at: now, txId: cand?.tx_id ?? null, approver };
+          advance(c, now, hooks);
+          return c.detail.summary.status;
+        }
+        c.run.approval = { action: body.action, at: now, approver, note: body.note };
         advance(c, now, hooks);
         return c.detail.summary.status;
       });
       return delay({ ok: true, status });
+    },
+    async precedents(id) {
+      clientOnly(`/api/cases/${id}/precedents`);
+      const c = getCase(id, `/api/cases/${id}/precedents`);
+      return delay(precedentsFor(c.scenario, c.detail.complaint?.text ?? ""), 350);
+    },
+    async intakePreview(body) {
+      clientOnly("/api/intake/preview");
+      if (!body.text?.trim()) throw new ApiError("text: the message is empty", 422, "/api/intake/preview");
+      return delay(previewIntake(read(), body), 650);
+    },
+    async customers(q) {
+      clientOnly("/api/customers");
+      return delay(searchCustomers(q), 140);
+    },
+    async kbSearch({ q, k, kind }) {
+      clientOnly("/api/kb/search");
+      return delay(kbSearch(q, { k: k ?? 6, kind: kind || undefined }), 220);
+    },
+    async kbAsk({ question, k }) {
+      clientOnly("/api/kb/ask");
+      return delay(kbAsk(question, k ?? 4), 900);
+    },
+    async kbStats() {
+      clientOnly("/api/kb/stats");
+      return delay(kbStats(), 80);
     },
     async counterfactual(id, body): Promise<CounterfactualResult> {
       clientOnly(`/api/cases/${id}/counterfactual`);
@@ -413,6 +521,13 @@ export function createMockApi(zone: Zone): Api {
           complaintText: body.text,
         });
         c.ctx.executedAt = new Date(tx.ts).getTime();
+        c.ctx.intake = {
+          match: appMatch(ref, { tx_id: tx.id, amount: Math.abs(tx.amount), ts: tx.ts, payee: tx.description, channel: "transfer" }),
+          pickNeeded: false,
+          noTx: false,
+          customerKnown: true,
+          source: "app",
+        };
         acct.linked[tx.id] = c.caseId;
         tx.status = "disputed";
         tx.disputable = false;
@@ -578,6 +693,10 @@ export function createMockApi(zone: Zone): Api {
     async amlWall() {
       amlOnly("/api/aml/wall");
       return delay(read().aml.wall);
+    },
+    async amlKbSearch({ q, k }) {
+      amlOnly("/api/aml/kb/search");
+      return delay(amlKbSearch(q, k ?? 6), 220);
     },
   };
   return api;

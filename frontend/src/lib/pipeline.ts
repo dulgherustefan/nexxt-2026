@@ -15,7 +15,7 @@ export interface StageSpec {
 
 /**
  * The client-zone graph, in demo order:
- * Intake → Classifier → Deadline clock → 4 evidence collectors in parallel → Rules engine → Refund,
+ * Intake → Identification → Classifier → Deadline clock → Router → 5 evidence collectors in parallel → Rules engine → Refund,
  * then on the recovery path: Prosecutor ‖ Defender → Weigher → Recovery → Letter → Letter check → Seal.
  * Positions are a two-lane grid; the backend may send a different graph in CaseDetail.pipeline.
  */
@@ -23,12 +23,15 @@ const W = 162;
 // IDs are the LangGraph node IDs (versoml/zone_client/agents.py); they never change with the language.
 export const STAGES: StageSpec[] = [
   { id: "receptor", label: "Intake", agent: "Intake", model: "haiku", hint: "An isolated model with no tools turns the customer’s message into typed fields", x: 0, y: 74 },
+  { id: "identificare", label: "Identification", agent: "Identification", model: "none", hint: "Finds the customer and the disputed payment, with a score and the reasons", x: 0, y: -40 },
   { id: "clasificator", label: "Classifier", agent: "Classifier", model: "none", hint: "Calibrated ML model: channel, dispute type, scam pattern", x: W, y: 74 },
   { id: "ceasornicar", label: "Deadline clock", agent: "Deadline clock", model: "none", hint: "Deadlines on the Romanian calendar: next business day, 15/35 business days, 13 months", x: W * 2, y: 74 },
+  { id: "router", label: "Router", agent: "Router", model: "none", hint: "Picks the agents this case needs and writes down why", x: W * 2, y: -40 },
   { id: "colector_tranzactie", label: "Transaction", agent: "Transaction collector", model: "none", hint: "Core banking: the payment and the payee", x: W * 3, y: -40 },
   { id: "colector_sca", label: "Authentication (SCA)", agent: "SCA collector", model: "none", hint: "What the approval screen showed the customer", x: W * 3, y: 36 },
   { id: "colector_dispozitiv", label: "Device", agent: "Device collector", model: "none", hint: "Device, session and the time of the click", x: W * 3, y: 112 },
   { id: "colector_domeniu", label: "Fake website", agent: "Domain collector", model: "none", hint: "Domain age, certificate logs, look-alike score, page similarity", x: W * 3, y: 188 },
+  { id: "colector_campanie", label: "Linked cases", agent: "Campaign collector", model: "none", hint: "Other disputes with the same payee, link or phone number", x: W * 3, y: 264 },
   { id: "motor_reguli", label: "Rules engine", agent: "Rules engine", model: "none", hint: "Decides deterministically, with a rule ID on every decision", x: W * 4, y: 74 },
   { id: "outbox_aml", label: "AML referral", agent: "Diode", model: "none", hint: "Signed dispute facts only", x: W * 5, y: -10 },
   { id: "rambursare", label: "Refund", agent: "Refund", model: "none", hint: "Only the rules engine issues the refund; a person signs above the limit", x: W * 5, y: 150 },
@@ -50,16 +53,20 @@ export interface FlowEdgeSpec extends PipelineEdge {
 }
 
 export const STAGE_EDGES: FlowEdgeSpec[] = [
-  { source: "receptor", target: "clasificator" },
+  { source: "receptor", target: "identificare" },
+  { source: "identificare", target: "clasificator" },
   { source: "clasificator", target: "ceasornicar" },
-  { source: "ceasornicar", target: "colector_tranzactie" },
-  { source: "ceasornicar", target: "colector_sca" },
-  { source: "ceasornicar", target: "colector_dispozitiv" },
-  { source: "ceasornicar", target: "colector_domeniu" },
+  { source: "ceasornicar", target: "router" },
+  { source: "router", target: "colector_tranzactie" },
+  { source: "router", target: "colector_sca" },
+  { source: "router", target: "colector_dispozitiv" },
+  { source: "router", target: "colector_domeniu" },
+  { source: "router", target: "colector_campanie" },
   { source: "colector_tranzactie", target: "motor_reguli" },
   { source: "colector_sca", target: "motor_reguli" },
   { source: "colector_dispozitiv", target: "motor_reguli" },
   { source: "colector_domeniu", target: "motor_reguli" },
+  { source: "colector_campanie", target: "motor_reguli" },
   { source: "motor_reguli", target: "outbox_aml" },
   { source: "outbox_aml", target: "rambursare" },
   { source: "rambursare", target: "procuror", wrapY: 273 },

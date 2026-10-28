@@ -14,15 +14,22 @@ import { Link, useParams } from "react-router";
 import { channelLabel, dateTime, hasAmount, money, questionLabel, shortHash, verdictLabel } from "../../api/format";
 import { useApi, useResource } from "../../api/runtime";
 import { useEventStream } from "../../api/sse";
-import type { CaseDetail, CounterfactualResult, Decision, Fact, FilterResult, LedgerResponse, VerifyResult } from "../../api/types";
+import type { CaseDetail, CounterfactualResult, Decision, Fact, FilterResult, KbHit, LedgerResponse, VerifyResult } from "../../api/types";
 import {
   Badge, Banner, Button, cx, DeadlineText, EmptyState, ErrorNote, IdTag, KeyValues, Panel, SectionBoundary, Skeleton, Status, Tabs,
 } from "../../ui/kit";
-import { AgentStatus, scenarioLabel, Sheet, StatusLine, StepList, useStepRows, verdictSentence } from "./caseUi";
+import {
+  IdentificationPanel, isPickPending, LegalSourcesPanel, LinkedCasesPanel, NumericCheckItem, NumericMismatches, PickPaymentBanner, PrecedentsPanel,
+  ReasonLine, reasonFor, usedInNote,
+} from "./caseInsights";
+import { AgentStatus, scenarioLabel, Sheet, StatusLine, StepList, useRouting, useStepRows, verdictSentence } from "./caseUi";
+import { PassageSheet, SourceChips } from "./knowledgeUi";
+
+type OpenPassage = (hit: KbHit, usedIn?: string[]) => void;
 
 type TabId = "evidence" | "rules" | "letter";
 
-const RELOAD_ON = new Set(["decision", "interrupt", "refund", "ledger_seal", "hold_signal", "wall_block", "diode"]);
+const RELOAD_ON = new Set(["decision", "interrupt", "refund", "ledger_seal", "hold_signal", "wall_block", "diode", "match", "routing"]);
 
 export default function CasePage() {
   const { id = "" } = useParams();
@@ -32,6 +39,8 @@ export default function CasePage() {
   const stream = useEventStream(source, id);
   const [tab, setTab] = useState<TabId>("evidence");
   const [flash, setFlash] = useState<string | null>(null);
+  const [passage, setPassage] = useState<{ hit: KbHit; usedIn?: string[] } | null>(null);
+  const openPassage: OpenPassage = (hit, usedIn) => setPassage({ hit, usedIn });
 
   useEffect(() => {
     const e = stream.last;
@@ -63,7 +72,9 @@ export default function CasePage() {
   return (
     <div className="flex flex-col gap-6">
       <CaseHeader d={d} />
-      {d.interrupt?.pending && <SignatureBanner d={d} caseId={id} onDone={detail.reload} />}
+      {isPickPending(d)
+        ? <PickPaymentBanner d={d} caseId={id} events={stream.events} onDone={detail.reload} />
+        : d.interrupt?.pending && <SignatureBanner d={d} caseId={id} onDone={detail.reload} />}
       {!d.interrupt?.pending && d.letter?.filter?.passed === false && (
         <Banner
           tone="danger"
@@ -77,7 +88,7 @@ export default function CasePage() {
           The refund isn’t affected. The letter only goes out after a person fixes it.
         </Banner>
       )}
-      <SectionBoundary label="Decision"><DecisionPanel d={d} onCite={cite} onRules={() => setTab("rules")} /></SectionBoundary>
+      <SectionBoundary label="Decision"><DecisionPanel d={d} onCite={cite} onRules={() => setTab("rules")} onPassage={openPassage} /></SectionBoundary>
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_22.5rem]">
         <div id="details" className="min-w-0 scroll-mt-4">
@@ -94,20 +105,24 @@ export default function CasePage() {
           <div className="pt-5">
             <SectionBoundary label={tab}>
               {tab === "evidence" && <EvidenceTab facts={d.facts ?? []} flash={flash} />}
-              {tab === "rules" && <RulesTab d={d} />}
-              {tab === "letter" && <LetterTab d={d} caseId={id} onCite={cite} />}
+              {tab === "rules" && <RulesTab d={d} onPassage={openPassage} />}
+              {tab === "letter" && <LetterTab d={d} caseId={id} onCite={cite} onPassage={openPassage} />}
             </SectionBoundary>
           </div>
         </div>
         <aside className="flex flex-col gap-4">
           <SectionBoundary label="Agents"><LiveSteps d={d} events={stream.events} streamStatus={stream.status} /></SectionBoundary>
+          <SectionBoundary label="Customer and payment"><IdentificationPanel d={d} /></SectionBoundary>
+          <SectionBoundary label="Linked cases"><LinkedCasesPanel d={d} /></SectionBoundary>
           <SectionBoundary label="Recovery"><RecoveryPanel d={d} /></SectionBoundary>
           <SectionBoundary label="Change a fact"><CounterfactualPanel d={d} caseId={id} /></SectionBoundary>
           <SectionBoundary label="Evidence file"><LedgerPanel caseId={id} sealed={Boolean(d.ledger?.sealed)} count={d.ledger?.count ?? d.facts?.length ?? 0} /></SectionBoundary>
           <SectionBoundary label="Customer's message"><ComplaintPanel d={d} /></SectionBoundary>
+          <SectionBoundary label="Similar past cases"><PrecedentsPanel caseId={id} /></SectionBoundary>
         </aside>
       </div>
       {detail.error && <p className="text-[0.8667rem] text-danger">Updates from the server stopped. Showing the last state received.</p>}
+      {passage && <PassageSheet hit={passage.hit} onClose={() => setPassage(null)} note={passage.usedIn?.length ? usedInNote(passage.usedIn) : undefined} />}
     </div>
   );
 }
@@ -134,13 +149,15 @@ function CaseHeader({ d }: { d: CaseDetail }) {
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.9333rem] text-muted">
             <span className="font-medium text-ink-soft">{s.customer_alias}</span>
             <span aria-hidden>·</span>
-            <span>{scenarioLabel(s.scenario)}</span>
+            <span>{(!isPickPending(d) && s.scenario_phrase) || scenarioLabel(s.scenario)}</span>
             <span aria-hidden>·</span>
             <span className="id-text text-[0.8667rem] text-subtle">{s.case_id}</span>
           </p>
           <h1 className="mt-1.5 text-[2.1rem] leading-tight font-semibold tracking-[-0.03em]">
             {hasAmount(s.amount) ? (
               <>{money(s.amount)} <span className="font-normal text-subtle">{channelLabel(s.channel).toLowerCase()}</span></>
+            ) : isPickPending(d) || (d.match && !d.match.tx_id) ? (
+              <span className="font-normal text-subtle">{isPickPending(d) ? "Payment to be picked" : "Payment not identified"}</span>
             ) : (
               <>
                 <span className="sr-only">Loading the payment</span>
@@ -241,20 +258,25 @@ function Cites({ ids, onCite }: { ids?: string[]; onCite: (id: string) => void }
 
 /** Who still has to sign, or who signed: "rules+human" only says a person must sign off. */
 function signOff(refund: Decision, d: CaseDetail): string {
-  const approver = d.interrupt?.pending ? undefined : d.interrupt?.answer?.approver;
-  if (approver) return ` · signed by ${approver}`;
+  const answer = d.interrupt?.pending ? undefined : d.interrupt?.answer;
+  const approver = (answer && answer.action !== "pick_transaction" ? answer.approver : undefined) ?? d.summary.approved_by ?? undefined;
+  if (approver) return ` · signed by ${approver}${d.summary.approved_at ? `, ${dateTime(d.summary.approved_at)}` : ""}`;
   if (refund.decided_by === "rules+human" || refund.requires_human) return d.interrupt?.pending ? " · waiting for your signature" : " · a person signs off";
   return "";
 }
 
-function DecisionPanel({ d, onCite, onRules }: { d: CaseDetail; onCite: (id: string) => void; onRules: () => void }) {
+function DecisionPanel({ d, onCite, onRules, onPassage }: { d: CaseDetail; onCite: (id: string) => void; onRules: () => void; onPassage: OpenPassage }) {
   const decisions = d.decisions ?? [];
   const refund = decisions.find((x) => x.question === "rambursare_t1");
+  const answer = d.interrupt?.answer?.action === "pick_transaction" ? undefined : d.interrupt?.answer;
   const sentence = verdictSentence(refund, d.summary.amount, {
     status: String(d.summary.status),
-    action: d.interrupt?.pending ? undefined : d.interrupt?.answer?.action,
-    approver: d.interrupt?.answer?.approver,
+    action: d.interrupt?.pending ? undefined : answer?.action,
+    approver: answer?.approver ?? d.summary.approved_by ?? undefined,
   });
+  // while the decision is open, the rules engine's own sentence explains it; once it is final, the outcome does
+  const final = ["RAMBURSAT", "RESPINS", "EXCEPTIE"].includes(String(d.summary.status)) || answer?.action === "reject";
+  const reason = reasonFor(refund, d.reasons);
   const others = decisions.filter((x) => x.question !== "rambursare_t1" && x.question !== "pista_aml" && x.question !== "rts");
   return (
     <section aria-label="Decision" className="overflow-hidden rounded-2xl bg-paper shadow-[var(--shadow-card)]">
@@ -268,7 +290,10 @@ function DecisionPanel({ d, onCite, onRules }: { d: CaseDetail; onCite: (id: str
             )}
           </p>
           <h2 className="mt-2 text-[1.45rem] leading-snug font-semibold tracking-[-0.02em]">{sentence.title}</h2>
-          <p className="mt-1 text-muted">{sentence.detail}</p>
+          <p className="mt-1 text-muted">
+            {!final && reason?.sentence ? reason.sentence : sentence.detail}
+            {!final && reason?.rule_id && !refund?.rule_ids?.slice(0, 3).includes(reason.rule_id) ? <span className="id-text ml-1.5 text-[0.7667rem] text-subtle">{reason.rule_id}</span> : null}
+          </p>
         </div>
         {refund?.rule_ids?.length ? (
           <div className="flex max-w-[20rem] flex-wrap items-center gap-1.5" aria-label="Rules applied">
@@ -301,18 +326,21 @@ function DecisionPanel({ d, onCite, onRules }: { d: CaseDetail; onCite: (id: str
             <div key={o.question} className="border-line px-6 py-4 sm:border-r sm:last:border-r-0">
               <p className="text-[0.8rem] text-muted">{questionLabel(o.question)}</p>
               <p className="mt-1 font-medium">{verdictLabel(o.decision, o.question)}</p>
-              {o.rule_ids?.length ? <p className="id-text mt-1 text-[0.7667rem] text-subtle">{o.rule_ids.slice(0, 3).join(" · ")}</p> : null}
+              {reasonFor(o, d.reasons)
+                ? <ReasonLine reason={reasonFor(o, d.reasons)} className="mt-1" />
+                : o.rule_ids?.length ? <p className="id-text mt-1 text-[0.7667rem] text-subtle">{o.rule_ids.slice(0, 3).join(" · ")}</p> : null}
             </div>
           ))}
         </div>
       )}
-      {d.debate?.ran ? <DebateDetails d={d} onCite={onCite} /> : <div className="h-6" />}
+      {d.debate?.ran ? <DebateDetails d={d} onCite={onCite} onPassage={onPassage} /> : <div className="h-6" />}
     </section>
   );
 }
 
-function DebateDetails({ d, onCite }: { d: CaseDetail; onCite: (id: string) => void }) {
+function DebateDetails({ d, onCite, onPassage }: { d: CaseDetail; onCite: (id: string) => void; onPassage: OpenPassage }) {
   const debate = d.debate!;
+  const sources = (d.grounding ?? []).filter((g) => g.used_in === "debate").map((g) => g.hit);
   const rec = debate.recommendation ? verdictLabel(String(debate.recommendation)) : "—";
   return (
     <details className="group mt-2 border-t border-line">
@@ -340,6 +368,11 @@ function DebateDetails({ d, onCite }: { d: CaseDetail; onCite: (id: string) => v
             )}
           </div>
         ) : null}
+        {sources.length > 0 && (
+          <p className="text-[0.9333rem] lg:col-span-2">
+            <SourceChips hits={sources} onOpen={(h) => onPassage(h, ["debate"])} label="Legal sources:" />
+          </p>
+        )}
       </div>
     </details>
   );
@@ -399,10 +432,11 @@ function EvidenceTab({ facts, flash }: { facts: Fact[]; flash: string | null }) 
 
 const CONFIDENCE: Record<string, string> = { P: "Official text", S: "Secondary source", U: "Unverified parameter", V: "Verified" };
 
-function RulesTab({ d }: { d: CaseDetail }) {
+function RulesTab({ d, onPassage }: { d: CaseDetail; onPassage: OpenPassage }) {
   const hits = d.rules?.hits ?? [];
   const deadlines = d.rules?.deadlines ?? [];
   if (!hits.length && !deadlines.length) return <EmptyState title="The rules haven’t run yet">The rules engine starts once the collectors finish.</EmptyState>;
+  const legal = <LegalSourcesPanel grounding={d.grounding} onOpen={onPassage} />;
   return (
     <div className="flex flex-col gap-5">
       {deadlines.length > 0 && (
@@ -435,6 +469,7 @@ function RulesTab({ d }: { d: CaseDetail }) {
           ))}
         </ul>
       </div>
+      {legal}
     </div>
   );
 }
@@ -484,7 +519,8 @@ const CMP_LABEL: Record<string, string> = {
   "CMP-03": "names ANPC, ANAF, BNR and CSALB",
 };
 
-function LetterTab({ d, caseId, onCite }: { d: CaseDetail; caseId: string; onCite: (id: string) => void }) {
+function LetterTab({ d, caseId, onCite, onPassage }: { d: CaseDetail; caseId: string; onCite: (id: string) => void; onPassage: OpenPassage }) {
+  const sources = (d.grounding ?? []).filter((g) => g.used_in === "letter").map((g) => g.hit);
   const api = useApi();
   const letter = d.letter;
   const [draft, setDraft] = useState("");
@@ -550,8 +586,13 @@ function LetterTab({ d, caseId, onCite }: { d: CaseDetail; caseId: string; onCit
                 </span>
               );
             })}
+            <NumericCheckItem check={d.numeric_check} />
             {letter.cites?.length ? <span className="inline-flex items-center text-muted">Based on<Cites ids={letter.cites.slice(0, 6)} onCite={onCite} /></span> : null}
           </div>
+          {sources.length > 0 && (
+            <p className="mt-3 text-[0.9333rem]"><SourceChips hits={sources} onOpen={(h) => onPassage(h, ["letter"])} label="Legal sources:" /></p>
+          )}
+          <NumericMismatches check={d.numeric_check} />
         </Panel>
       )}
 
@@ -588,7 +629,8 @@ function LetterTab({ d, caseId, onCite }: { d: CaseDetail; caseId: string; onCit
 // ---------------------------------------------------------------- right column
 
 function LiveSteps({ d, events, streamStatus }: { d: CaseDetail; events: Parameters<typeof useStepRows>[1]; streamStatus: string }) {
-  const rows = useStepRows(d.pipeline?.nodes, events);
+  const routing = useRouting(d.routing, events);
+  const rows = useStepRows(d.pipeline?.nodes, events, routing);
   const [trace, setTrace] = useState(false);
   const lastRun = [...events].reverse().find((e) => e.type === "RUN_STARTED" || e.type === "RUN_FINISHED" || e.type === "RUN_ERROR");
   // a pending signature only pauses the run: the steps after it are not "not needed"
@@ -596,12 +638,12 @@ function LiveSteps({ d, events, streamStatus }: { d: CaseDetail; events: Paramet
   const settled = !waiting && (lastRun ? lastRun.type !== "RUN_STARTED" : Boolean(d.ledger?.sealed));
   return (
     <div>
-      <AgentStatus rows={rows} settled={settled} waiting={waiting} onOpenTrace={() => setTrace(true)} />
+      <AgentStatus rows={rows} settled={settled} waiting={waiting} waitingLabel={isPickPending(d) ? "Waiting for your pick" : undefined} onOpenTrace={() => setTrace(true)} />
       {(streamStatus === "reconnecting" || streamStatus === "closed") && (
         <p className="mt-1.5 text-[0.8rem] text-muted">The live feed dropped. Refreshing every few seconds.</p>
       )}
       {trace && (
-        <Sheet title="Agent trace" description="Each step, its model and how long it took." onClose={() => setTrace(false)}>
+        <Sheet title="Agent trace" description="Each step, its model, how long it took, and why the router ran it or not." onClose={() => setTrace(false)}>
           <StepList rows={rows} settled={settled} />
         </Sheet>
       )}

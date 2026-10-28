@@ -1,6 +1,7 @@
 import { openEventStream, type StreamSource } from "./sse";
 import type {
   AmlStats,
+  ApproveBody,
   AttackKind,
   AttackResult,
   BankState,
@@ -9,7 +10,13 @@ import type {
   CaseSummary,
   CounterfactualResult,
   CreateCaseBody,
+  CustomerHit,
   FilterResult,
+  IntakePreview,
+  IntakePreviewBody,
+  KbAnswer,
+  KbHit,
+  KbStats,
   LeadAction,
   LeadDetail,
   LeadSummary,
@@ -20,6 +27,7 @@ import type {
   OsintKind,
   OsintResult,
   PolicyDecision,
+  Precedent,
   Referral,
   RuleCatalogEntry,
   RuleParams,
@@ -44,7 +52,13 @@ export interface Api {
   caseDetail(id: string): Promise<CaseDetail>; // GET /api/cases/{id}
   runCase(id: string): Promise<{ run_id: string }>; // POST /api/cases/{id}/run
   caseEvents(id: string): StreamSource; // GET /api/cases/{id}/events (SSE)
-  approve(id: string, body: { action: "approve" | "reject"; note?: string; approver?: string }): Promise<{ ok: boolean; status: string }>; // POST /api/cases/{id}/approve
+  approve(id: string, body: ApproveBody): Promise<{ ok: boolean; status: string }>; // POST /api/cases/{id}/approve
+  precedents(id: string): Promise<Precedent[]>; // GET /api/cases/{id}/precedents
+  intakePreview(body: IntakePreviewBody): Promise<IntakePreview>; // POST /api/intake/preview
+  customers(q: string): Promise<CustomerHit[]>; // GET /api/customers?q=
+  kbSearch(params: { q: string; k?: number; kind?: string }): Promise<KbHit[]>; // GET /api/kb/search
+  kbAsk(body: { question: string; k?: number }): Promise<KbAnswer>; // POST /api/kb/ask
+  kbStats(): Promise<KbStats>; // GET /api/kb/stats
   counterfactual(id: string, body: { field: string; value: unknown }): Promise<CounterfactualResult>; // POST /api/cases/{id}/counterfactual
   letterCheck(id: string, body: { body: string }): Promise<FilterResult>; // POST /api/cases/{id}/letter/check
   ledger(caseId: string): Promise<LedgerResponse>; // GET /api/ledger/{case_id}
@@ -71,6 +85,7 @@ export interface Api {
   amlCampaigns(): Promise<Campaign[]>; // GET /api/aml/campaigns
   amlGraph(): Promise<MoneyGraph>; // GET /api/aml/graph
   amlWall(): Promise<PolicyDecision[] | Record<string, unknown>>; // GET /api/aml/wall
+  amlKbSearch(params: { q: string; k?: number }): Promise<KbHit[]>; // GET /api/aml/kb/search
 }
 
 export class ApiError extends Error {
@@ -129,10 +144,21 @@ export async function fetchJson<T>(path: string, init: RequestInit & { timeoutMs
 }
 
 const enc = encodeURIComponent;
-const post = <T>(path: string, body?: unknown) =>
-  fetchJson<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
+const post = <T>(path: string, body?: unknown, timeoutMs?: number) =>
+  fetchJson<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body), timeoutMs });
 const put = <T>(path: string, body: unknown) => fetchJson<T>(path, { method: "PUT", body: JSON.stringify(body) });
 const get = <T>(path: string) => fetchJson<T>(path);
+
+/** "?q=refund&k=6": empty values are left out. */
+function query(params: Record<string, string | number | undefined | null>): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+// The intake preview and the grounded answer may call a model: give them longer than the default 20 s.
+const MODEL_TIMEOUT_MS = 60_000;
 
 export function createHttpApi(): Api {
   return {
@@ -146,6 +172,12 @@ export function createHttpApi(): Api {
     runCase: (id) => post(`/api/cases/${enc(id)}/run`),
     caseEvents: (id) => (h) => openEventStream(`/api/cases/${enc(id)}/events`, h),
     approve: (id, body) => post(`/api/cases/${enc(id)}/approve`, body),
+    precedents: (id) => get(`/api/cases/${enc(id)}/precedents`),
+    intakePreview: (body) => post("/api/intake/preview", body, MODEL_TIMEOUT_MS),
+    customers: (q) => get(`/api/customers${query({ q })}`),
+    kbSearch: ({ q, k, kind }) => get(`/api/kb/search${query({ q, k, kind })}`),
+    kbAsk: (body) => post("/api/kb/ask", body, MODEL_TIMEOUT_MS),
+    kbStats: () => get("/api/kb/stats"),
     counterfactual: (id, body) => post(`/api/cases/${enc(id)}/counterfactual`, body),
     letterCheck: (id, body) => post(`/api/cases/${enc(id)}/letter/check`, body),
     ledger: (caseId) => get(`/api/ledger/${enc(caseId)}`),
@@ -171,6 +203,7 @@ export function createHttpApi(): Api {
     amlCampaigns: () => get("/api/aml/campaigns"),
     amlGraph: () => get("/api/aml/graph"),
     amlWall: () => get("/api/aml/wall"),
+    amlKbSearch: ({ q, k }) => get(`/api/aml/kb/search${query({ q, k })}`),
   };
 }
 

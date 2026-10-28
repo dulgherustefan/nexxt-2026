@@ -1,0 +1,33 @@
+{
+  "built_at": "2026-10-28T23:23:40+00:00",
+  "chunker_version": "5",
+  "embedding_model": "cohere.embed-v4:0",
+  "static_fingerprint": "21018ccb6ac19a9114b035aeb685d90549b1d0f4e7f6d3ec456c380e4013c57b",
+  "precedents_fingerprint": "90461ea051d862606b8f33513c9723bb42985ce75c3232e21bd5558b2cb92869",
+  "counts": {
+    "static": 434,
+    "precedents": 365,
+    "by_kind": {
+      "case_study": 19,
+      "guidance": 136,
+      "law": 163,
+      "precedent": 365,
+      "rule": 66,
+      "typology": 50
+    }
+  },
+  "coverage": {
+    "kb": {
+      "chunks": 434,
+      "with_vectors": 434
+    },
+    "precedents": {
+      "chunks": 365,
+      "with_vectors": 365
+    },
+    "queries": {
+      "queries": 72,
+      "with_vectors": 72
+    }
+  }
+}

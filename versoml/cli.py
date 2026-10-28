@@ -26,6 +26,11 @@ for _stream in (sys.stdout, sys.stderr):
 app = typer.Typer(add_completion=False, help="VersoML: payment disputes refunded by the next business day, with an evidence file for each case.")
 console = Console()
 
+# `versoml kb build | search | ask | eval`: the knowledge base (commands import their modules lazily)
+from versoml.knowledge.cli import kb_app  # noqa: E402
+
+app.add_typer(kb_app, name="kb")
+
 # `setup` runs the fast evaluation when it fits in this budget (about 20 s on a laptop, from a fresh var/)
 EVAL_BUDGET_S = 60.0
 

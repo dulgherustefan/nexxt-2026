@@ -111,10 +111,14 @@ class Attachment(BaseModel):
 
 
 class Complaint(BaseModel):
-    """Contestația, așa cum intră în bancă (text neîncrezut)."""
+    """Contestația, așa cum intră în bancă (text neîncrezut).
+
+    `customer_ref` și `transaction_refs` pot lipsi (reclamație liberă, de exemplu pe e-mail): nodul `identificare`
+    caută clientul și plata în evidențele băncii.
+    """
 
     case_id: str
-    customer_ref: str
+    customer_ref: str | None = None
     received_at: datetime
     channel_hint: Channel | None = None
     transaction_refs: list[str] = Field(default_factory=list)
@@ -122,6 +126,35 @@ class Complaint(BaseModel):
     attachments: list[Attachment] = Field(default_factory=list)
     source: Literal["app", "email", "branch", "call_center", "web_form"] = "app"
     synthetic: bool = True
+
+
+class MatchCandidate(BaseModel):
+    """O plată din evidențele clientului care s-ar putea potrivi cu reclamația (scor determinist, 0–1)."""
+
+    tx_id: str
+    amount: float
+    currency: str = "RON"
+    ts: datetime | str
+    payee: str | None = None
+    channel: str | None = None
+    direction: str = "out"
+    score: float = 0.0
+    points: int = 0                   # punctajul brut din care vine scorul (transparent)
+    reasons: list[str] = Field(default_factory=list)
+
+
+class MatchResult(BaseModel):
+    """Rezultatul identificării: clientul, plata contestată și de ce (sau de ce e nevoie de un om)."""
+
+    customer_ref: str | None = None
+    customer_match_reason: str | None = None
+    customer_confidence: float = 0.0
+    tx_id: str | None = None
+    confidence: float = 0.0
+    needs_human: bool = True
+    reason: str = ""
+    method: Literal["given", "matched", "picked", "none"] = "none"
+    candidates: list[MatchCandidate] = Field(default_factory=list)
 
 
 class ClaimPoint(BaseModel):

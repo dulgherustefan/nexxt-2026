@@ -120,6 +120,11 @@ async def osint(body: OsintQuery) -> dict:
     return await svc().osint_lookup(body.target, body.kind)
 
 
+@app.get("/api/aml/kb/search")
+def kb_search(q: str = "", k: int = 6) -> list[dict]:
+    return svc().kb_search(q, k=max(1, min(k, 20)))
+
+
 @app.get("/api/aml/campaigns")
 def campaigns() -> list[dict]:
     return svc().campaigns()

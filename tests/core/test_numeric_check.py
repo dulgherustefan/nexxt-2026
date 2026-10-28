@@ -1,0 +1,96 @@
+"""The numeric verifier on adversarial drafts: a wrong amount, date, time, IBAN fragment or case ID is caught, with
+the value on file; the customer's own quoted words are not checked. Client zone (English formats) and AML zone
+(Romanian formats)."""
+
+from __future__ import annotations
+
+from versoml.zone_aml import verificare_numerica as VN
+from versoml.zone_client import numeric_check as N
+from versoml.zone_client.agents import _fallback_letter
+
+CASE = "CT-2026-123456"
+FACTS = [
+    {"kind": "bank.transaction", "labels": {"trust": "trusted"},
+     "content": {"tx_id": "TX-1", "amount": 3200.0, "currency": "RON", "ts": "2026-10-28T14:02:11+02:00",
+                 "counterparty_iban": "RO61BDEM1777286093723598"}},
+    {"kind": "clock.started", "labels": {"trust": "trusted"},
+     "content": {"notified_at": "2026-10-28T14:05:30+02:00", "t1_deadline": "2026-10-29T23:59:59+02:00",
+                 "answer_deadline": "2026-11-18T23:59:59+02:00"}},
+    {"kind": "complaint.extracted", "labels": {"trust": "untrusted"}, "content": {"mentioned_amounts": [2.99, 9000.0]}},
+    {"kind": "declared.statement", "labels": {"trust": "untrusted"},
+     "content": {"amount": {"value": 1850.0, "currency": "RON"}, "date": "2026-10-20"}},
+]
+GOOD = ("On 28 Oct 2026 you told us that you did not make the transfer of RON 3,200.00 at 14:02. We will refund the "
+        "full amount by 29 Oct 2026, 23:59, and answer by 18 Nov 2026, quoting case CT-2026-123456. The money went to "
+        "RO61 BDEM •••• 3598.")
+
+
+def allowed(**kw):
+    return N.allowed_from_facts(FACTS, CASE, **kw)
+
+
+def test_a_correct_letter_passes():
+    out = N.check([("paragraph 1", GOOD)], allowed())
+    assert out["passed"] and out["checked"] == 8 and out["mismatches"] == []
+
+
+def test_adversarial_values_are_caught_with_the_value_on_file():
+    bad = (GOOD.replace("RON 3,200.00", "RON 3,500.00").replace("29 Oct 2026", "30 Oct 2026")
+           .replace("14:02", "15:20").replace(CASE, "CT-2026-999999").replace("•••• 3598", "•••• 1111"))
+    out = N.check([("paragraph 2", bad)], allowed())
+    found = {m["kind"]: m for m in out["mismatches"]}
+    assert not out["passed"] and set(found) == {"amount", "date", "time", "case_id", "iban_tail"}
+    assert found["amount"] == {"value": "RON 3,500.00", "expected": "RON 3,200.00", "where": "paragraph 2",
+                               "kind": "amount"}
+    assert found["date"]["expected"] == "29 Oct 2026" and found["case_id"]["expected"] == CASE
+    assert "you wrote “RON 3,500.00”, but the case file has RON 3,200.00" in N.feedback(out["mismatches"])
+
+
+def test_untrusted_amounts_are_not_on_file_unless_declared():
+    assert not N.check([("p", "We refunded RON 9,000.00.")], allowed())["passed"]          # the customer's text only
+    assert not N.check([("p", "The payment of RON 1,850.00 you told us about.")], allowed())["passed"]
+    declared = allowed(include_untrusted_kinds=("declared.statement",))
+    assert N.check([("p", "The payment of RON 1,850.00 you told us about on 20 Oct 2026.")], declared)["passed"]
+
+
+def test_quoted_customer_words_and_other_formats():
+    assert N.check([("p", "You also wrote: “mi-au luat 3.494,60 RON pe 10.09.2026”.")], allowed())["passed"]
+    values = {v["kind"] for v in N.extract("Paid RON 3,200.00 on 2026-10-28 and 28.10.2026, 3200 RON, October 28, 2026")}
+    assert values == {"amount", "date"}
+
+
+def test_the_fallback_letter_passes_its_own_check():
+    state = {"case_id": CASE,
+             "rule_context": {"case_id": CASE, "amount": {"value": 3200.0, "currency": "RON"},
+                              "executed_at": "2026-10-28T14:02:11+02:00", "notified_at": "2026-10-28T14:05:30+02:00",
+                              "channel": "transfer", "dispute_type": "neautorizata", "fact_ids": {}},
+             "decisions": [{"question": "rambursare_t1", "decision": "RAMBURSEAZA_CU_APROBARE",
+                            "deadline": "2026-10-29T23:59:59+02:00"},
+                           {"question": "raspuns_reclamatie", "decision": "INCHIDE",
+                            "deadline": "2026-11-18T23:59:59+02:00"}],
+             "extracted": {"points": [{"text": "Please give me my money back.", "quote": ""}]},
+             "refund": {"done": False}, "records": {"transaction": {}}}
+    letter = _fallback_letter(state, ["Law 209/2019, art. 173"])
+    out = N.check(N.sections_of(letter.subject, [p.text for p in letter.paragraphs]), allowed())
+    assert out["passed"], out["mismatches"]
+    assert any(p.text == "The rules we applied: Law 209/2019, art. 173." for p in letter.paragraphs)
+
+
+# ---------------------------------------------------------------- AML zone: Romanian formats
+
+AML_FACTS = [{"content": {"case_id": "CT-2026-111111", "amount": {"value": 3200.0, "currency": "RON"},
+                          "executed_at": "2026-10-28T14:02:11+02:00",
+                          "beneficiary": {"iban": "RO61BDEM1777286093723598"}}},
+             {"content": {"top": [{"account": "RO61BDEM1777286093723598", "score": 0.93}], "amount_total": 7950.0}}]
+
+
+def test_aml_rts_draft_numbers():
+    p = VN.permise_din(AML_FACTS, "PL-ABC123")
+    good = [("rezumat", "Contul RO61 BDEM •••• 3598 a primit 3.200,00 RON pe 28.10.2026 (CT-2026-111111), în total "
+                        "7950 RON; pista PL-ABC123.")]
+    assert VN.verifica(good, p) == {"passed": True, "checked": 6, "mismatches": []}
+    bad = [("fraza 1", "Contul RO61 BDEM •••• 9999 a primit 4.100 lei pe 27 octombrie 2026 (CT-2026-222222).")]
+    out = VN.verifica(bad, p)
+    assert not out["passed"] and {m["kind"] for m in out["mismatches"]} == {"iban_tail", "amount", "date", "case_id"}
+    assert next(m for m in out["mismatches"] if m["kind"] == "amount")["expected"] == "3200.00 RON"
+    assert "ai scris „4.100 lei”" in VN.feedback(out["mismatches"])

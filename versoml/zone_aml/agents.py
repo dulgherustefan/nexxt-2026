@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from typing import Any, Callable
 
@@ -55,6 +56,23 @@ def g(d: dict | None, *keys: str, default: Any = None) -> Any:
         if key in d and d[key] is not None:
             return d[key]
     return default
+
+
+def kb_search_aml(q: str, k: int = 6, kinds: list[str] | None = None) -> list[dict]:
+    """Căutare în baza de cunoștințe a zonei AML (fără precedente din zona client). Interogarea trece întâi prin
+    PrivacyProxy; fără modul sau fără index, lista e goală și ciorna merge mai departe fără citări."""
+    if not (q or "").strip():
+        return []
+    try:
+        from versoml.knowledge import get_kb
+
+        kb = get_kb("aml")
+        query, _ = get_runtime().privacy.pseudonymize(q, "kb-query")
+        hits = kb.search(query, k=int(k), kinds=kinds)
+    except Exception as exc:  # noqa: BLE001 - baza de cunoștințe e opțională
+        log.info("baza de cunoștințe AML indisponibilă: %s", type(exc).__name__)
+        return []
+    return [h.model_dump(mode="json") if hasattr(h, "model_dump") else dict(h) for h in hits or []]
 
 
 def mask_iban(iban: str | None) -> str | None:
@@ -559,16 +577,55 @@ async def redactor_rts(state: dict) -> dict:
                        P.RtsLine(text="Scorul de cont-cărăuș și tipologia de tranzit rapid susțin suspiciunea.", cites=ids[2:4] or ids[:1])],
             recommended_measures=["depunerea RTS la ONPCSB de către analist", "monitorizare sporită a contului"])
 
+    # fundamentarea: pasaje de tipologie din baza de cunoștințe a zonei AML (informație și citări, nu probe)
+    tipologii = [t.get("name") or t.get("typology") for t in state.get("typologies") or [] if t]
+    pasaje = kb_search_aml(" ".join(tipologii) or "cont de tranzit fonduri din fraudă cărăuș", k=4,
+                           kinds=["typology", "guidance", "law"])
+    kb_ids = {f"KB-{i}": h for i, h in enumerate(pasaje, 1)}
+    user = "Probe din dosarul AML:\n" + brief
+    if kb_ids:
+        user += ("\n\nPasaje de tipologie (le poți cita ca [KB-n] pentru tipologie, lângă probele AX-...):\n"
+                 + "\n".join(f"- {k} ({h.get('title')}): {(h.get('text') or '')[:400]}" for k, h in kb_ids.items()))
     out, info = await c.rt.llm.structured(role=Role.OPUS, agent=AG["redactor_rts"], system=P.RTS_SYSTEM,
-                                          user="Probe din dosarul AML:\n" + brief, schema=P.RtsOut, effort="medium",
-                                          max_tokens=3500, fallback=fallback)
+                                          user=user, schema=P.RtsOut, effort="medium", max_tokens=3500,
+                                          fallback=fallback)
+    # verificarea numerică: fiecare sumă, dată, IBAN și ID din ciornă trebuie să fie în probe; o rescriere, apoi omul
+    from versoml.zone_aml import verificare_numerica as VN
+
+    permise = VN.permise_din(c.rt.ledger.facts(c.lead_id), c.lead_id)
+    for r in state.get("referrals") or []:
+        permise.adauga(r)
+    restore_out = lambda o: o.model_copy(update={  # noqa: E731 - verificăm textul cu valorile reale, ca în dosar
+        "title": restore(o.title), "suspicion_summary": restore(o.suspicion_summary),
+        "indicators": [restore(x) for x in o.indicators], "recommended_measures": [restore(x) for x in o.recommended_measures],
+        "narrative": [line.model_copy(update={"text": restore(line.text)}) for line in o.narrative]})
+    verificare = VN.verifica(VN.sectiuni_rts(restore_out(out)), permise)
+    rescris = False
+    if not verificare["passed"]:
+        await c.em.custom("numeric_check", "Verificarea numerică a oprit prima ciornă RTS; redactorul o reface",
+                          {"mismatches": verificare["mismatches"]}, step="redactor_rts", agent=AG["redactor_rts"])
+        out, _ = await c.rt.llm.structured(role=Role.OPUS, agent=AG["redactor_rts"], system=P.RTS_SYSTEM,
+                                           user=user + VN.feedback(verificare["mismatches"]), schema=P.RtsOut,
+                                           effort="medium", max_tokens=3500, fallback=fallback)
+        verificare = VN.verifica(VN.sectiuni_rts(restore_out(out)), permise)
+        rescris = True
+    numeric_check = {**verificare, "rewritten": rescris}
     narrative, rejected = [], 0
     for line in out.narrative:
         cites = [x for x in line.cites if x in valid]
+        kb_cites = [x for x in line.cites if x in kb_ids] + [x for x in re.findall(r"\bKB-\d+\b", line.text)
+                                                              if x in kb_ids and x not in line.cites]
         if cites:
-            narrative.append({"text": restore(line.text), "cites": cites})
+            narrative.append({"text": restore(line.text), "cites": cites, **({"kb_cites": kb_cites} if kb_cites else {})})
         else:
             rejected += 1
+    citate = sorted({k for line in narrative for k in line.get("kb_cites", [])}) or sorted(kb_ids)[:2]
+    grounding = [{"used_in": "rts", "hit": kb_ids[k]} for k in citate if k in kb_ids]
+    if grounding:
+        await c.fact("redactor_rts", "kb.citations", "knowledge.search", {"used_in": "rts"},
+                     {"used_in": "rts", "hits": [{k: e["hit"].get(k) for k in ("id", "kind", "title", "source",
+                                                                              "confidence")} for e in grounding]},
+                     f"{len(grounding)} pasaje de tipologie din baza de cunoștințe citate în ciorna RTS")
     accounts = state.get("accounts") or []
     rts = {"status": "ciornă", "title": restore(out.title), "fields": {
         "raportor": "Banca Demo (sintetic)", "referinta_interna": f"{c.lead_id} · {canary}",
@@ -577,11 +634,18 @@ async def redactor_rts(state: dict) -> dict:
         "rezumat": restore(out.suspicion_summary), "indicatori": [restore(x) for x in out.indicators],
         "masuri": [restore(x) for x in out.recommended_measures],
         "formular": "ONPCSB, portalul de raportări (depune un om)"},
-        "narrative": narrative, "rejected_without_citation": rejected, "canary_planted": True}
+        "narrative": narrative, "rejected_without_citation": rejected, "canary_planted": True,
+        "numeric_check": numeric_check}
+    if not numeric_check["passed"]:
+        rts["status"] = "blocată: cifrele nu corespund dosarului, verifică analistul"
+    await c.fact("redactor_rts", "aml.rts_numeric_check", "aml.str.numeric_check", {"checked": numeric_check["checked"]},
+                 numeric_check, ("Toate cifrele din ciorna RTS corespund dosarului" if numeric_check["passed"]
+                                 else f"{len(numeric_check['mismatches'])} valori din ciorna RTS nu sunt în dosar: "
+                                      "decide analistul") + (" (după o rescriere)" if rescris else ""))
     await c.fact("redactor_rts", "aml.rts_draft", "aml.str.draft", {"model": info.model},
                  {"title": out.title, "narrative": narrative, "canary_ref": "plantat"},
                  f"Ciornă RTS cu {len(narrative)} fraze cu sursă ({rejected} respinse)")
-    c.save({"rts": rts, "canary": canary})
+    c.save({"rts": rts, "canary": canary, "grounding": grounding, "numeric_check": numeric_check})
     await c.finish("redactor_rts", f"Ciornă RTS gata: {len(narrative)} fraze cu sursă", {"llm": info.as_dict()})
     return {"rts": rts}
 

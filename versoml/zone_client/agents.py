@@ -37,12 +37,15 @@ BANK = P.BANK_NAME
 
 AG = {
     "receptor": "Intake",
+    "identificare": "Identification",
     "clasificator": "Classifier",
     "ceasornicar": "Deadline clock",
     "colector_tranzactie": "Transaction collector",
     "colector_sca": "SCA collector",
     "colector_dispozitiv": "Device collector",
     "colector_domeniu": "Domain collector",
+    "colector_campanie": "Campaign collector",
+    "router": "Router",
     "motor_reguli": "Rules engine",
     "outbox_aml": "Diode",
     "rambursare": "Refund",
@@ -58,10 +61,14 @@ AG = {
 PIPELINE_NODES = [
     {"id": "receptor", "label": "Intake", "model": "haiku", "lane": "intrare",
      "hint": "Isolated LLM with no tools: pulls typed fields out of untrusted text"},
+    {"id": "identificare", "label": "Identification", "model": "no LLM", "lane": "intrare",
+     "hint": "finds the customer and the disputed payment in the ledger, with a score per clue; a person picks if unsure"},
     {"id": "clasificator", "label": "Classifier", "model": "ml", "lane": "intrare",
      "hint": "M1: TF-IDF and calibrated logistic regression"},
     {"id": "ceasornicar", "label": "Deadline clock", "model": "no LLM", "lane": "intrare",
      "hint": "Next business day, 15/35 business days, 13 months, Romanian bank holidays"},
+    {"id": "router", "label": "Router", "model": "no LLM", "lane": "intrare",
+     "hint": "decides which collectors run, with a reason for each (LangGraph Send)"},
     {"id": "colector_tranzactie", "label": "Transaction", "model": "no LLM", "lane": "probe",
      "hint": "bank-core: the payment, the payee, the history"},
     {"id": "colector_sca", "label": "SCA", "model": "no LLM", "lane": "probe",
@@ -70,6 +77,8 @@ PIPELINE_NODES = [
      "hint": "device: new device, seconds after the click, SIM swap"},
     {"id": "colector_domeniu", "label": "Fake domain", "model": "no LLM", "lane": "probe",
      "hint": "domain-intel: RDAP, CT, lookalike score (M3), page similarity (M4)"},
+    {"id": "colector_campanie", "label": "Campaign", "model": "no LLM", "lane": "probe",
+     "hint": "other cases with the same payee, link or phone (M6), and similar stories"},
     {"id": "motor_reguli", "label": "Rules engine", "model": "no LLM", "lane": "decizie",
      "hint": "PAY, DSP, CMP, DP, REC: a rule ID behind every decision"},
     {"id": "outbox_aml", "label": "Diode to AML", "model": "no LLM", "lane": "zid",
@@ -91,12 +100,12 @@ PIPELINE_NODES = [
     {"id": "sigiliu", "label": "Seal", "model": "no LLM", "lane": "iesire",
      "hint": "Merkle root, Ed25519 signature, QR code"},
 ]
+COLLECTOR_NODES = ["colector_tranzactie", "colector_sca", "colector_dispozitiv", "colector_domeniu", "colector_campanie"]
 PIPELINE_EDGES = [
-    ("receptor", "clasificator"), ("clasificator", "ceasornicar"),
-    ("ceasornicar", "colector_tranzactie"), ("ceasornicar", "colector_sca"),
-    ("ceasornicar", "colector_dispozitiv"), ("ceasornicar", "colector_domeniu"),
-    ("colector_tranzactie", "motor_reguli"), ("colector_sca", "motor_reguli"),
-    ("colector_dispozitiv", "motor_reguli"), ("colector_domeniu", "motor_reguli"),
+    ("receptor", "identificare"), ("identificare", "clasificator"), ("clasificator", "ceasornicar"),
+    ("ceasornicar", "router"),
+    *[("router", name) for name in COLLECTOR_NODES],
+    *[(name, "motor_reguli") for name in COLLECTOR_NODES],
     ("motor_reguli", "outbox_aml"), ("outbox_aml", "rambursare"),
     ("rambursare", "procuror"), ("rambursare", "avocat"),
     ("procuror", "cantaritor"), ("avocat", "cantaritor"), ("rambursare", "recuperare"),
@@ -487,13 +496,14 @@ async def receptor(state: dict) -> dict:
     full = "\n\n".join([body, *attachments])
 
     known: dict[str, str] = {}
+    customer_ref = complaint.customer_ref or _pre_identify(c, complaint)
     try:
-        customer = c.rt.repo.get_customer(complaint.customer_ref) or {}
+        customer = (c.rt.repo.get_customer(customer_ref) if customer_ref else None) or {}
         for key, value in customer.items():
             if isinstance(value, str) and value and any(k in key.lower() for k in ("name", "nume")):
                 known[value] = "CLIENT"
     except Exception as exc:  # noqa: BLE001 - without the bank's customer record we only mask the patterns
-        log.warning("customer %s not found: %s", complaint.customer_ref, exc)
+        log.warning("customer %s not found: %s", customer_ref, exc)
 
     pseudo_text, vault = c.rt.privacy.pseudonymize(full, c.case_id, known)
     redactions = sum(1 for _ in re.finditer(r"<[A-Z]+_\d+>", pseudo_text))
@@ -544,6 +554,256 @@ async def receptor(state: dict) -> dict:
                    {"llm": info.as_dict(), "injection": extracted.injection_suspected})
     return {"pseudo": {"text": pseudo_text, "vault": vault}, "extracted": extracted.model_dump(mode="json"),
             "fact_map": fact_map}
+
+
+def customer_alias(customer_ref: str | None) -> str:
+    if not customer_ref:
+        return "Unidentified customer"
+    if customer_ref.startswith("CUST-DEMO-"):
+        return "Demo Customer " + customer_ref[-2:]
+    digits = "".join(ch for ch in customer_ref if ch.isdigit())[-4:] or "0000"
+    return f"Customer {digits}"
+
+
+def _pre_identify(c: "Ctx", complaint: Complaint) -> str | None:
+    """Before the LLM sees a free-form complaint: the customer the text points to, so their name is masked too (a
+    wrong guess only masks one name more). The identification node decides properly afterwards."""
+    try:
+        from versoml.zone_client import matcher as M
+
+        clues = M.parse_clues(complaint.text, [a.model_dump() for a in complaint.attachments],
+                              received_at=complaint.received_at)
+        guesses = M.identify_customer(c.rt.repo, clues)
+        return guesses[0].customer_ref if guesses else None
+    except Exception as exc:  # noqa: BLE001 - the patterns still mask phone numbers, IBANs and signatures
+        log.info("pre-identification failed: %s", type(exc).__name__)
+        return None
+
+
+# ---------------------------------------------------------------- 1b. Identification (free-form intake)
+
+
+def _open_cases_tx(c: "Ctx") -> dict[str, str]:
+    """Payments other cases in this zone are already about (a new claim is matched to another payment)."""
+    out: dict[str, str] = {}
+    for d in c.rt.cases.all():
+        if d.get("case_id") in (None, c.case_id) or d.get("status") == "EROARE":
+            continue
+        for ref in case_tx_refs(d):
+            out.setdefault(ref, d["case_id"])
+    return out
+
+
+def _match_summary(match: dict) -> str:
+    if match.get("tx_id"):
+        how = {"given": "given with the complaint", "picked": "picked by a person"}.get(match.get("method"), "matched")
+        who = match.get("customer_match_reason") or "Customer identified"
+        return f"{who}. Payment {match['tx_id']} {how}"
+    if match.get("customer_ref"):
+        return "Customer identified; no payment in the ledger fits the complaint"
+    return "The customer could not be identified from the complaint"
+
+
+async def identificare(state: dict) -> dict:
+    c = Ctx(state)
+    from versoml.contracts import MatchResult
+    from versoml.zone_client import matcher as M
+
+    complaint = state["complaint"]
+    doc = c.rt.cases.get(c.case_id) or {}
+    pending = doc.get("interrupt") or {}
+    resuming = pending.get("kind") == "pick_transaction" and bool(pending.get("pending") or pending.get("resuming"))
+    received = parse_dt(complaint.get("received_at")) or now()
+    clues = M.parse_clues(complaint.get("text", ""), complaint.get("attachments"), received_at=received,
+                          channel_hint=complaint.get("channel_hint"))
+    if resuming and doc.get("match_pending"):
+        match = MatchResult.model_validate(doc["match_pending"])
+    else:
+        await c.start("identificare", "Finding the customer and the disputed payment in the bank's records")
+        decision = c.rt.authorize("colector", "bank-core.get_transaction", Zone.CLIENT)
+        if not decision.allowed:
+            await c.em.custom("policy_denied", "Cedar denied bank-core.get_transaction", decision.model_dump(mode="json"),
+                              step="identificare", agent=AG["identificare"])
+            raise PermissionError(decision.reason)
+        taken = _open_cases_tx(c)
+        match = await c.call("identificare", "colector", "bank-core.get_customer_ref",
+                             lambda: M.match_complaint(c.rt.repo, text=complaint.get("text", ""),
+                                                       attachments=complaint.get("attachments"),
+                                                       customer_ref=complaint.get("customer_ref"),
+                                                       transaction_refs=complaint.get("transaction_refs") or [],
+                                                       channel_hint=complaint.get("channel_hint"), received_at=received,
+                                                       exclude_case_id=c.case_id, taken=taken, clues=clues),
+                             {"customer_ref_given": bool(complaint.get("customer_ref")),
+                              "transaction_refs_given": len(complaint.get("transaction_refs") or [])})
+        await c.em.custom("match", match.reason, match.model_dump(mode="json"), step="identificare",
+                          agent=AG["identificare"])
+
+    if match.needs_human and match.candidates and match.customer_ref:
+        candidates = [x.model_dump(mode="json") for x in match.candidates]
+        prompt = f"Which payment is the customer disputing? {match.reason} Pick one, or choose none of these."
+        payload = {"kind": "pick_transaction", "prompt": prompt, "options": ["pick_transaction"],
+                   "candidates": candidates, "customer_ref": match.customer_ref, "reason": match.reason}
+        if not resuming:
+            c.track("identificare", "waiting", "A person picks the disputed payment")
+            c.save({"interrupt": {"pending": True, **payload}, "status": "ASTEAPTA_APROBARE",
+                    "match_pending": match.model_dump(mode="json"), "customer_ref": match.customer_ref,
+                    "customer_alias": customer_alias(match.customer_ref)})
+            await c.em.custom("interrupt", prompt, payload, step="identificare", agent=AG["identificare"])
+        answer = interrupt(payload) or {}
+        approver = answer.get("approver") or "OPERATOR-01"
+        c.save({"interrupt": {**payload, "pending": False, "resuming": False, "answer": answer}, "status": "IN_ANALIZA"})
+        match = M.picked(match, answer.get("tx_id"), approver)
+        await c.fact("identificare", "human.pick_transaction", "console.operator", {"approver": approver},
+                     {"tx_id": answer.get("tx_id"), "note": answer.get("note"),
+                      "candidates": [x.tx_id for x in match.candidates]},
+                     f"{approver} picked payment {answer['tx_id']}" if answer.get("tx_id")
+                     else f"{approver} found none of the candidate payments right")
+        await c.em.custom("match", match.reason, match.model_dump(mode="json"), step="identificare",
+                          agent=AG["identificare"])
+
+    match_d = match.model_dump(mode="json")
+    fid = await c.fact("identificare", "intake.match", "bank-core.match_complaint",
+                       {"method": match.method, "candidates": len(match.candidates)}, match_d, _match_summary(match_d),
+                       Labels(conf="client", trust=Trust.TRUSTED, sinks=[Sink.CLIENT]))
+    fact_map = {"match": fid, "transaction_identified": fid, "customer_identified": fid}
+    declared: dict = {}
+    if not match.tx_id:
+        declared = M.declared_facts(clues)
+        dfid = await c.fact("identificare", "declared.statement", "intake.customer_statement", {"source": "complaint"},
+                            declared, "What the customer says about the payment (their statement, not the bank's records)",
+                            Labels(conf="client", trust=Trust.UNTRUSTED, sinks=[Sink.CLIENT, Sink.LETTER]))
+        fact_map.update({"declared": dfid, "amount": dfid, "executed_at": dfid})
+    tx_refs = [match.tx_id] if match.tx_id else []
+    customer_ref = match.customer_ref or complaint.get("customer_ref")
+    patch = {"match": match_d, "tx_refs": tx_refs, "declared": declared or None}
+    if customer_ref and customer_ref != doc.get("customer_ref"):
+        patch.update({"customer_ref": customer_ref, "customer_alias": customer_alias(customer_ref)})
+    c.save(patch)
+    try:
+        c.rt.repo.update_complaint_identity(c.case_id, customer_ref, tx_refs)
+    except Exception as exc:  # noqa: BLE001 - the case document keeps the identity anyway
+        log.info("update_complaint_identity: %s", type(exc).__name__)
+    message = _match_summary(match_d) + ("" if match.tx_id else ": the claim goes on with the customer's statements")
+    await c.finish("identificare", message, {"match": {k: match_d[k] for k in ("customer_ref", "tx_id", "needs_human",
+                                                                              "method", "confidence")}})
+    return {"match": match_d, "declared": declared, "fact_map": fact_map}
+
+
+# ---------------------------------------------------------------- 3b. The router (dynamic collectors)
+
+
+def _attack_targets(state: dict) -> dict:
+    """The links, domains and phone numbers in the complaint (the scammer's, as the customer reports them)."""
+    extracted = state.get("extracted") or {}
+    texts = [state["complaint"].get("text", "")] + [a.get("content", "") for a in state["complaint"].get("attachments", [])]
+    try:
+        from versoml.osint.investigate import extract_artifacts
+
+        artifacts = extract_artifacts("\n".join(texts))
+    except Exception:  # noqa: BLE001
+        artifacts = {"domains": [], "urls": []}
+    urls = list(dict.fromkeys([*extracted.get("mentioned_urls", []), *artifacts.get("urls", [])]))
+    domains = list(dict.fromkeys([*artifacts.get("domains", [])]))
+    for url in urls:
+        host = re.sub(r"^https?://", "", url).split("/")[0].lower()
+        if host and host not in domains:
+            domains.append(host)
+    phones = list(dict.fromkeys([*extracted.get("mentioned_phones", []), *artifacts.get("phones", [])]))
+    return {"domains": domains, "urls": urls, "phones": phones}
+
+
+def _own_phone(c: "Ctx", customer_ref: str | None) -> str | None:
+    try:
+        return (c.rt.repo.get_customer(customer_ref) or {}).get("phone") if customer_ref else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _campaign_indicators(c: "Ctx", state: dict, tx: dict | None) -> dict:
+    from versoml.data.ids import normalize_phone
+
+    targets = _attack_targets(state)
+    own = normalize_phone(_own_phone(c, _customer_ref(state)) or "")
+    iban = g(tx or {}, "counterparty_iban", "beneficiary_iban", "to_iban")
+    return {"ibans": [iban] if iban and str(iban).upper().startswith("RO") else [],
+            "domains": targets["domains"][:3],
+            "phones": [p for p in targets["phones"] if not p.startswith("<") and normalize_phone(p) != own][:3]}
+
+
+async def router(state: dict) -> dict:
+    c = Ctx(state)
+    await c.start("router", "Deciding which evidence collectors this case needs")
+    from versoml.zone_client import routing as R
+
+    tx_id = _main_tx_id(state)
+    tx = await c.call("router", "colector", "bank-core.get_transaction",
+                      lambda: c.rt.repo.get_transaction(tx_id) if tx_id else None, {"tx_id": tx_id})
+    merchant = None
+    if tx and g(tx, "channel") == "card" and g(tx, "merchant_id"):
+        merchant = c.rt.repo.get_merchant(tx["merchant_id"])
+    targets = _attack_targets(state)
+    steps = R.plan(tx=tx, customer_ref=_customer_ref(state), attack_domains=targets["domains"],
+                   merchant_domain=(merchant or {}).get("domain"), indicators=_campaign_indicators(c, state, tx),
+                   narrative_chars=len((state.get("pseudo") or {}).get("text") or ""))
+    for entry in steps:
+        await c.em.custom("routing", entry["reason"], entry, step="router", agent=AG["router"])
+        if not entry["run"]:
+            c.track(entry["node"], "skipped", entry["reason"])
+    running = [e for e in steps if e["run"]]
+    await c.fact("router", "routing.plan", "router.plan", {"collectors": len(steps)}, {"steps": steps},
+                 f"Router: {len(running)} of {len(steps)} collectors run",
+                 Labels(conf="client", trust=Trust.TRUSTED, sinks=[Sink.CLIENT]))
+    c.save({"routing": steps})
+    await c.finish("router", f"{len(running)} of {len(steps)} collectors run")
+    return {"routing": steps, "records": {"merchant": merchant} if merchant else {}}
+
+
+# ---------------------------------------------------------------- 4e. Campaign collector
+
+
+def _other_cases(c: "Ctx") -> list[dict]:
+    out = []
+    for d in c.rt.cases.all():
+        if d.get("case_id") in (None, c.case_id) or d.get("status") == "EROARE":
+            continue
+        ind = d.get("indicators")
+        if ind is None:
+            extracted = d.get("extracted") or {}
+            iban = (d.get("rule_context") or {}).get("beneficiary_iban")
+            ind = {"ibans": [iban] if iban else [], "domains": extracted.get("mentioned_urls") or [],
+                   "phones": [p for p in extracted.get("mentioned_phones") or [] if not str(p).startswith("<")]}
+        out.append({"case_id": d["case_id"], "indicators": ind, "narrative": (ind or {}).get("narrative") or ""})
+    return out
+
+
+async def colector_campanie(state: dict) -> dict:
+    c = Ctx(state)
+    await c.start("colector_campanie", "Looking for other cases with the same payee, link or phone number")
+    from versoml.zone_client import campaign as CP
+    from versoml.zone_client import grounding as G
+
+    tx_id = _main_tx_id(state)
+    tx = await c.call("colector_campanie", "colector", "bank-core.get_transaction",
+                      lambda: c.rt.repo.get_transaction(tx_id) if tx_id else None, {"tx_id": tx_id})
+    indicators = _campaign_indicators(c, state, tx)
+    narrative = ((state.get("pseudo") or {}).get("text") or "")[:1500]
+    c.save({"indicators": {**indicators, "narrative": narrative}})
+    others = await c.call("colector_campanie", "colector", "ledger.read_client", lambda: _other_cases(c),
+                          {"op": "campaign_candidates"})
+    result = CP.link(c.case_id, indicators, narrative, others or [],
+                     embed=lambda texts: G.embed(texts, input_type="clustering", namespace="campaign"))
+    if not result:
+        await c.finish("colector_campanie", "No other case shares this payee, link or phone number")
+        return {"campaign": None}
+    shared = ", ".join(f"{i['kind']} {i['value_masked']}" for i in result["shared_indicators"][:3])
+    n = len(result["case_ids"]) - 1
+    summary = (f"Linked to {plural(n, 'other case')}" + (f": same {shared}" if shared else "")
+               + (f"; story similarity {result['similarity']:.2f}" if result["similarity"] else ""))
+    await c.fact("colector_campanie", "campaign.link", "ledger.read_client", {"cases": n}, result, summary,
+                 Labels(conf="client", trust=Trust.TRUSTED, sinks=[Sink.CLIENT]))
+    c.save({"campaign": result})
+    await c.finish("colector_campanie", summary)
+    return {"campaign": result}
 
 
 # ---------------------------------------------------------------- 2. Classifier (M1)
@@ -604,15 +864,38 @@ async def ceasornicar(state: dict) -> dict:
 
 
 def _main_tx_id(state: dict) -> str | None:
+    """The disputed payment: the one the identification found (or a person picked), else the one given."""
+    match = state.get("match")
+    if match is not None:
+        return match.get("tx_id")
     refs = state["complaint"].get("transaction_refs") or []
     return refs[0] if refs else None
+
+
+def _customer_ref(state: dict) -> str | None:
+    match = state.get("match")
+    if match is not None and match.get("customer_ref"):
+        return match["customer_ref"]
+    return state["complaint"].get("customer_ref")
+
+
+def case_tx_refs(doc: dict) -> set[str]:
+    """The payments a stored case is about: the identified one, else the ones its complaint named."""
+    if doc.get("tx_refs") is not None:
+        return set(doc.get("tx_refs") or [])
+    return set((doc.get("complaint") or {}).get("transaction_refs") or [])
+
+
+def declared_only(state: dict) -> bool:
+    """True on the declared-facts path: no payment in the bank's records was matched to the complaint."""
+    return state.get("match") is not None and not (state.get("match") or {}).get("tx_id")
 
 
 async def colector_tranzactie(state: dict) -> dict:
     c = Ctx(state)
     await c.start("colector_tranzactie", "Reading the payment and the payee from bank-core")
     tx_id = _main_tx_id(state)
-    customer_ref = state["complaint"]["customer_ref"]
+    customer_ref = _customer_ref(state)
     records: dict = {}
     fact_map: dict = {}
     tx = await c.call("colector_tranzactie", "colector", "bank-core.get_transaction",
@@ -647,6 +930,9 @@ async def colector_tranzactie(state: dict) -> dict:
                 "colector_tranzactie", "bank.duplicate", "bank-core.find_duplicates", {"tx_id": tx_id},
                 {"duplicates": dups}, f"Identical payment found: {records['duplicate_of']}")
     # live complaints count too; the case under analysis never counts as its own earlier claim
+    if not customer_ref:
+        await c.finish("colector_tranzactie", "No customer identified: no payment or history to read", status="skipped")
+        return {"records": records, "fact_map": fact_map}
     prior = await c.call("colector_tranzactie", "colector", "bank-core.get_prior_disputes",
                          lambda: c.rt.repo.get_prior_disputes(customer_ref, 12, exclude_case_id=c.case_id),
                          {"months": 12})
@@ -701,7 +987,7 @@ async def colector_sca(state: dict) -> dict:
 async def colector_dispozitiv(state: dict) -> dict:
     c = Ctx(state)
     await c.start("colector_dispozitiv", "Checking the device, the session and any SIM swap")
-    customer_ref = state["complaint"]["customer_ref"]
+    customer_ref = _customer_ref(state)
     tx_id = _main_tx_id(state)
     tx = await c.call("colector_dispozitiv", "colector", "bank-core.get_transaction",
                       lambda: c.rt.repo.get_transaction(tx_id) if tx_id else None, {"tx_id": tx_id})
@@ -811,25 +1097,15 @@ def _intel_summary(name: str, domain: str, dump: dict) -> str:
 async def colector_domeniu(state: dict) -> dict:
     c = Ctx(state)
     await c.start("colector_domeniu", "Checking the fake domain: age, certificate, likeness to the bank")
-    extracted = state.get("extracted") or {}
-    texts = [state["complaint"].get("text", "")] + [a.get("content", "") for a in state["complaint"].get("attachments", [])]
-    try:
-        from versoml.osint.investigate import extract_artifacts
-
-        artifacts = extract_artifacts("\n".join(texts))
-    except Exception:  # noqa: BLE001
-        artifacts = {"domains": [], "urls": []}
-    urls = list(dict.fromkeys([*extracted.get("mentioned_urls", []), *artifacts.get("urls", [])]))
-    domains = list(dict.fromkeys([*artifacts.get("domains", [])]))
-    for url in urls:
-        host = re.sub(r"^https?://", "", url).split("/")[0].lower()
-        if host and host not in domains:
-            domains.append(host)
-    phones = list(dict.fromkeys([*extracted.get("mentioned_phones", []), *artifacts.get("phones", [])]))
+    targets = _attack_targets(state)
+    urls, domains, phones = targets["urls"], targets["domains"], targets["phones"]
     records: dict = {"attack": {"domains": domains[:3], "urls": urls[:3], "phones": phones[:3]}}
     fact_map: dict = {}
     intel: dict = {}
     if not domains:
+        site = ((state.get("records") or {}).get("merchant") or {}).get("domain")
+        if site:
+            return await _merchant_site(c, site, records)
         await c.finish("colector_domeniu", "No domain in the complaint", status="skipped")
         return {"records": records, "fact_map": fact_map}
 
@@ -889,6 +1165,31 @@ async def colector_domeniu(state: dict) -> dict:
                    + (f"lookalike score {score:.2f}" if isinstance(score, (int, float)) else "no lookalike score"),
                    {"intel": summaries})
     return {"records": records, "fact_map": fact_map, "domain_intel": intel}
+
+
+async def _merchant_site(c: "Ctx", site: str, records: dict) -> dict:
+    """The online shop the card payment went to: its age and likeness to the bank, as information. It is not treated
+    as the scammer's domain, and nothing about it goes to AML."""
+    from versoml.osint import domain as osd
+    from versoml.osint import lookalike as osl
+
+    fact_map: dict = {}
+    summaries: dict[str, str] = {}
+    for name, action, fn in (("rdap", "domain-intel.rdap_lookup", lambda: osd.rdap_domain(site)),
+                             ("lookalike", "domain-intel.lookalike_score", lambda: osl.lookalike_score(site))):
+        try:
+            result = await c.call("colector_domeniu", "colector", action, fn, {"domain": site})
+        except Exception as exc:  # noqa: BLE001 - one failed tool doesn't stop the collector
+            log.warning("%s failed: %s", action, exc)
+            continue
+        data = _osint_dump(result)
+        summaries[name] = "Merchant site: " + _intel_summary(name, site, data)
+        fact_map[f"merchant_domain_{name}"] = await c.fact(
+            "colector_domeniu", f"merchant.domain_{name}", f"domain-intel.{name}", {"domain": site}, data,
+            summaries[name], Labels(conf="public", trust=Trust.UNTRUSTED, sinks=[Sink.CLIENT]))
+    records["merchant_site"] = site
+    await c.finish("colector_domeniu", f"Merchant site {site} checked (information only)", {"intel": summaries})
+    return {"records": records, "fact_map": fact_map}
 
 
 async def _fetch_page(url: str):
@@ -953,18 +1254,24 @@ async def motor_reguli(state: dict) -> dict:
     if hint and hint in Scenario._value2member_map_:
         scenario = hint
 
+    declared = declared_only(state)
     signal = None
     try:
-        from versoml.ml.m2_client_fraud import client_fraud_signal
+        if declared:
+            raise LookupError("declared facts only: no payment to score")
+        from versoml.ml.m2_client_fraud import client_fraud_signal, features_from_repo
 
-        signal = client_fraud_signal({
-            "prior_disputes_12m": records.get("prior_disputes_12m", 0),
-            "device_known": records.get("device_known"),
-            "beneficiary_new": records.get("beneficiary_new"),
-            "amount": float(g(tx, "amount", "value", default=0)),
-            "seconds_after_click": records.get("seconds_after_click"),
-            "channel": channel.value,
-        })
+        try:  # the same objective features the model was trained on, read from the bank's logs
+            features = features_from_repo(c.rt.repo, _customer_ref(state), _main_tx_id(state),
+                                          state["complaint"]["received_at"])
+        except Exception as exc:  # noqa: BLE001 - fall back to what the collectors already gathered
+            log.warning("M2 features from the repo failed: %s", exc)
+            features = {"prior_disputes_12m": records.get("prior_disputes_12m", 0),
+                        "device_known": records.get("device_known"),
+                        "beneficiary_new": records.get("beneficiary_new"), "channel": channel.value}
+        signal = client_fraud_signal(features)
+    except LookupError:
+        signal = None
     except Exception as exc:  # noqa: BLE001
         log.warning("M2 unavailable: %s", exc)
     fact_map = dict(state.get("fact_map") or {})
@@ -979,10 +1286,25 @@ async def motor_reguli(state: dict) -> dict:
     notified = parse_dt(state["complaint"]["received_at"]) or now()
     extracted = state.get("extracted") or {}
     claimed = extracted.get("mentioned_amounts") or []
-    refs = set(state["complaint"].get("transaction_refs") or [])
+    main = _main_tx_id(state)
+    refs = {main} if main else set()
     other_dispute = any(d.get("case_id") not in (None, c.case_id) and d.get("status") not in ("EROARE",)
-                        and refs & set((d.get("complaint") or {}).get("transaction_refs") or []) for d in c.rt.cases.all())
+                        and refs & case_tx_refs(d) for d in c.rt.cases.all())
+    amount = Money(value=float(g(tx, "amount", "value", default=0)), currency=g(tx, "currency", default="RON"))
+    if declared:
+        # the customer's statements only (DSP-53): untrusted, used to ask for the rest, never to pay or refuse
+        stated = state.get("declared") or {}
+        value = stated.get("amount") or {}
+        amount = Money(value=float(value.get("value") or 0), currency=value.get("currency") or "RON")
+        day = stated.get("date")
+        executed = parse_dt(f"{day}T12:00:00+02:00") if day else notified
+        claimed = []
+        hinted = stated.get("channel")
+        if not tx and hinted in ("card", "transfer", "transfer_instant"):
+            channel = Channel(hinted)
+            records["channel"] = channel.value
     ctx = RuleContextExt(
+        transaction_identified=not declared, customer_identified=bool(_customer_ref(state)),
         existing_dispute_for_txn=other_dispute,
         classification_ambiguous=ambiguous,
         beneficiary_iban=g(tx, "beneficiary_iban", "counterparty_iban", "to_iban"),
@@ -995,8 +1317,7 @@ async def motor_reguli(state: dict) -> dict:
         if claimed else None,
         case_id=c.case_id, now=now(), channel=channel, dispute_type=dispute_type,
         scenario=Scenario(scenario) if scenario in Scenario._value2member_map_ else None,
-        amount=Money(value=float(g(tx, "amount", "value", default=0)), currency=g(tx, "currency", default="RON")),
-        executed_at=executed, notified_at=notified,
+        amount=amount, executed_at=executed, notified_at=notified,
         sca_performed=records.get("sca_performed"), sca_method=records.get("sca_method"),
         eci=records.get("eci") or g(tx, "eci"), cavv_present=records.get("cavv_present"),
         screen_showed_amount_and_payee=records.get("screen_showed_amount_and_payee"),
@@ -1038,7 +1359,8 @@ async def motor_reguli(state: dict) -> dict:
             "decisions": [d.model_dump(mode="json") for d in decisions],
             "verdict": t1.decision.value if t1 else None, "channel": channel.value,
             "scenario": ctx.scenario.value if ctx.scenario else scenario,
-            "amount": ctx.amount.model_dump(), "dispute_type": dispute_type.value})
+            "amount": ctx.amount.model_dump(), "dispute_type": dispute_type.value,
+            "amount_source": "declared" if declared else "ledger"})
     await c.finish("motor_reguli", f"Refund: {label(VERDICT_LABELS, t1.decision) if t1 else 'no decision'}; rules "
                    + ", ".join(sorted({h.rule_id for h in outcome.hits})[:6]))
     return {"rule_context": ctx.model_dump(mode="json"), "rules": outcome.model_dump(mode="json"),
@@ -1057,10 +1379,14 @@ async def outbox_aml(state: dict) -> dict:
     tx = records.get("transaction") or {}
     attack = records.get("attack") or {}
     bene_iban = g(tx, "beneficiary_iban", "counterparty_iban", "to_iban")
+    if declared_only(state):
+        await c.finish("outbox_aml", "Nothing sent to AML: the payment is not identified in the bank's records yet",
+                       status="skipped")
+        return {}
     if ctx["dispute_type"] not in ("neautorizata", "app") or not (bene_iban or attack.get("domain")):
         await c.finish("outbox_aml", "Not a fraud case with a payee: nothing to send", status="skipped")
         return {}
-    victim_ref = "VCT-" + hashlib.sha256(f"versoml|{state['complaint']['customer_ref']}".encode()).hexdigest()[:6]
+    victim_ref = "VCT-" + hashlib.sha256(f"versoml|{_customer_ref(state)}".encode()).hexdigest()[:6]
     facts = DisputeFacts(
         case_id=c.case_id, victim_ref=victim_ref, channel=Channel(ctx["channel"]),
         dispute_type=DisputeType(ctx["dispute_type"]),
@@ -1115,13 +1441,20 @@ async def rambursare(state: dict) -> dict:
     verdict = d["decision"] if d else None
     amount = float((state["rule_context"].get("amount") or {}).get("value", 0))
     currency = (state["rule_context"].get("amount") or {}).get("currency") or "RON"
-    customer_ref = state["complaint"]["customer_ref"]
+    customer_ref = _customer_ref(state)
     # when the graph resumes after the signature, the node runs again up to interrupt(): emit nothing twice
     pending = (c.rt.cases.get(c.case_id) or {}).get("interrupt") or {}
-    resuming = bool(pending.get("pending") or pending.get("resuming"))
+    resuming = pending.get("kind") != "pick_transaction" and bool(pending.get("pending") or pending.get("resuming"))
     if not resuming:
         await c.start("rambursare", f"Applying the refund decision: {label(VERDICT_LABELS, verdict)}"
                       + (f" ({verdict})" if verdict else ""))
+
+    if verdict == Verdict.INFORMATII_SUPLIMENTARE.value:
+        # declared facts only (DSP-53): nothing to refund or refuse until a person identifies the payment
+        c.save({"status": "IN_ANALIZA"})
+        await c.finish("rambursare", "No refund decision yet: the payment is not identified in the bank's records. "
+                                     "A person follows up and the customer is asked for the details", status="skipped")
+        return {"refund": {"done": False, "status": "IN_ANALIZA"}}
 
     if verdict in (Verdict.RAMBURSEAZA_CU_APROBARE.value, Verdict.EXCEPTIE_FRAUDA_CLIENT.value,
                    Verdict.RESPINGE_TARDIV.value) or (d and d.get("requires_human") and verdict != Verdict.NU_SE_APLICA_T1.value):
@@ -1148,6 +1481,8 @@ async def rambursare(state: dict) -> dict:
         await c.fact("rambursare", "human.signature", "console.operator", {"approver": approver},
                      {"action": (answer or {}).get("action"), "note": (answer or {}).get("note")},
                      f"{approver} {'approved' if approved else 'rejected'} the {verdict} decision")
+        c.save({"approved_by" if approved else "rejected_by": approver,
+                "approved_at" if approved else "rejected_at": now().isoformat()})
         if verdict == Verdict.RAMBURSEAZA_CU_APROBARE.value and approved:
             return await _issue_refund(c, state, amount, customer_ref, approved_by=approver)
         status = {Verdict.EXCEPTIE_FRAUDA_CLIENT.value: "EXCEPTIE", Verdict.RESPINGE_TARDIV.value: "RESPINS"}.get(
@@ -1180,9 +1515,10 @@ async def _issue_refund(c: Ctx, state: dict, amount: float, customer_ref: str, a
         await c.finish("rambursare", "The policy blocked the refund instruction", status="blocked")
         return {"refund": {"done": False, "status": "BLOCAT"}}
     # a payment is refunded once, however many disputes it gets (an operational guard, not a legal rule)
-    refs = set(state["complaint"].get("transaction_refs") or [])
+    main = _main_tx_id(state)
+    refs = {main} if main else set()
     prior = next((d for d in c.rt.cases.all() if d.get("case_id") not in (None, c.case_id) and d.get("status") == "RAMBURSAT"
-                  and refs & set((d.get("complaint") or {}).get("transaction_refs") or [])), None)
+                  and refs & case_tx_refs(d)), None)
     if prior:
         await c.fact("rambursare", "refund.duplicate", "refund.issue", {"tx": sorted(refs)},
                      {"already_refunded_in": prior["case_id"]},
@@ -1215,15 +1551,34 @@ def _facts_brief(c: Ctx, limit: int = 30) -> tuple[str, set[str]]:
     return brief, ids
 
 
-def _verify(lines: list[P.ArgLine], valid: set[str]) -> tuple[list[dict], int]:
+def _verify(lines: list[P.ArgLine], valid: set[str], kb: set[str] | None = None) -> tuple[list[dict], int]:
+    """Keeps the lines that cite at least one evidence ID; knowledge-base passages ([KB-n]) ride along as legal
+    support but never stand in for evidence."""
     kept, rejected = [], 0
     for line in lines:
         cites = [x for x in line.cites if x in valid]
+        kb_cites = [x for x in line.cites if x in (kb or set())]
+        kb_cites += [x for x in re.findall(r"\bKB-\d+\b", line.text) if x in (kb or set()) and x not in kb_cites]
         if cites:
-            kept.append({"text": line.text, "cites": cites})
+            kept.append({"text": line.text, "cites": cites, **({"kb_cites": kb_cites} if kb_cites else {})})
         else:
             rejected += 1
     return kept, rejected
+
+
+async def _record_grounding(c: "Ctx", used_in: str, hits: list[dict], step: str = "redactor") -> None:
+    """The knowledge-base passages a draft relied on: a ledger fact, and the case's `grounding` list."""
+    if not hits:
+        return
+    slim = [{k: h.get(k) for k in ("id", "kind", "title", "source", "confidence", "rule_ids", "score")} for h in hits]
+    await c.fact(step, "kb.citations", "knowledge.search", {"used_in": used_in},
+                 {"used_in": used_in, "hits": slim},
+                 f"{plural(len(hits), 'knowledge passage')} cited in the {used_in}",
+                 Labels(conf="public", trust=Trust.TRUSTED, sinks=[Sink.CLIENT]))
+    doc = c.rt.cases.get(c.case_id) or {}
+    grounding = [e for e in doc.get("grounding") or [] if e.get("used_in") != used_in]
+    grounding += [{"used_in": used_in, "hit": h} for h in hits]
+    c.save({"grounding": grounding})
 
 
 def _numbered(prefix: str, lines: list[tuple[str, list[str]]], start: int = 1) -> list[P.ArgLine]:
@@ -1304,6 +1659,17 @@ async def dezbatere(state: dict) -> dict:
     question = (wrap_data("evidence", brief) +
                 "\n\nQuestion: is there evidence for a case to recover the money from the customer for gross "
                 "negligence?")
+    # the legal passages behind the recovery rules, from the knowledge base: citable for points of law, never evidence
+    from versoml.zone_client import grounding as G
+
+    recovery_rules = (_decision(state, Question.RECUPERARE_CLIENT) or {}).get("rule_ids") or ["PAY-06", "PAY-02"]
+    passages = [h for h in G.for_rules(recovery_rules, k_per=1) if h.get("kind") in ("rule", "law", "guidance")][:4]
+    kb_ids = {f"KB-{i}": h for i, h in enumerate(passages, 1)}
+    if passages:
+        lines = "\n".join(f"- {kid} ({h.get('source') or h.get('title')}): {(h.get('text') or '')[:400]}"
+                          for kid, h in kb_ids.items())
+        question += ("\n\n" + wrap_data("legal_passages", lines)
+                     + "\nYou may cite a passage as [KB-n] for a point of law, next to the evidence IDs.")
     await c.start("procuror", "The prosecutor argues for recovery (Opus), citing the evidence")
     await c.start("avocat", "The defender argues for the customer (a different model), citing the evidence")
 
@@ -1328,8 +1694,11 @@ async def dezbatere(state: dict) -> dict:
                                          fallback=lambda: P.Argument(claims=[], missing_evidence=[], strongest_point=""))
 
     (pro_r, _), (con_r, _) = await asyncio.gather(rebut("procuror", pro, con), rebut("avocat", con, pro))
-    pro_lines, pro_bad = _verify(pro.claims + pro_r.claims, valid)
-    con_lines, con_bad = _verify(con.claims + con_r.claims, valid)
+    pro_lines, pro_bad = _verify(pro.claims + pro_r.claims, valid, set(kb_ids))
+    con_lines, con_bad = _verify(con.claims + con_r.claims, valid, set(kb_ids))
+    cited = sorted({x for line in pro_lines + con_lines for x in line.get("kb_cites", [])})
+    if cited:
+        await _record_grounding(c, "debate", [kb_ids[k] for k in cited], step="cantaritor")
     await c.finish("procuror", f"{plural(len(pro_lines), 'claim')} with sources ({pro_bad} dropped for having none)",
                    {"lines": pro_lines, "llm": pro_info.as_dict()})
     await c.finish("avocat", f"{plural(len(con_lines), 'claim')} with sources ({con_bad} dropped for having none)",
@@ -1406,6 +1775,9 @@ def _fallback_dnsc(attack: dict) -> P.DnscDraft:
 
 async def recuperare(state: dict) -> dict:
     c = Ctx(state)
+    if declared_only(state):
+        c.track("recuperare", "skipped", "No recovery drafts: the payment is not identified in the bank's records yet")
+        return {"recovery": {"decision": None, "skipped": "payment not identified"}}
     await c.start("recuperare", "Preparing the recovery drafts: recall, chargeback and the DNSC report")
     ctx = state["rule_context"]
     records = state.get("records") or {}
@@ -1492,7 +1864,8 @@ def _point_answer(point: str, verdict: str | None) -> str | None:
         return ("You asked why we did not stop the payment. It went through the usual authentication steps, so it "
                 "was processed like any other payment."
                 + (" The law still requires us to refund you." if verdict in REFUND_VERDICTS else ""))
-    if _ABOUT_MONEY.search(point) and verdict in (*REFUND_VERDICTS, "RESPINGE_TARDIV", "NU_SE_APLICA_T1"):
+    if _ABOUT_MONEY.search(point) and verdict in (*REFUND_VERDICTS, "RESPINGE_TARDIV", "NU_SE_APLICA_T1",
+                                                  "INFORMATII_SUPLIMENTARE"):
         return None   # the outcome paragraph is the answer
     return f"You also wrote: \u201c{point}\u201d We have taken this into account in our answer."
 
@@ -1506,8 +1879,9 @@ def _payment_words(state: dict) -> tuple[str, str]:
     return kind, (f" to {merchant}" if merchant else "")
 
 
-def _fallback_letter(state: dict) -> P.LetterOut:
-    """The letter without an LLM: the same facts, in the shape the letter prompt asks for."""
+def _fallback_letter(state: dict, references: list[str] | None = None) -> P.LetterOut:
+    """The letter without an LLM: the same facts, in the shape the letter prompt asks for. `references` are plain
+    legal references from the knowledge base (none means no extra line)."""
     ctx = state["rule_context"]
     t1 = _decision(state, Question.RAMBURSARE_T1) or {}
     ans = _decision(state, Question.RASPUNS_RECLAMATIE) or {}
@@ -1561,6 +1935,20 @@ def _fallback_letter(state: dict) -> P.LetterOut:
                "authorize. You told us after that period, so we cannot refund this payment.")
         after = ("If you have documents showing that you contacted us earlier, send them to us and we will look at "
                  "your claim again.")
+    elif verdict == "INFORMATII_SUPLIMENTARE":
+        # declared facts only: the payment (or the customer) was not found from the details in the complaint
+        stated = (state.get("declared") or {}).get("amount") or {}
+        about = (f" about the payment of {money(float(stated['value']), stated.get('currency') or 'RON')}"
+                 if stated.get("value") else " about a payment")
+        known = bool((state.get("match") or {}).get("customer_ref") or (state.get("complaint") or {}).get("customer_ref"))
+        subject = f"Your claim{about}: we need a few details"
+        opening = (f"We have received your claim{about}" + (f" on {told_on}" if told_on else "") + ". We could not find "
+                   "this payment in our records from the details you gave"
+                   + ("" if known else ", and we could not match your claim to an account with us") + ".")
+        after = ("Reply to this email with the date and the amount of the payment and who it went to"
+                 + ("" if known else ", and the phone number or IBAN registered with us") + ". As soon as we find the "
+                 "payment, we will decide on the refund" + (f", and we will send you our full answer by {answer_by}."
+                                                            if answer_by else "."))
     else:
         subject = f"Your claim about the {amount} {kind}"
         opening = f"We have received your claim about the {kind} of {amount}{to_whom}{on_paid}."
@@ -1572,6 +1960,9 @@ def _fallback_letter(state: dict) -> P.LetterOut:
     ]
     if law:
         paragraphs.append(P.LetterParagraph(text=law, cites=[x for x in [fm.get("rules_outcome")] if x]))
+    if references and verdict != "EXCEPTIE_FRAUDA_CLIENT":
+        paragraphs.append(P.LetterParagraph(text="The rules we applied: " + "; ".join(references) + ".",
+                                            cites=[x for x in [fm.get("rules_outcome")] if x]))
     points = []
     for point in (state.get("extracted") or {}).get("points", [])[:4]:
         answer = _point_answer(point["text"], verdict)
@@ -1595,7 +1986,8 @@ VERDICT_MEANINGS = {
     "NU_SE_APLICA_T1": "the next-business-day refund rule does not apply: the bank tries to recover the money instead",
     "CHARGEBACK": "the bank asks the merchant's bank to return the money (chargeback)",
     "RECHEMARE": "the bank asks the bank that received the transfer to return it (recall)",
-    "INFORMATII_SUPLIMENTARE": "the bank needs more information from the customer",
+    "INFORMATII_SUPLIMENTARE": "the bank needs more information from the customer: when missing_details is in the "
+                               "data, the bank could not find the payment and asks the customer for those details",
     "INCHIDE": "the claim is closed",
 }
 
@@ -1612,7 +2004,7 @@ def _letter_brief(state: dict, c: Ctx) -> dict:
     kind, to_whom = _payment_words(state)
     decisions = [d for d in state.get("decisions", []) if d.get("question") in
                  ("rambursare_t1", "raspuns_reclamatie", "recuperare_escroc")]
-    return {
+    out = {
         "case_id": c.case_id,
         "payment": {"amount": money(float(value.get("value", 0)), value.get("currency") or "RON"), "type": kind,
                     "merchant": to_whom[4:] or None, "made_at": _local_iso(ctx.get("executed_at")),
@@ -1625,46 +2017,129 @@ def _letter_brief(state: dict, c: Ctx) -> dict:
         "points": [p["text"] for p in (state.get("extracted") or {}).get("points", [])],
         "evidence_ids": sorted({v for v in (ctx.get("fact_ids") or {}).values()})[:20],
     }
+    if declared_only(state):
+        # the customer's statement, not the bank's records: no amount when they gave none
+        if not float(value.get("value") or 0):
+            out["payment"]["amount"] = None
+        out["payment"]["source"] = "the customer's statement (the payment is not identified in our records)"
+        t1 = _decision(state, Question.RAMBURSARE_T1) or {}
+        out["missing_details"] = list(t1.get("missing_evidence") or [])
+    return out
 
 
 def _customer_name(c: Ctx, state: dict) -> str | None:
     """The name for the greeting, from the bank's record (the complaint may not mention it)."""
     try:
-        customer = c.rt.repo.get_customer(state["complaint"]["customer_ref"]) or {}
+        ref = _customer_ref(state)
+        customer = (c.rt.repo.get_customer(ref) if ref else None) or {}
     except Exception:  # noqa: BLE001 - without the record the letter says "Dear customer,"
         return None
     name = " ".join(str(customer[k]) for k in ("first_name", "last_name") if customer.get(k))
     return name or None
 
 
+def _legal_references(state: dict) -> tuple[list[str], list[dict]]:
+    """Plain legal references for the letter, from the knowledge base, for the rules behind the letter's decisions.
+    None for a fraud hold: that letter gives no reason (tipping-off)."""
+    from versoml.zone_client import grounding as G
+
+    t1 = _decision(state, Question.RAMBURSARE_T1) or {}
+    if t1.get("decision") == Verdict.EXCEPTIE_FRAUDA_CLIENT.value:
+        return [], []
+    ids: list[str] = []
+    for q in (Question.RAMBURSARE_T1, Question.RASPUNS_RECLAMATIE, Question.RECUPERARE_ESCROC):
+        ids += (_decision(state, q) or {}).get("rule_ids") or []
+    refs: list[str] = []
+    used: list[dict] = []
+    for hit in G.for_rules(ids, k_per=1):
+        if hit.get("kind") not in ("rule", "law"):
+            continue
+        fresh = [r for r in G.plain_reference_parts(hit) if not any(r.startswith(x) or x.startswith(r) for x in refs)]
+        if fresh:
+            refs.extend(fresh)
+            used.append(hit)
+        if len(refs) >= 3:
+            break
+    refs = refs[:3]
+    return refs, used
+
+
+def _numbers_allowed(c: "Ctx", state: dict):
+    """The values the letter may state: the ledger facts and the rules engine's fact sheet (its decisions and
+    context), plus the customer's own statement on the declared-facts path."""
+    from versoml.zone_client import numeric_check as N
+
+    kinds = ("declared.statement",) if declared_only(state) else ()
+    allowed = N.allowed_from_facts(c.rt.ledger.facts(c.case_id), c.case_id, include_untrusted_kinds=kinds)
+    ctx = state.get("rule_context") or {}
+    currency = (ctx.get("amount") or {}).get("currency") or "RON"
+    allowed.add_content({k: ctx.get(k) for k in ("amount", "executed_at", "notified_at", "complaint_received_at")},
+                        currency)
+    for d in state.get("decisions") or []:
+        allowed.add_content({"deadline": d.get("deadline"), "amount": d.get("amount")}, currency)
+    return allowed
+
+
 async def redactor(state: dict) -> dict:
     c = Ctx(state)
     await c.start("redactor", "Drafting the reply: every point answered, with deadlines and where to complain")
-    brief = wrap_data("letter_data", _json(_letter_brief(state, c)))
+    from versoml.shared.rules import check_complaint_letter
+    from versoml.wall.letter_filter import check_letter
+    from versoml.zone_client import numeric_check as N
+
+    references, reference_hits = _legal_references(state)
+    data = _letter_brief(state, c)
+    if references:
+        data["legal_basis"] = references
+    brief = wrap_data("letter_data", _json(data))
+    fallback = lambda: _fallback_letter(state, references)  # noqa: E731
     out, info = await c.rt.llm.structured(
         role=Role.SONNET, agent=AG["redactor"], system=P.LETTER_SYSTEM,
-        user=brief, schema=P.LetterOut, effort="low", max_tokens=3000,
-        fallback=lambda: _fallback_letter(state))
+        user=brief, schema=P.LetterOut, effort="low", max_tokens=3000, fallback=fallback)
     valid = {f.fact_id for f in c.rt.ledger.facts(c.case_id)}
-    cites = sorted({x for p in out.paragraphs for x in p.cites if x in valid})
-    pseudo_body = "\n\n".join(p.text for p in out.paragraphs)
-    # the CMP checks from the rules engine: every point gets an answer (CMP-01), the complaints block (CMP-03)
-    from versoml.shared.rules import check_complaint_letter
-
     points = [p["text"] for p in (state.get("extracted") or {}).get("points", [])]
-    cmp_hits = check_complaint_letter(pseudo_body, points, out.points_answered)
-    if any(h.outcome == "CMP_ADR_BLOCK_MISSING" for h in cmp_hits):
-        pseudo_body += "\n\n" + ADR_BLOCK
-        cmp_hits = check_complaint_letter(pseudo_body, points, out.points_answered)
+    vault = (state.get("pseudo") or {}).get("vault") or {}
+    restore = lambda s: c.rt.privacy.restore(s, vault) if s else s  # noqa: E731
+
+    def compose(letter: P.LetterOut) -> tuple[str, list]:
+        # the CMP checks from the rules engine: every point gets an answer (CMP-01), the complaints block (CMP-03)
+        body = "\n\n".join(p.text for p in letter.paragraphs)
+        hits = check_complaint_letter(body, points, letter.points_answered)
+        if any(h.outcome == "CMP_ADR_BLOCK_MISSING" for h in hits):
+            body += "\n\n" + ADR_BLOCK
+            hits = check_complaint_letter(body, points, letter.points_answered)
+        return body, hits
+
+    allowed = _numbers_allowed(c, state)
+
+    def numbers(letter: P.LetterOut) -> dict:
+        return N.check(N.sections_of(restore(letter.subject), [restore(p.text) for p in letter.paragraphs]), allowed)
+
+    pseudo_body, cmp_hits = compose(out)
+    if "\n\n" + ADR_BLOCK in pseudo_body and ADR_BLOCK not in "\n\n".join(p.text for p in out.paragraphs):
         await c.em.custom("rule_hit", "CMP-03: the ANPC / ANAF / BNR / CSALB paragraph was missing, so it was added",
                           {"rule_id": "CMP-03", "outcome": "bloc_adaugat"}, step="redactor", agent=AG["redactor"])
     cmp_checks = [{"rule_id": h.rule_id, "outcome": h.outcome, "explanation": h.explanation} for h in cmp_hits]
     await c.finish("redactor", f"Letter drafted ({info.mode}); {plural(len(out.points_answered), 'point')} answered",
                    {"llm": info.as_dict(), "cmp": cmp_checks})
 
-    await c.start("filtru_zid", "Checking the letter: forbidden terms, canary tokens, personal data")
-    from versoml.wall.letter_filter import check_letter
-
+    await c.start("filtru_zid", "Checking the letter: every number against the case file, forbidden terms, canary "
+                                "tokens, personal data")
+    num = numbers(out)
+    rewritten = False
+    if not num["passed"]:
+        # self-correction: one rewrite with the values on file; if that fails too, a person decides
+        await c.em.custom("numeric_check", "The numbers check stopped the first draft; the letter writer is redoing it "
+                                           "with the values from the case file",
+                          {"mismatches": num["mismatches"]}, step="filtru_zid", agent=AG["filtru_zid"])
+        retry, _ = await c.rt.llm.structured(
+            role=Role.SONNET, agent=AG["redactor"], system=P.LETTER_SYSTEM, user=brief + N.feedback(num["mismatches"]),
+            schema=P.LetterOut, effort="low", max_tokens=3000, fallback=fallback)
+        rewritten = True
+        second = numbers(retry)
+        out, num = retry, second
+        pseudo_body, cmp_hits = compose(out)
+    cites = sorted({x for p in out.paragraphs for x in p.cites if x in valid})
     result = check_letter(pseudo_body)
     if not result.passed and not result.canaries_found and result.blocked_terms:
         # self-correction: one rewrite, with the filter's reasons; if that fails too, a person decides
@@ -1677,32 +2152,45 @@ async def redactor(state: dict) -> dict:
         retry, _ = await c.rt.llm.structured(
             role=Role.SONNET, agent=AG["redactor"], system=P.LETTER_SYSTEM,
             user=brief + feedback, schema=P.LetterOut, effort="low",
-            max_tokens=3000, fallback=lambda: _fallback_letter(state))
-        candidate = "\n\n".join(p.text for p in retry.paragraphs)
-        if not any(h.outcome == "bloc_prezent" for h in check_complaint_letter(candidate, points, retry.points_answered)):
-            candidate += "\n\n" + ADR_BLOCK
+            max_tokens=3000, fallback=fallback)
+        candidate, _hits = compose(retry)
         second = check_letter(candidate)
         if second.passed:
             out, pseudo_body, result = retry, candidate, second
             cites = sorted({x for p in out.paragraphs for x in p.cites if x in valid})
-    vault = (state.get("pseudo") or {}).get("vault") or {}
-    body = c.rt.privacy.restore(pseudo_body, vault)
+            num = numbers(out)
+    numeric_check = {**num, "rewritten": rewritten}
+    body = restore(pseudo_body)
     body = re.sub(r"<CLIENT_\d+>", _customer_name(c, state) or "customer", body)
-    status = "draft" if result.passed else "blocked"
-    letter = {"case_id": c.case_id, "subject": out.subject, "body": body, "cites": cites,
+    passed = result.passed and num["passed"]
+    status = "draft" if passed else "blocked"
+    letter = {"case_id": c.case_id, "subject": restore(out.subject), "body": body, "cites": cites,
               "points_answered": out.points_answered, "filter": result.model_dump(mode="json"), "status": status,
-              "cmp_checks": cmp_checks}
+              "cmp_checks": cmp_checks, "numeric_check": numeric_check}
     if not result.passed:
         c.rt.record_block(c.case_id, result.reasons, result.blocked_terms)
         await c.em.custom("wall_block", "The wall blocked the letter: " + "; ".join(result.reasons[:2]),
                           result.model_dump(mode="json"), step="filtru_zid", agent=AG["filtru_zid"])
+    if not num["passed"]:
+        c.rt.record_block(c.case_id, ["the numbers in the letter do not match the case file"], [])
+        await c.em.custom("numeric_block", "The numbers check blocked the letter: a person checks it",
+                          {"mismatches": num["mismatches"]}, step="filtru_zid", agent=AG["filtru_zid"])
+    await c.fact("filtru_zid", "letter.numeric_check", "letters.numeric_check", {"checked": num["checked"]},
+                 numeric_check,
+                 (f"Every number in the letter matches the case file ({plural(num['checked'], 'value')} checked)"
+                  if num["passed"] else f"{plural(len(num['mismatches']), 'number')} in the letter do not match the case "
+                                        "file: sent to a person")
+                 + (" after one rewrite" if rewritten else ""))
     await c.fact("filtru_zid", "letter.checked", "letters.check_letter", {"chars": len(body)},
                  {"passed": result.passed, "blocked_terms": result.blocked_terms, "canaries": result.canaries_found,
                   "sha256_letter": hashlib.sha256(body.encode()).hexdigest()},
                  "The letter passed the wall check" if result.passed else "The wall BLOCKED the letter")
-    c.save({"letter": letter})
-    await c.finish("filtru_zid", "Clean letter: no forbidden terms, no canary tokens" if result.passed
-                   else "Blocked and sent to a person", status="done" if result.passed else "blocked")
+    used = reference_hits if any(ref in body for ref in references) else []
+    if used:
+        await _record_grounding(c, "letter", used, step="redactor")
+    c.save({"letter": letter, "numeric_check": numeric_check})
+    await c.finish("filtru_zid", "Clean letter: the numbers match the case file, no forbidden terms, no canary tokens"
+                   if passed else "Blocked and sent to a person", status="done" if passed else "blocked")
     return {"letter": letter}
 
 
@@ -1712,6 +2200,7 @@ async def redactor(state: dict) -> dict:
 async def sigiliu(state: dict) -> dict:
     c = Ctx(state)
     await c.start("sigiliu", "Sealing the case file: an Ed25519-signed Merkle root and a QR code")
+    await _add_precedent(c, state)
     seal = c.rt.ledger.seal(c.case_id)
     summary = {k: seal.get(k) for k in ("root", "count", "sealed_at", "signature")}
     count = int(seal.get("count") or 0)
@@ -1723,6 +2212,57 @@ async def sigiliu(state: dict) -> dict:
             "finished_at": now().isoformat(), "status": doc.get("status") or "INCHIS"})
     await c.finish("sigiliu", f"Sealed: {plural(count, 'evidence item')}")
     return {"sealed": True}
+
+
+def precedent_text(c: "Ctx", state: dict) -> str:
+    """A pseudonymized summary of the case for the precedent index: the situation, the facts that decided it and
+    the customer's story (already pseudonymized). No name, IBAN or phone number."""
+    ctx = state.get("rule_context") or {}
+    value = ctx.get("amount") or {}
+    from versoml.zone_client.reasons import scenario_phrase
+
+    parts = [scenario_phrase(ctx.get("scenario"), ctx.get("dispute_type"), state.get("match")) or "Payment dispute",
+             f"{label(CHANNEL_LABELS, ctx.get('channel'))}, {label(DISPUTE_LABELS, ctx.get('dispute_type'))}",
+             money(float(value.get("value") or 0), value.get("currency") or "RON")]
+    signals = [text for key, wanted, text in (("device_known", False, "new device"), ("beneficiary_new", True, "new payee"),
+                                              ("screen_showed_amount_and_payee", True, "screen showed amount and payee"))
+               if ctx.get(key) is wanted]
+    if ctx.get("seconds_after_click") is not None:
+        signals.append(f"payment {ctx['seconds_after_click']} s after a link click")
+    if ctx.get("sim_swap_hours_before") is not None:
+        signals.append("SIM swap before the payment")
+    if signals:
+        parts.append("; ".join(signals))
+    story = ((state.get("pseudo") or {}).get("text") or "")[:800]
+    text, _ = c.rt.privacy.pseudonymize(". ".join(parts) + ".\n" + story, c.case_id)
+    return text
+
+
+async def _add_precedent(c: "Ctx", state: dict) -> None:
+    """A sealed case becomes a precedent in the client-zone knowledge base (information for later cases only)."""
+    from versoml.zone_client import grounding as G
+
+    if not G.available():
+        return
+    from versoml.zone_client.reasons import decision_reasons
+
+    doc = c.rt.cases.get(c.case_id) or {}
+    decisions = {d.get("question"): d.get("decision") for d in state.get("decisions") or []}
+    reported, refunded = parse_dt(doc.get("received_at")), parse_dt(doc.get("refunded_at"))
+    reasons = decision_reasons(state.get("decisions"), state.get("rule_context") or {}, state.get("extracted"),
+                               (state.get("rules") or {}).get("hits"))
+    outcome = {"decision": decisions.get("rambursare_t1"), "status": doc.get("status"),
+               "refund_days": round((refunded - reported).total_seconds() / 86400, 2) if reported and refunded else None,
+               "recovered": decisions.get("recuperare_escroc") in ("RECHEMARE", "CHARGEBACK"),
+               "note": reasons[0]["sentence"] if reasons else None, "decisions": decisions,
+               "rule_ids": sorted({r for d in state.get("decisions") or [] for r in d.get("rule_ids") or []})}
+    ctx = state.get("rule_context") or {}
+    meta = {"scenario": ctx.get("scenario"), "channel": ctx.get("channel"), "dispute_type": ctx.get("dispute_type"),
+            "case_id": c.case_id}
+    if G.add_precedent(c.case_id, precedent_text(c, state), outcome, meta=meta):
+        await c.fact("sigiliu", "kb.precedent_added", "knowledge.add_precedent", {"case_id": c.case_id},
+                     {"outcome": outcome}, "The case was added to the precedents for similar cases (pseudonymized)",
+                     Labels(conf="client", trust=Trust.TRUSTED, sinks=[Sink.CLIENT]))
 
 
 def new_run_id() -> str:

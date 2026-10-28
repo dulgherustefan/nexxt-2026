@@ -58,6 +58,10 @@ class RuleContextExt(RuleContext):
     sca_not_applied_reason: str | None = None        # ex. "payee_no_sca"
     police_report_filed: bool | None = None
     credit_fraud: bool = False                       # credit sau card de credit pe numele victimei (DSP-16)
+    # identificarea (reclamație liberă)                                               DSP-53
+    # False = plata (sau clientul) nu a fost găsită în evidențele băncii: contextul are doar declarațiile clientului
+    customer_identified: bool = True
+    transaction_identified: bool = True
     # textul neîncrezut                                                               DSP-57
     injection_suspected: bool = False
     claimed_amount: float | None = None              # suma din text: doar comparată, niciodată folosită

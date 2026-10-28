@@ -202,7 +202,8 @@ class AmlService:
         return {"lead": lead, "status": l.get("status"), "graph": l.get("graph") or {"nodes": [], "edges": []},
                 "osint": l.get("osint", []), "osint_summary": l.get("osint_summary"), "innocent": l.get("innocent", []),
                 "innocent_detail": l.get("innocent_detail", []), "typologies_detail": l.get("typologies", []),
-                "rts": l.get("rts") or {"status": "nepregătit"}, "clocks": [{**c, "started_at": c.get("started_at") or l.get("started_at")} for c in l.get("clocks", [])],
+                "rts": l.get("rts") or {"status": "nepregătit"}, "grounding": l.get("grounding") or [],
+                "numeric_check": l.get("numeric_check"), "clocks": [{**c, "started_at": c.get("started_at") or l.get("started_at")} for c in l.get("clocks", [])],
                 "pipeline": {"nodes": nodes, "edges": [{"source": s, "target": t} for s, t in A.PIPELINE_EDGES]},
                 "interrupt": l.get("interrupt") or {"pending": False}, "ledger": l.get("ledger"),
                 "facts": [f.model_dump(mode="json") for f in self.rt.ledger.facts(lead_id)],
@@ -236,6 +237,10 @@ class AmlService:
                     nodes.append(n)
             edges += (l.get("graph") or {}).get("edges", [])
         return {"nodes": nodes, "edges": edges}
+
+    def kb_search(self, q: str, k: int = 6) -> list[dict]:
+        """Baza de cunoștințe a zonei AML: reguli, legi, ghiduri, tipologii (fără precedentele zonei client)."""
+        return A.kb_search_aml(q, k=k)
 
     async def osint_lookup(self, target: str, kind: str = "auto") -> dict:
         from versoml.osint.investigate import extract_artifacts, investigate

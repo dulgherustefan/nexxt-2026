@@ -7,7 +7,7 @@ import json
 import logging
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +37,22 @@ class Approve(BaseModel):
     action: str
     note: str | None = None
     approver: str | None = None
+    tx_id: str | None = None
+
+
+class IntakePreview(BaseModel):
+    text: str
+    customer_ref: str | None = None
+    source: Literal["app", "email", "branch", "call_center", "web_form"] | None = None
+    channel_hint: Literal["card", "transfer", "transfer_instant"] | None = None
+    attachments: list[dict] | None = None
+    received_at: str | None = None
+    transaction_refs: list[str] | None = None
+
+
+class KbAsk(BaseModel):
+    question: str
+    k: int = 6
 
 
 class Counterfactual(BaseModel):
@@ -193,9 +209,49 @@ async def ticker(request: Request):
 
 @app.post("/api/cases/{case_id}/approve")
 async def approve(case_id: str, body: Approve) -> dict:
-    if body.action not in ("approve", "reject"):
-        raise HTTPException(400, "action must be approve or reject")
-    return await svc().approve(case_id, body.action, body.note, body.approver)
+    if body.action not in ("approve", "reject", "pick_transaction"):
+        raise HTTPException(400, "action must be approve, reject or pick_transaction")
+    return await svc().approve(case_id, body.action, body.note, body.approver, tx_id=body.tx_id)
+
+
+@app.get("/api/cases/{case_id}/precedents")
+def case_precedents(case_id: str, k: int = 3) -> list[dict]:
+    found = svc().precedents(case_id, k=max(1, min(k, 10)))
+    if found is None:
+        raise HTTPException(404, "No such case")
+    return found
+
+
+# ---------------------------------------------------------------- free-form intake, customers, knowledge base
+
+
+@app.post("/api/intake/preview")
+def intake_preview(body: IntakePreview) -> dict:
+    if not body.text.strip():
+        raise HTTPException(400, "Send the complaint text.")
+    return svc().intake_preview(body.model_dump())
+
+
+@app.get("/api/customers")
+def customers(q: str = "") -> list[dict]:
+    return svc().customers(q, limit=20)
+
+
+@app.get("/api/kb/search")
+def kb_search(q: str = "", k: int = 6, kind: str | None = None) -> list[dict]:
+    return svc().kb_search(q, k=max(1, min(k, 20)), kind=kind)
+
+
+@app.post("/api/kb/ask")
+async def kb_ask(body: KbAsk) -> dict:
+    if not body.question.strip():
+        raise HTTPException(400, "Send a question.")
+    return await svc().kb_ask(body.question, k=max(1, min(body.k, 20)))
+
+
+@app.get("/api/kb/stats")
+def kb_stats() -> dict:
+    return svc().kb_stats()
 
 
 @app.post("/api/cases/{case_id}/counterfactual")

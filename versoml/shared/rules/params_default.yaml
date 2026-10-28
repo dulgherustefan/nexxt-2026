@@ -246,3 +246,30 @@ require_human_for_unfavourable:
   confidence: S
   rules: [DP-02]
   description: "A human signs off every adverse decision (GDPR art. 22). This cannot be turned off."
+
+match_auto_min_points:
+  value: 50
+  type: integer
+  min: 1
+  confidence: U
+  rules: [DSP-53]
+  description: >-
+    Points a payment needs before the intake matches it to a free-form complaint without a person (an exact
+    amount is 50). Below it, or without the margin, a person picks the payment. Not in docs/context.
+
+match_auto_min_margin:
+  value: 20
+  type: integer
+  min: 0
+  confidence: U
+  rules: [DSP-53]
+  description: >-
+    Points the best payment needs over the next one for the intake to match it without a person. Not in docs/context.
+
+match_candidate_min_points:
+  value: 20
+  type: integer
+  min: 0
+  confidence: U
+  rules: [DSP-53]
+  description: "Points a payment needs to be shown to a person as a candidate for a free-form complaint."

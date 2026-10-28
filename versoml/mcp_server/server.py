@@ -212,6 +212,42 @@ def _client_tools(server) -> None:
         _authorize(zone, "mcp.wall.read")
         return await _api(zone, "GET", "/api/wall")
 
+    @server.tool(description="Free-form intake: open and start a case from a complaint as the customer wrote it (an email, "
+                             "a call note). The customer reference and the transaction are optional: VersoML finds the "
+                             "customer and the payment in the bank's records and says how sure it is. Returns the case_id "
+                             "and the match preview.")
+    async def versoml_intake(text: str, customer_ref: str | None = None, source: str = "email",
+                             channel_hint: str | None = None) -> dict:
+        _authorize(zone, "mcp.cases.create")
+        body = {"text": text, "customer_ref": customer_ref, "source": source, "channel_hint": channel_hint}
+        preview = await _api(zone, "POST", "/api/intake/preview", {k: v for k, v in body.items() if v})
+        created = await _api(zone, "POST", "/api/cases", {"complaint": {k: v for k, v in body.items() if v}})
+        await _api(zone, "POST", f"/api/cases/{created['case_id']}/run")
+        return {"case_id": created["case_id"], "ui": f"{_base(zone)}/cases/{created['case_id']}",
+                "customer": preview.get("customer"), "match": preview.get("match")}
+
+    @server.tool(description="Search the client zone's knowledge base (rules, laws, guidance, case studies): passages "
+                             "with their source and confidence mark (P official text, S secondary, U unverified).")
+    def versoml_kb_search(query: str, k: int = 6, kind: str | None = None) -> list[dict]:
+        _authorize(zone, "mcp.rules.catalog")
+        from versoml.zone_client import grounding as G
+
+        return G.search(query, k=max(1, min(k, 20)), kinds=[kind] if kind else None)
+
+    @server.tool(description="Ask the client zone's knowledge base a question: a short answer with [n] citations to "
+                             "the passages it used. Information, never a decision.")
+    async def versoml_kb_ask(question: str, k: int = 6) -> dict:
+        _authorize(zone, "mcp.rules.catalog")
+        from versoml.zone_client import grounding as G
+
+        return await G.ask(question, k=max(1, min(k, 20)))
+
+    @server.tool(description="Closed cases like a given case (precedents): their outcome and why they look alike. "
+                             "Information for a person; the rules never read it.")
+    async def versoml_precedents(case_id: str, k: int = 3) -> list[dict]:
+        _authorize(zone, "mcp.cases.read")
+        return await _api(zone, "GET", f"/api/cases/{case_id}/precedents?k={max(1, min(k, 10))}")
+
 
 def _aml_tools(server) -> None:
     zone = Zone.AML
@@ -252,6 +288,14 @@ def _aml_tools(server) -> None:
         from versoml.osint.registry_ro import anaf_company
 
         return _dump(await anaf_company(cui))
+
+    @server.tool(description="Search the AML zone's knowledge base (AML law, typologies, guidance). No client-zone "
+                             "precedents are in it.")
+    def versoml_kb_search(query: str, k: int = 6, kind: str | None = None) -> list[dict]:
+        _authorize(zone, "mcp.rules.catalog")
+        from versoml.zone_aml.agents import kb_search_aml
+
+        return kb_search_aml(query, k=max(1, min(k, 20)), kinds=[kind] if kind else None)
 
     @server.tool(description="The analyst's decision on a lead: file_rts, close, request_info or hold_client. Ask the "
                              "user to confirm first.")

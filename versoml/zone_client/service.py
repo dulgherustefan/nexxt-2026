@@ -180,11 +180,8 @@ class ClientService:
         if result.get("from_iban"):
             self._spawn(self._feed_aml({**result, "ts": (bundle.records.get("post_transfer") or {}).get("meta", {}).get("ts")}))
 
-    def _alias(self, customer_ref: str) -> str:
-        if customer_ref.startswith("CUST-DEMO-"):
-            return "Demo Customer " + customer_ref[-2:]
-        digits = "".join(ch for ch in customer_ref if ch.isdigit())[-4:] or "0000"
-        return f"Customer {digits}"
+    def _alias(self, customer_ref: str | None) -> str:
+        return A.customer_alias(customer_ref)
 
     async def run_case(self, case_id: str) -> str:
         doc = self.rt.cases.get(case_id)
@@ -222,15 +219,26 @@ class ClientService:
             self.rt.cases.update(case_id, {"status": "EROARE", "error": str(exc)[:300]})
             await em.run_error(f"Error: {str(exc)[:200]}")
 
-    async def approve(self, case_id: str, action: str, note: str | None = None, approver: str | None = None) -> dict:
+    async def approve(self, case_id: str, action: str, note: str | None = None, approver: str | None = None,
+                      tx_id: str | None = None) -> dict:
         doc = self.rt.cases.get(case_id) or {}
         pending = doc.get("interrupt") or {}
         if not pending.get("pending") or pending.get("resuming"):
             return {"ok": False, "status": doc.get("status"), "detail": "No decision needs approval."}
+        picking = pending.get("kind") == "pick_transaction"
+        if picking != (action == "pick_transaction"):
+            return {"ok": False, "status": doc.get("status"),
+                    "detail": "Pick a payment (or none of these) first." if picking
+                    else "This case waits for approve or reject, not for a payment pick."}
+        if picking and tx_id is not None and tx_id not in {c.get("tx_id") for c in pending.get("candidates") or []}:
+            return {"ok": False, "status": doc.get("status"), "detail": "That payment is not one of the candidates."}
         # one resume per thread: a double click does not start two resumes of the same graph
         self.rt.cases.update(case_id, {"interrupt": {**pending, "resuming": True}})
         run_id = doc.get("run_id", "run")
-        resume = Command(resume={"action": action, "note": note, "approver": approver or "OPERATOR-01"})
+        answer = {"action": action, "note": note, "approver": approver or "OPERATOR-01"}
+        if picking:
+            answer["tx_id"] = tx_id
+        resume = Command(resume=answer)
         self._spawn(self._drive(case_id, run_id, resume))
         return {"ok": True, "status": "IN_ANALIZA"}
 
@@ -253,8 +261,13 @@ class ClientService:
             except ValueError:
                 left = None
         t1 = next((d for d in doc.get("decisions", []) if d.get("question") == "rambursare_t1"), {})
+        from versoml.zone_client.reasons import scenario_phrase
+
         return {
             "case_id": doc["case_id"], "customer_alias": doc.get("customer_alias"),
+            "customer_ref": doc.get("customer_ref"),
+            "scenario_phrase": scenario_phrase(doc.get("scenario"), doc.get("dispute_type"), doc.get("match")),
+            "approved_by": doc.get("approved_by"), "approved_at": doc.get("approved_at"),
             "received_at": doc.get("received_at"), "channel": doc.get("channel"), "scenario": doc.get("scenario"),
             "amount": doc.get("amount") or {"value": 0, "currency": "RON"}, "status": doc.get("status"),
             "verdict": doc.get("verdict"), "deadline": deadline, "sla_seconds_left": left,
@@ -272,10 +285,18 @@ class ClientService:
                  for n in A.PIPELINE_NODES]
         edges = [{"source": s, "target": t} for s, t in A.PIPELINE_EDGES]
         complaint = doc.get("complaint", {})
+        from versoml.zone_client.reasons import decision_reasons
+
+        rules = doc.get("rules") or {}
         return {
             "summary": self._summary(doc),
             "complaint": {"text": complaint.get("text"), "attachments": complaint.get("attachments", []),
-                          "received_at": complaint.get("received_at"), "transaction_refs": complaint.get("transaction_refs", [])},
+                          "received_at": complaint.get("received_at"), "transaction_refs": complaint.get("transaction_refs", []),
+                          "customer_ref": complaint.get("customer_ref"), "source": complaint.get("source")},
+            "match": doc.get("match"), "routing": doc.get("routing") or [], "grounding": doc.get("grounding") or [],
+            "numeric_check": doc.get("numeric_check"), "campaign": doc.get("campaign"),
+            "reasons": decision_reasons(doc.get("decisions"), doc.get("rule_context") or {}, doc.get("extracted"),
+                                        rules.get("hits")),
             "extracted": doc.get("extracted"), "classification": doc.get("classification"),
             "facts": facts, "rules": doc.get("rules"), "decisions": doc.get("decisions", []),
             "rule_context": doc.get("rule_context"), "clock": doc.get("clock"),
@@ -351,12 +372,91 @@ class ClientService:
                     and d.get("status") not in ("RAMBURSAT", "RESPINS", "INCHIS"):
                 at_risk += 1
         open_ = sum(v for k, v in by_status.items() if k not in ("RAMBURSAT", "RESPINS", "INCHIS", "EXCEPTIE"))
-        return {"cases_total": len(cases), "open": open_, "refunded": by_status.get("RAMBURSAT", 0),
+        return {"today": self._today(cases), "cases_total": len(cases), "open": open_,
+                "refunded": by_status.get("RAMBURSAT", 0),
                 "awaiting_human": by_status.get("ASTEAPTA_APROBARE", 0), "amount_refunded": round(refunded, 2),
                 "amount_recoverable": round(recoverable, 2),
                 "avg_decision_seconds": round(sum(seconds) / len(seconds), 1) if seconds else None,
                 "deadlines_at_risk": at_risk, "by_status": by_status, "by_scenario": by_scenario,
                 "llm": self.rt.llm.describe()}
+
+    @staticmethod
+    def _today(cases: list[dict]) -> dict:
+        """Today's numbers, for the Bucharest calendar day (midnight to midnight, Europe/Bucharest)."""
+        today = fmt.to_local(now()).date()
+
+        def on_today(value: Any) -> bool:
+            local = fmt.to_local(value)
+            return bool(local and local.date() == today)
+
+        received = [d for d in cases if on_today(d.get("received_at"))]
+        refunded = [d for d in cases if d.get("status") == "RAMBURSAT" and on_today(d.get("refunded_at"))]
+        decided = [d for d in cases if on_today(d.get("finished_at"))]
+        return {"date": today.isoformat(), "timezone": "Europe/Bucharest", "received": len(received),
+                "decided": len(decided), "refunded": len(refunded),
+                "amount_refunded": round(sum(float((d.get("amount") or {}).get("value") or 0) for d in refunded), 2),
+                "awaiting_human": sum(1 for d in cases if (d.get("interrupt") or {}).get("pending"))}
+
+    # ------------------------------------------------------------ free-form intake, customers, knowledge base
+
+    def intake_preview(self, body: dict) -> dict:
+        """What the intake would find in a complaint, before a case exists: deterministic, no LLM."""
+        from versoml.zone_client import matcher as M
+
+        received = A.parse_dt(body.get("received_at")) or now()
+        text = A.normalize_ro(body.get("text") or "")
+        attachments = body.get("attachments") or []
+        clues = M.parse_clues(text, attachments, received_at=received, channel_hint=body.get("channel_hint"))
+        taken: dict[str, str] = {}
+        for d in self.rt.cases.all():
+            for ref in A.case_tx_refs(d):
+                taken.setdefault(ref, d.get("case_id"))
+        match = M.match_complaint(self.rt.repo, text=text, attachments=attachments, customer_ref=body.get("customer_ref"),
+                                  transaction_refs=body.get("transaction_refs") or [],
+                                  channel_hint=body.get("channel_hint"), received_at=received, taken=taken, clues=clues)
+        extracted = A.fallback_extract(M.compose_text(text, attachments))
+        customer = None
+        if match.customer_ref:
+            customer = {"customer_ref": match.customer_ref, "alias": self._alias(match.customer_ref),
+                        "match_reason": match.customer_match_reason, "confidence": match.customer_confidence}
+        public = clues.public()
+        return {"language": A.guess_language(text), "injection_suspected": bool(extracted.injection_suspected),
+                "customer": customer, "match": match.model_dump(mode="json"),
+                "extracted": {"amounts": [a["value"] for a in public["amounts"]], "dates": public["dates"],
+                              "urls": public["urls"],
+                              "phones_masked": public["phones_masked"], "contacted_by": extracted.contacted_by,
+                              "impersonated_entity": extracted.impersonated_entity}}
+
+    def customers(self, q: str | None, limit: int = 20) -> list[dict]:
+        rows = self.rt.repo.search_customers(q or "", limit=limit)
+        return [{**r, "alias": self._alias(r["customer_ref"])} for r in rows]
+
+    def precedents(self, case_id: str, k: int = 3) -> list[dict] | None:
+        from versoml.zone_client import grounding as G
+
+        doc = self.rt.cases.get(case_id)
+        if not doc:
+            return None
+        text = (doc.get("indicators") or {}).get("narrative") or ""
+        if not text:
+            text, _ = self.rt.privacy.pseudonymize(doc.get("complaint", {}).get("text") or "", case_id)
+        return G.precedents(text, k=k, exclude_case_id=case_id)
+
+    def kb_search(self, q: str, k: int = 6, kind: str | None = None) -> list[dict]:
+        from versoml.zone_client import grounding as G
+
+        kinds = [x.strip() for x in (kind or "").split(",") if x.strip()] or None
+        return G.search(q, k=k, kinds=kinds)
+
+    async def kb_ask(self, question: str, k: int = 6) -> dict:
+        from versoml.zone_client import grounding as G
+
+        return await G.ask(question, k=k)
+
+    def kb_stats(self) -> dict:
+        from versoml.zone_client import grounding as G
+
+        return G.stats()
 
     # ------------------------------------------------------------ counterfactual (M7)
 
@@ -500,7 +600,7 @@ class ClientService:
         repo = self.rt.repo
         txs = repo.list_transactions(customer_ref, 120) or []
         disputed = {ref for d in self.rt.cases.all() if d.get("customer_ref") == customer_ref
-                    for ref in (d.get("complaint") or {}).get("transaction_refs", [])}
+                    for ref in A.case_tx_refs(d)}
         rows = []
         for tx in sorted(txs, key=lambda t: str(A.g(t, "executed_at", "ts", "timestamp", default="")), reverse=True)[:30]:
             amount = float(A.g(tx, "amount", "value", default=0))

@@ -23,6 +23,7 @@ from .calendar_ro import local_date
 from .context import AmlRuleContext, AmlRulesOutcome, RuleContextExt, extend
 from .facts import (
     GN_FIELDS, Env, cite, fmt_d, fmt_dt, fmt_money, gn_indicator_fields, is_card, is_unauthorised, make_env,
+    refund_due,
 )
 from .packs.dp import apply_human_review, explanation_complete
 from .packs.rec import recall_applicable
@@ -37,6 +38,9 @@ ENGINE_VERSION = RULES_VERSION
 QUESTIONS = (Question.RAMBURSARE_T1, Question.RECUPERARE_CLIENT, Question.RECUPERARE_ESCROC,
              Question.RASPUNS_RECLAMATIE)
 Findings = Mapping[str, Finding]
+# Declared facts only (DSP-53): the rules that read the bank's records (13 months, the cap, SCA, schemes, risk) do not
+# run on the customer's statements. These need only the complaint's receipt and the text itself.
+DECLARED_RULES = frozenset({"DSP-53", "DSP-57", "DSP-58", "DSP-03", "CMP-01", "CMP-02", "CMP-03"})
 
 
 # ---------------------------------------------------------------- construirea unei decizii
@@ -100,8 +104,29 @@ def _evidence_gaps(d: _Draft, x: RuleContextExt) -> None:
 # ---------------------------------------------------------------- 1. rambursare_t1
 
 
+def _decide_declared_refund(d: _Draft, x: RuleContextExt, env: Env, F: Findings) -> Decision:
+    """Declared facts only (DSP-53): no payment in the bank's records matches the complaint. Nothing is refunded or
+    refused on the customer's statements; a person identifies the payment, and the refund clock keeps running."""
+    found = d.use("DSP-53")
+    d.missing.extend(found.data["missing"] if found is not None else [])
+    due = None
+    if x.dispute_type == DisputeType.NEAUTORIZATA and not x.credit_fraud:
+        due = refund_due(x, env)
+        d.rule("PAY-03")
+        d.line(f"If the payment turns out to be unauthorized, the refund deadline still runs from the customer's "
+               f"report: {fmt_dt(due)}.", ["notified_at"])
+    if "DSP-57" in F:
+        d.use("DSP-57")
+    d.next += ["Identify the customer and the payment in the bank's records" + (f" before {fmt_dt(due)}" if due else ""),
+               "Ask the customer for the missing details (DSP-53)"]
+    return d.build(Verdict.INFORMATII_SUPLIMENTARE, human=True, deadline=due,
+                   amount=x.amount if x.amount.value > 0 else None)
+
+
 def _decide_refund(x: RuleContextExt, env: Env, F: Findings) -> Decision:
     d = _Draft(x, Question.RAMBURSARE_T1, F)
+    if not x.transaction_identified:
+        return _decide_declared_refund(d, x, env, F)
     if "DSP-16" in F:
         d.use("DSP-16")
         d.use("CMP-04", line=False)
@@ -263,6 +288,11 @@ def _decide_client_recovery(x: RuleContextExt, env: Env, F: Findings, refund: De
 
 def _decide_fraudster_recovery(x: RuleContextExt, env: Env, F: Findings, refund: Decision) -> Decision:
     d = _Draft(x, Question.RECUPERARE_ESCROC, F)
+    if not x.transaction_identified:
+        d.use("DSP-53", line=False)
+        d.line("No recall or chargeback until the payment is identified in the bank's records.",
+               ["transaction_identified"])
+        return d.build(Verdict.NU_RECOMANDAM_RECUPERARE, human=True)
     if x.credit_fraud:
         d.use("DSP-16")
         d.line("A loan in the victim's name cannot be recovered by recall or chargeback.", ["credit_fraud"])
@@ -399,7 +429,8 @@ def _decide_complaint_answer(x: RuleContextExt, env: Env, F: Findings, refund: D
     gaps = False
     if "DSP-53" in F:
         d.use("DSP-53")
-        d.missing.append("Proof of merchant contact")
+        gap = F["DSP-53"].data
+        d.missing.extend(gap["missing"] if gap.get("gap") == "identification" else ["Proof of merchant contact"])
         gaps = True
     f32 = F.get("DSP-32")
     if f32 is not None and f32.outcome == "DSP_CARDHOLDER_PROOF_MISSING":
@@ -496,6 +527,8 @@ def evaluate(ctx: RuleContext, params: dict | None = None) -> RulesOutcome:
     findings: dict[str, Finding] = {}
     specs: dict[str, RuleSpec] = {}
     for spec in engine_rules(Zone.CLIENT):
+        if not x.transaction_identified and spec.rule_id not in DECLARED_RULES:
+            continue
         if spec.is_effective(today):
             found = spec.fn(x, env) if spec.fn else None
             if found is not None:

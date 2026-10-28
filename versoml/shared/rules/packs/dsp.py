@@ -714,10 +714,27 @@ def dsp_43_mastercard_4837(x: RuleContextExt, env: Env) -> Finding | None:
 
 @rule("DSP-53", title="Evidence checklist; each gap becomes a request to the customer",
       basis="BCR form (proxy) [P at BCR]; Raiffeisen practice [U]", confidence=U, pack="DSP",
-      source=f"{SRC} §7.4", questions=(Q_ESCROC, Q_ANSWER), exceptions=("DSP_EVIDENCE_MISSING",), tests=("DT-09",))
+      source=f"{SRC} §7.4", questions=(Q_T1, Q_ESCROC, Q_ANSWER),
+      params=("match_auto_min_points", "match_auto_min_margin", "match_candidate_min_points"),
+      exceptions=("DSP_EVIDENCE_MISSING",), tests=("DT-09", "freeform"))
 def dsp_53_evidence(x: RuleContextExt, env: Env) -> Finding | None:
-    """Consumer disputes (13.x) need proof that the customer contacted the merchant, canceled or returned the
-    purchase. If it is missing, the bank asks the customer for it before the dispute."""
+    """Each gap in the evidence becomes a request to the customer. The first gap is the payment itself: when a
+    free-form complaint cannot be matched to the customer or to a payment in the bank's records, the case rests on
+    the customer's statements only, so a person identifies the payment and the bank asks the customer for the
+    missing details. Consumer disputes (13.x) also need proof that the customer contacted the merchant, canceled or
+    returned the purchase. If it is missing, the bank asks the customer for it before the dispute."""
+    gaps: list[str] = []
+    if not x.customer_identified:
+        gaps.append("the customer's identification (the phone number or IBAN registered with the bank)")
+    if not x.transaction_identified:
+        gaps.append("the payment details (date, amount and payee)")
+    if gaps:
+        who = "" if x.customer_identified else " and the customer could not be identified"
+        return Finding("DSP-53", "DSP_EVIDENCE_MISSING",
+                       f"The payment could not be found in the bank's records{who}, so the case rests on the "
+                       f"customer's statements only. A person identifies the payment, and the bank asks the customer "
+                       f"for {' and '.join(gaps)}.",
+                       ("transaction_identified", "customer_identified"), data={"missing": gaps, "gap": "identification"})
     if not is_card(x):
         return None
     cond = visa_condition(x)

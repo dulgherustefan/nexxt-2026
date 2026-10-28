@@ -47,7 +47,7 @@ def zones(tmp_path_factory):
     seed = subprocess.run([sys.executable, "-m", "versoml.data.seed"], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
                           timeout=300)
     assert seed.returncode == 0, seed.stderr[-2000:]
-    subprocess.run([sys.executable, "-m", "versoml.ml.train"], cwd=ROOT, env=env, capture_output=True, timeout=600)
+    subprocess.run([sys.executable, "-m", "versoml.ml.train", "--quick"], cwd=ROOT, env=env, capture_output=True, timeout=600)
     procs = []
     for zone, target, port in (("client", "versoml.zone_client.app:app", client_port),
                                ("aml", "versoml.zone_aml.app:app", aml_port)):
@@ -131,3 +131,53 @@ def test_diode_rejects_unsigned_or_extra_fields(zones):
 def test_client_zone_has_no_aml_routes(zones):
     client, _ = zones
     assert httpx.get(f"{client}/api/aml/leads").status_code == 404
+
+
+def test_intake_preview_and_customer_search(zones):
+    client, _ = zones
+    found = httpx.get(f"{client}/api/customers", params={"q": "CUST-DEMO-01"}, timeout=20).json()
+    assert found and found[0]["customer_ref"] == "CUST-DEMO-01" and found[0]["alias"] == "Demo Customer 01"
+    assert set(found[0]) >= {"customer_ref", "alias", "city", "accounts", "last_tx_at"} and len(found) <= 20
+    assert "full_name" not in found[0] and "phone" not in found[0]
+    preview = httpx.post(f"{client}/api/intake/preview", json={
+        "text": "Ieri mi-au dispărut 3.200 lei după un SMS de la curier: https://livrare-bancademo.example/colet/RO1",
+        "customer_ref": "CUST-DEMO-01", "source": "email"}, timeout=60).json()
+    assert set(preview) == {"language", "injection_suspected", "customer", "match", "extracted"}
+    assert preview["customer"]["customer_ref"] == "CUST-DEMO-01" and preview["language"] == "ro"
+    assert preview["extracted"]["amounts"] == [3200.0] and preview["extracted"]["urls"]
+    assert {"customer_ref", "tx_id", "confidence", "needs_human", "reason", "candidates"} <= set(preview["match"])
+    assert httpx.post(f"{client}/api/intake/preview", json={"text": " "}).status_code == 400
+
+
+def test_free_form_case_without_identifiers_takes_the_declared_path(zones):
+    client, _ = zones
+    case_id = httpx.post(f"{client}/api/cases", json={"complaint": {
+        "text": "Someone took money from my account last week. I did not do it.", "source": "web_form"}}).json()["case_id"]
+    httpx.post(f"{client}/api/cases/{case_id}/run")
+    detail = _until(lambda: (d := httpx.get(f"{client}/api/cases/{case_id}", timeout=10).json())["ledger"].get("sealed")
+                    and d, timeout=180)
+    assert detail, "the case did not finish"
+    assert detail["match"]["customer_ref"] is None and detail["match"]["needs_human"] is True
+    assert [r["node"] for r in detail["routing"]][0] == "colector_tranzactie"
+    t1 = next(d for d in detail["decisions"] if d["question"] == "rambursare_t1")
+    assert t1["decision"] == "INFORMATII_SUPLIMENTARE" and t1["requires_human"] and "DSP-53" in t1["rule_ids"]
+    assert detail["reasons"][0]["decision"] == "INFORMATII_SUPLIMENTARE" and detail["reasons"][0]["rule_id"] == "DSP-53"
+    assert detail["numeric_check"]["passed"] is True
+    assert detail["campaign"] is None or isinstance(detail["campaign"], dict)
+    assert {"scenario_phrase", "approved_by", "approved_at"} <= set(detail["summary"])
+    assert isinstance(httpx.get(f"{client}/api/cases/{case_id}/precedents").json(), list)
+    assert httpx.get(f"{client}/api/cases/CT-2026-000000/precedents").status_code == 404
+    bad = httpx.post(f"{client}/api/cases/{case_id}/approve", json={"action": "pay_now"})
+    assert bad.status_code == 400
+
+
+def test_knowledge_base_endpoints_answer_in_both_zones(zones):
+    client, aml = zones
+    stats = httpx.get(f"{client}/api/kb/stats", timeout=60).json()
+    assert {"chunks", "embedding_model", "dense", "built_at"} <= set(stats)
+    assert isinstance(httpx.get(f"{client}/api/kb/search", params={"q": "refund deadline", "k": 3}, timeout=60).json(), list)
+    answer = httpx.post(f"{client}/api/kb/ask", json={"question": "By when must the bank refund?"}, timeout=60).json()
+    assert {"question", "answer", "citations", "grounded", "mode"} <= set(answer)
+    assert isinstance(httpx.get(f"{aml}/api/aml/kb/search", params={"q": "money mule"}, timeout=60).json(), list)
+    today = httpx.get(f"{client}/api/stats").json()["today"]
+    assert today["timezone"] == "Europe/Bucharest" and len(today["date"]) == 10

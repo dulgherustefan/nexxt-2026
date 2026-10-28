@@ -298,7 +298,7 @@ function AppBar({ alias, inert }: { alias: string; inert: boolean }) {
       <div className="flex min-w-0 items-center gap-2.5">
         <BankMark className="size-8" />
         <div className="min-w-0 leading-tight">
-          <p className="text-[1rem] font-semibold tracking-[-0.01em]" style={{ fontStretch: "112%" }}>Demo Bank</p>
+          <p className="text-[1rem] font-semibold tracking-[-0.01em]">Demo Bank</p>
           <p className="text-[0.75rem] text-subtle">Demo · synthetic data</p>
         </div>
       </div>
@@ -306,7 +306,7 @@ function AppBar({ alias, inert }: { alias: string; inert: boolean }) {
         <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-canvas text-ink-soft">
           <User size={15} weight="bold" />
         </span>
-        <span className="truncate">{alias}</span>
+        <span className="truncate">{alias.replace(/^Demo /, "")}</span>
       </span>
     </header>
   );

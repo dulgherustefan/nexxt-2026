@@ -70,7 +70,7 @@ export default function FakePage() {
           <span aria-hidden className="grid size-8 place-items-center rounded-lg bg-ink text-paper">
             <Package size={18} weight="bold" />
           </span>
-          <span className="font-semibold tracking-[-0.01em]" style={{ fontStretch: "110%" }}>Demo Courier</span>
+          <span className="font-semibold tracking-[-0.01em]">Demo Courier</span>
           <span className="ml-auto text-[0.8667rem] text-muted">Parcel tracking</span>
         </div>
       </header>

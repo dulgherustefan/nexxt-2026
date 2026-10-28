@@ -1,0 +1,244 @@
+# Parametrii motorului de reguli VersoML (docs/06 §4.4). Valorile de mai jos sunt implicite;
+# suprascrierile stau în var/rules_params.json (set_params). confidence: U = neverificat, de confirmat
+# cu mentorii; S = sursă secundară; P = text oficial. Un parametru `locked` nu se poate schimba.
+
+auto_refund_cap_ron:
+  value: 5000
+  type: number
+  min: 0
+  confidence: U
+  rules: [DSP-59]
+  description: >-
+    Plafonul rambursării automate, în RON. Peste plafon un om aprobă, tot în termenul T+1.
+    docs/context/14 (DSP-59) nu dă valoarea.
+
+client_fraud_signal_threshold:
+  value: 0.7
+  type: number
+  min: 0
+  max: 1
+  confidence: U
+  rules: [URM-03]
+  description: >-
+    Scorul M2 (fraudă a clientului) de la care cazul merge la om. M2 e doar semnal:
+    nu reține și nu refuză rambursarea.
+
+prior_disputes_signal_threshold:
+  value: 3
+  type: integer
+  min: 1
+  confidence: U
+  rules: [URM-03]
+  description: "Numărul de contestații în ultimele 12 luni de la care cazul merge la om."
+
+eur_ron_rate:
+  value: 5.0
+  type: number
+  min: 0.0001
+  confidence: U
+  rules: [PAY-05, DSP-59, AML-07, AML-08]
+  description: >-
+    Cursul EUR/RON pentru plafoanele în euro (30 EUR, 10.000 EUR) și pentru plafonul în RON.
+    5,00 e valoarea fictivă de test din docs/context/11 §3.
+
+refund_end_of_day:
+  value: "23:59:59"
+  type: time
+  confidence: U
+  rules: [PAY-03, DSP-03]
+  description: "Ora „sfârșitului zilei” pentru termenul T+1; nu e definită în note."
+
+bank_closure_days:
+  value: []
+  type: date_list
+  confidence: U
+  rules: [PAY-03, CMP-01, CMP-02]
+  description: >-
+    Zilele în care banca e închisă suplimentar față de sărbătorile legale (format ISO, ex. 2026-12-31).
+
+refund_anchor_mode:
+  value: cea_mai_devreme
+  type: enum
+  choices: [cea_mai_devreme, notificare]
+  confidence: U
+  rules: [DSP-58]
+  description: >-
+    Ancora termenului T+1: „cea_mai_devreme” = constatarea băncii sau notificarea clientului, care e
+    prima (inferență din art. 173, „după constatare sau notificare”).
+
+refund_sla_alert_hours:
+  value: 4
+  type: integer
+  min: 0
+  confidence: U
+  rules: [DSP-03]
+  description: "Cu câte ore înainte de termenul T+1 cazul devine „în risc” (DSP_REFUND_SLA_AT_RISK)."
+
+undue_delay_days:
+  value: null
+  type: integer
+  nullable: true
+  min: 0
+  confidence: U
+  rules: [PAY-01]
+  description: >-
+    Pragul pentru „fără întârziere nejustificată” (art. 169). Notele nu îl dau; gol = neaplicat.
+    Depășirea trimite cazul la om; nu respinge și nu amână rambursarea.
+
+competent_authority:
+  value: null
+  type: enum
+  nullable: true
+  choices: [BNR, ANPC]
+  confidence: U
+  rules: [PAY-03]
+  description: "Autoritatea care primește notificarea din art. 173 (BNR sau ANPC); neverificată."
+
+complaint_alert_lead_business_days:
+  value: 2
+  type: integer
+  min: 0
+  confidence: U
+  rules: [CMP-01, CMP-02]
+  description: >-
+    Cu câte zile lucrătoare înainte de termenul de 15 zile apare alerta pentru răspunsul intermediar.
+
+default_card_scheme:
+  value: visa
+  type: enum
+  choices: [visa, mastercard]
+  confidence: U
+  rules: [DSP-52]
+  description: "Schema presupusă când datele cardului nu o spun (cardurile Banca Demo sunt Visa)."
+
+visa_other_open_days:
+  value: 120
+  type: integer
+  min: 1
+  confidence: U
+  rules: [DSP-24]
+  description: >-
+    Termenul de dispută pentru condițiile Visa fără termen citit („120 de zile pentru majoritatea”).
+
+visa_131_wait_anchor:
+  value: processing_date
+  type: enum
+  choices: [processing_date, transaction_date]
+  confidence: U
+  rules: [DSP-24]
+  description: "Ancora așteptării de 15 zile la Visa 13.1; notele nu o precizează (fixture: data procesării)."
+
+fraud_report_deadline_mode:
+  value: null
+  type: enum
+  nullable: true
+  choices: [max, after_day_60]
+  confidence: U
+  rules: [DSP-25]
+  description: >-
+    Lectura termenului de raport de fraudă Visa (60 de zile de la tranzacție / 30 de la notificare).
+    Gol = se calculează ambele lecturi; dacă diferă, se ia data mai devreme și se semnalează omului.
+
+dispute_count_scope:
+  value: toate
+  type: enum
+  choices: [toate, frauda]
+  confidence: U
+  rules: [DSP-26]
+  description: "Ce dispute se numără la limita de 35 în 120 de zile (Visa 10.4)."
+
+scheme_alert_lead_days:
+  value: 5
+  type: integer
+  min: 0
+  confidence: U
+  rules: [DSP-23]
+  description: "Alertă înainte de un termen de schemă (5 e valoarea de fixture din docs/context/14 §10)."
+
+mc_chargeback_open_days:
+  value: 120
+  type: integer
+  min: 1
+  confidence: S
+  rules: [DSP-42]
+  description: "Termenul de chargeback Mastercard („~120 de zile”, agregatori); surse în conflict."
+
+sct_recall_answer_banking_days:
+  value: 15
+  type: integer
+  min: 1
+  confidence: U
+  rules: [REC-02]
+  description: >-
+    Termenul de răspuns la rechemarea unui SCT (non-instant). docs/05 dă 15 zile bancare doar pentru
+    SCT Inst; valoarea pentru SCT e presupusă egală.
+
+ron_recall_answer_banking_days:
+  value: null
+  type: integer
+  nullable: true
+  min: 1
+  confidence: U
+  rules: [REC-04]
+  description: >-
+    Termenul de răspuns la o rechemare în RON (SENT, Plăți Instant). Procedura nu e publică; gol = fără termen.
+
+recall_window_months:
+  value: 13
+  type: integer
+  min: 1
+  confidence: U
+  rules: [REC-05]
+  description: "Câte luni după execuție se mai propune rechemarea pe motiv de fraudă. Nu e în docs/context."
+
+banking_calendar:
+  value: ro
+  type: enum
+  choices: [ro, target2]
+  confidence: U
+  rules: [REC-02]
+  description: "Calendarul „zilelor bancare” la rechemare: zilele lucrătoare RO (implicit) sau TARGET."
+
+same_bank_codes:
+  value: [BDEM]
+  type: string_list
+  confidence: U
+  rules: [REC-03]
+  description: "Codurile de bancă din IBAN tratate ca beneficiar intern (BDEM = Banca Demo)."
+
+aml_mule_score_threshold:
+  value: 0.7
+  type: number
+  min: 0
+  max: 1
+  confidence: U
+  rules: [URM-04]
+  description: "Scorul M5 (cont-cărăuș) de la care regulile propun analistului un RTS. Analistul decide."
+
+aml_min_linked_victims:
+  value: 2
+  type: integer
+  min: 1
+  confidence: U
+  rules: [URM-04]
+  description: "Câte victime legate de același cont, împreună cu o tipologie, fac propunere de RTS."
+
+aml_prohibited_features:
+  value: [varsta, age, gen, gender, sex, etnie, ethnicity, rasa, race, nationalitate, nationality,
+          cetatenie, citizenship, religie, religion, stare_civila, marital_status, orientare,
+          personalitate, personality, cnp]
+  type: string_list
+  confidence: U
+  rules: [URM-01]
+  description: >-
+    Trăsături personale care nu au voie în scorurile din zona AML (AI Act art. 5 alin. (1) lit. d)).
+    Lista e o propunere.
+
+require_human_for_unfavourable:
+  value: true
+  type: boolean
+  locked: true
+  locked_code: DP_HUMAN_REVIEW_REQUIRED
+  confidence: S
+  rules: [DP-02]
+  description: "Orice decizie defavorabilă o semnează un om (GDPR art. 22). Nu se poate dezactiva."

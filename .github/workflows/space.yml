@@ -1,0 +1,35 @@
+name: space
+
+# Mirrors main to the Hugging Face Space that runs the backend. Needs the HF_TOKEN secret (write access)
+# and the HF_SPACE variable ("user/space") in the repository settings.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    if: ${{ vars.HF_SPACE != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage the Space files
+        run: |
+          mkdir -p /tmp/space
+          git archive HEAD pyproject.toml uv.lock versoml frontend | tar -x -C /tmp/space
+          cp deploy/space/Dockerfile deploy/space/README.md /tmp/space/
+      - name: Upload to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE }}
+        run: |
+          pip install --quiet "huggingface_hub>=0.30"
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+
+          HfApi(token=os.environ["HF_TOKEN"]).upload_folder(
+              repo_id=os.environ["HF_SPACE"], repo_type="space", folder_path="/tmp/space",
+              commit_message=f"sync {os.environ['GITHUB_SHA'][:7]}", delete_patterns="*",
+          )
+          PY

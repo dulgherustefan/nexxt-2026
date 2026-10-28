@@ -60,13 +60,15 @@ Docker (opțional): `docker compose up --build` pornește cele două zone în co
 ```mermaid
 flowchart LR
   subgraph C["Zona client · proces :8000 · client_zone.db"]
-    R[Receptor<br/>LLM izolat, Haiku] --> K[Clasificator<br/>ML M1] --> T[Ceasornicar<br/>T+1, calendar RO]
-    T --> P1[Tranzacție] & P2[SCA] & P3[Dispozitiv] & P4[Domeniu fals<br/>RDAP · CT · M3 · M4]
-    P1 & P2 & P3 & P4 --> M{Motor de reguli<br/>PAY · DSP · CMP · DP · REC}
+    R[Receptor<br/>LLM izolat, Haiku] --> ID[Identificare<br/>client + plata din text liber] --> K[Clasificator<br/>ML M1, ensemble] --> T[Ceasornicar<br/>T+1, calendar RO]
+    T --> RT{Router<br/>LangGraph Send}
+    RT --> P1[Tranzacție] & P2[SCA] & P3[Dispozitiv] & P4[Domeniu fals<br/>RDAP · CT · M3 · M4] & P5[Campanie<br/>indicatori + embeddings]
+    P1 & P2 & P3 & P4 & P5 --> M{Motor de reguli<br/>PAY · DSP · CMP · DP · REC}
     M --> RF[Rambursare T+1<br/>doar motorul + om]
     RF --> PR[Procuror · Opus] & AV[Avocat · Sonnet]
     PR & AV --> CN[Cântăritor<br/>rubrică deterministă]
-    CN --> RC[Recuperare<br/>camt.056 · chargeback · DNSC] --> L[Scrisoare · Sonnet] --> F[Filtru zid] --> S[Sigiliu<br/>Merkle + Ed25519]
+    CN --> RC[Recuperare<br/>camt.056 · chargeback · DNSC] --> L[Scrisoare · Sonnet<br/>temei legal din RAG] --> V[Verificare numerică<br/>+ filtru zid] --> S[Sigiliu<br/>Merkle + Ed25519]
+    KB[(Bază de cunoștințe<br/>BM25 + Cohere embed v4 + RRF)] -.citări.-> L & PR & AV
   end
   subgraph W["Zidul"]
     D[(Diodă<br/>DisputeFacts, HMAC)]
@@ -97,15 +99,35 @@ flowchart LR
 | 5 | Filtru pe scrisori: termeni de tipping-off, canary, date personale | `versoml/wall/letter_filter.py`, `versoml/wall/canary.py` |
 | 6 | Test de neinterferență: aceleași cazuri cu zona AML goală, apoi plină de canary; decizii identice, zero scurgeri | `versoml/eval/noninterference.py` |
 
+## Cazuri reale, din text liber
+
+Pe pagina **New case** (`/cases/new`), sau prin `POST /api/intake/preview` și tool-ul MCP `versoml_intake`, lipești ce a trimis clientul, în orice limbă, fără ID de tranzacție și chiar fără ID de client.
+- **Identificare:** clientul se găsește după IBAN, telefon, e-mail sau nume. Plata se potrivește în istoricul lui după sumă (formate RO și EN), dată (inclusiv „ieri", „luni", „14/09"), beneficiar, domeniu și canal, cu un scor transparent și motivele lui.
+- **Două plăți la fel de plauzibile:** graful se oprește (interrupt `pick_transaction`) și alege un om.
+- **Client sau plată negăsite:** cazul merge pe calea faptelor declarate. Nu se rambursează nimic automat și nu pleacă nimic spre AML, termenul T+1 curge în continuare, iar scrisoarea cere detaliile care lipsesc (DSP-53, parametri [U]).
+- **Router (LangGraph Send):** pornește doar colectorii de care cazul are nevoie și spune de ce, de exemplu „verificarea domeniului rulează: reclamația conține un link".
+- **Scrisoarea:** înainte să plece, fiecare sumă, dată, termen, IBAN și ID de caz din ea se verifică față de registrul de probe. O nepotrivire se rescrie o dată automat; dacă rămâne, merge la om.
+
+## Bază de cunoștințe (RAG)
+
+`versoml/knowledge/` indexează cele 66 de reguli, `docs/context/`, cazurile documentate din `docs/03` și 25 de tipologii de fraudă documentate în România (`versoml/data/typologies_ro.yaml`, fiecare cu sursă și marcaj [P]/[S]/[U]).
+- **Căutare hibridă:** BM25 și embeddings `cohere.embed-v4` pe Bedrock, combinate prin Reciprocal Rank Fusion. Vectorii documentelor sunt în repo, așa că totul merge și offline.
+- **Răspunsuri cu citări verificate:** orice [n] trebuie să fie un pasaj găsit, iar citatul trebuie să apară exact în el.
+- **Pagina Knowledge, scrisoarea, dezbaterea și ciorna RTS** își iau temeiul legal de aici.
+- **Precedente:** cazurile asemănătoare apar doar în zona client și doar ca informație; nu intră niciodată în decizie. Zona AML vede doar documentele publice.
+- **Comenzi:** `versoml kb build [--live]`, `versoml kb search "..."`, `versoml kb ask "..."`, `versoml kb eval`.
+
+Fundamentarea (articole, repo-uri, implementări reale ca rambursarea obligatorie APP din UK) e în `docs/08_cercetare_rag_ml_agenti.md`.
+
 ## ML: unde și de ce
 
 | Model | Ce face | Unde se vede |
 |---|---|---|
-| M1 | Clasificarea contestației: TF-IDF + regresie logistică calibrată | Clasificatorul, cu probabilitate și semnal de ambiguitate |
-| M2 | Semnal de fraudă a clientului: LightGBM pe fapte obiective; e doar un semnal pentru om | Motorul de reguli trimite la om, nu refuză |
+| M1 | Clasificarea contestației: stacking peste TF-IDF pe caractere și pe cuvinte (regresie logistică), Complement NB și embeddings multilingve; meta-model calibrat, cu variantă fără embeddings când lucrăm offline | Clasificatorul, cu probabilitate și semnal de ambiguitate |
+| M2 | Semnal de fraudă a clientului: stacking LightGBM + regresie logistică + IsolationForest pe fapte obiective; e doar un semnal pentru om | Motorul de reguli trimite la om, nu refuză |
 | M3 | Domeniu-sosie: permutări în stilul dnstwist, schelet de confusables, vârstă RDAP și CT | Colectorul de domeniu |
 | M4 | Asemănarea paginii false cu pagina băncii: simhash pe text, formulare și DOM | Colectorul de domeniu |
-| M5 | Cont-cărăuș: LightGBM pe trăsături de graf + agregare pe vecini, comunități Louvain, tipologii AMLworld | Zona AML: graful se aprinde |
+| M5 | Cont-cărăuș: stacking peste LightGBM pe graf, PageRank personalizat din conturile cunoscute, IsolationForest și regulile simple; comunități Louvain, tipologii AMLworld | Zona AML: graful se aprinde |
 | M6 | Rezolvarea entităților între cazuri (IBAN, CUI, firmă, domeniu, telefon) | Legarea victimelor de aceeași pistă |
 | M7 | Robustețe contrafactuală: schimbăm câte un fapt și vedem ce decizii se schimbă | Butonul „Schimbă un fapt" |
 
@@ -116,11 +138,11 @@ Câte un server MCP pe zonă, ca zidul să existe și în MCP: tool-urile AML ni
 - **Orice client MCP** (Claude Desktop, Cursor și altele): configurarea gata de copiat e pe pagina `/mcp` din aplicație.
 - **Prin HTTP:** `http://127.0.0.1:8000/mcp/` (zona client) și `http://127.0.0.1:8001/mcp/` (zona AML).
 
-Câteva tool-uri: `versoml_open_case`, `versoml_case_status`, `versoml_case_evidence`, `versoml_approve`, `versoml_counterfactual`, `versoml_check_letter`, `versoml_evaluate_rules`, `versoml_t1_deadline`, `versoml_domain_intel`, `versoml_wall_status`, `versoml_aml_leads`, `versoml_osint_investigate`, `versoml_sanctions_screen`, `versoml_company_lookup`, `versoml_aml_decide`.
+Câteva tool-uri: `versoml_intake` (reclamație în text liber → caz), `versoml_kb_search`, `versoml_kb_ask`, `versoml_precedents`, `versoml_open_case`, `versoml_case_status`, `versoml_case_evidence`, `versoml_approve`, `versoml_counterfactual`, `versoml_check_letter`, `versoml_evaluate_rules`, `versoml_t1_deadline`, `versoml_domain_intel`, `versoml_wall_status`, `versoml_aml_leads`, `versoml_osint_investigate`, `versoml_sanctions_screen`, `versoml_company_lookup`, `versoml_aml_decide`.
 
 ## Evaluare
 
-`versoml eval` rulează tot și scrie raportul în `reports/eval_report.md` (și pe pagina `/evaluare`). Rezultatele din 28.10.2026, pe date sintetice:
+`versoml eval` rulează tot și scrie raportul în `reports/eval_report.md` (și pe pagina `/evaluare`). Rezultatele din 29.10.2026, pe date sintetice (2.000 de clienți, 210.000 de tranzacții):
 
 | Ce măsurăm | Rezultat | Țintă |
 |---|---|---|
@@ -131,10 +153,15 @@ Câteva tool-uri: `versoml_open_case`, `versoml_case_status`, `versoml_case_evid
 | Date personale brute trimise modelului | 0 | 0 |
 | Injecții detectate (28 de reclamații cu instrucțiuni ascunse) / alarme false (312 curate) | 100% / 0% | 100% / ≈ 0 |
 | Filtrul zidului: tipping-off blocat / scrisori curate blocate greșit | 100% / 0 | 100% / 0 |
-| M1 scenariu: macro-F1 / ECE | 0,99 / 0,04 | ≥ 0,90 / ≤ 0,05 |
-| M5 cont-cărăuș: AUC reguli simple → GBDT fără graf → GBDT pe graf | 0,75 → 0,95 → 0,99 | ≥ 0,85 |
+| Reguli: verdictul pe cele 25 de cazuri de tipologie documentate | 100% | 100% |
+| Identificare din text liber (60 de reclamații RO/EN): plata corectă pe cazurile clare / la om pe cele ambigue sau necunoscute / potriviri automate greșite | 100% / 100% / 0 | ≥ 95% / 100% / 0 |
+| Bază de cunoștințe, 72 de întrebări RO/EN: Recall@5 BM25 → dense → hibrid / răspunsuri complet citate | 0,78 → 0,89 → 0,88 / 100% | ≥ 0,80 / 100% |
+| M1 scenariu pe șabloane nevăzute la antrenare: macro-F1 / ECE | 0,97 / 0,012 | ≥ 0,90 / ≤ 0,05 |
+| M1 antrenat pe șabloane, testat pe text liber / antrenat pe engleză, testat pe română | 0,82 / 0,66 | comparație |
+| M2 fraudă a clientului: AUC pe split temporal, cu 5% etichete zgomotoase | 0,885 | ≥ 0,80 |
+| M5 cont-cărăuș: AUC reguli simple → PageRank personalizat → ensemble, split temporal | 0,75 → 0,87 → 0,99 | ≥ 0,85 |
 
-Pe date reale cifrele ML vor fi mai mici; comparația cu baseline-urile e partea relevantă. Testele: peste 1.100 de teste unitare pe module, plus 9 teste de integrare care pornesc procesele reale.
+Vechiul 0,99 al lui M1 venea din șabloane comune între antrenare și test; acum evaluăm pe șabloane ținute deoparte și pe split-uri temporale. Pe date reale cifrele ML vor fi mai mici; comparația cu baseline-urile e partea relevantă. Testele: aproape 1.500 (unitare pe module, plus teste de integrare care pornesc procesele reale), toate trec offline.
 
 **Pe rulări live (Claude pe Bedrock):**
 - decizia de rambursare vine în ~6–7 s de la contestație, iar cazul complet (dezbatere, recuperare, scrisoare, sigiliu) în ~50–65 s;
@@ -156,8 +183,9 @@ versoml/
   wall/               dioda, canary, filtrul de scrisori, scannerul
   zone_client/        Judecătorul: agenți, graf LangGraph, serviciu, API
   zone_aml/           Investigatorul: agenți, graf LangGraph, serviciu, API
-  data/               simulatorul Banca Demo, scenariile, setul de aur
-  ml/                 M1, M2, M5, M6, M7
+  data/               simulatorul Banca Demo (2.000 de clienți), tipologiile RO, corpusul RO/EN, seturile de aur
+  ml/                 M1, M2, M5 (ensemble-uri), M6, M7
+  knowledge/          baza de cunoștințe: BM25 + embeddings + RRF, citări verificate, precedente
   osint/              căutare web, crawler sigur, RDAP, CT, DNS, ANAF, sancțiuni, M3, M4
   mcp_server/         serverul MCP pe zone (stdio + HTTP)
   eval/               evaluarea și testul de neinterferență
@@ -170,6 +198,7 @@ docs/                 brief, research, soluția (05), implementarea (06), contex
 
 0. [docs/05_versoml_solutie_si_plan.md](docs/05_versoml_solutie_si_plan.md): soluția, arhitectura, agenții, ML, evaluarea, demo-ul și planul.
 1. [docs/06_implementare.md](docs/06_implementare.md): harta modulelor, interfețele și contractul API.
+1. [docs/08_cercetare_rag_ml_agenti.md](docs/08_cercetare_rag_ml_agenti.md): cercetarea din spatele RAG-ului, a ensemble-urilor și a orchestrării, cu surse.
 2. [docs/01_brief_hackathon.md](docs/01_brief_hackathon.md): criteriile juriului.
 3. [docs/02_top_probleme_si_idei.md](docs/02_top_probleme_si_idei.md) și [docs/03_cazuri_reale_raiffeisen.md](docs/03_cazuri_reale_raiffeisen.md): problemele și cazurile reale.
 4. `docs/context/`: regulile cu ID-uri și teste (popriri, KYC/AML, plăți, dispute card, date sintetice, arhitectură).

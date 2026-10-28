@@ -49,7 +49,7 @@ Documentul tehnic pentru cine scrie cod. Soluția și motivele sunt în `docs/05
 
 ```python
 # versoml/data/world.py
-def generate_world(seed: int = 7, n_customers: int = 400) -> World: ...
+def generate_world(seed: int = 7, n_customers: int = 2000) -> World: ...
 # World: dataclass cu liste de dict-uri: customers, accounts, devices, sessions, auth_events,
 #        card_transactions, transfers, merchants, companies, domains, complaints, labels
 

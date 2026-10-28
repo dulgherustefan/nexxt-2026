@@ -1,8 +1,9 @@
 /**
- * „Backend-ul" din browser pentru modul mock. Starea stă în localStorage, ca filele să o împartă:
- * consola de contestații, consola AML (?zone=aml) și Banca Demo văd aceleași cazuri, iar o rulare
- * pornită într-o filă continuă în alta (fila-lider avansează rulările).
+ * The in-browser "backend" for mock mode. The state lives in localStorage so tabs share it: the
+ * disputes console, the AML console (?zone=aml) and Demo Bank see the same cases, and a run started
+ * in one tab continues in another (the leader tab advances the runs).
  */
+import { money } from "../api/format";
 import type { AgentEvent, BankState, RuleParams, WallState } from "../api/types";
 import { seedAml, advanceAml, ingestReferral, type AmlDb } from "./aml";
 import { addBusinessDays, endOfNextBusinessDay, isoRo } from "./calendar";
@@ -11,13 +12,14 @@ import { ATTACKS, PARAMS, WALL_LAYERS, seedDenials } from "./fixtures";
 import { sha256 } from "./sha256";
 import { storyFor, type Story, type StoryCtx } from "./stories";
 
-const KEY = "versoml.mock.db.v4";
-const REV = "versoml.mock.rev.v4";
-const LEADER = "versoml.mock.leader.v4";
+// v5: the English seed. Bumping the keys drops a cached v4 database, which still holds Romanian text.
+const KEY = "versoml.mock.db.v5";
+const REV = "versoml.mock.rev.v5";
+const LEADER = "versoml.mock.leader.v5";
 const H = 3600_000;
 
 export interface MockDb {
-  v: 4;
+  v: 5;
   rev: number;
   seq: number;
   caseCounter: number;
@@ -29,7 +31,7 @@ export interface MockDb {
   aml: AmlDb;
 }
 
-// ------------------------------------------------------------------ persistență
+// ------------------------------------------------------------------ persistence
 
 let memory: MockDb | null = null;
 let localRev = -1;
@@ -64,14 +66,14 @@ function load(): MockDb {
       const raw = localStorage.getItem(KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as MockDb;
-        if (parsed && parsed.v === 4) {
+        if (parsed && parsed.v === 5) {
           memory = parsed;
           localRev = parsed.rev;
           return memory;
         }
       }
     } catch {
-      /* stare coruptă: o regenerăm */
+      /* corrupt state: seed it again */
     }
   }
   if (!memory) {
@@ -90,7 +92,7 @@ function save(db: MockDb) {
     localStorage.setItem(KEY, JSON.stringify(db));
     localStorage.setItem(REV, String(db.rev));
   } catch {
-    /* plin sau blocat: rămânem în memorie */
+    /* full or blocked: stay in memory */
   }
 }
 
@@ -104,12 +106,12 @@ function notify() {
   for (const l of Array.from(listeners)) l();
 }
 
-/** Citire consistentă (preia modificările făcute de alte file). */
+/** A consistent read (picks up changes made by other tabs). */
 export function read(): MockDb {
   return load();
 }
 
-/** Citire-modificare-scriere, sincronă, ca să nu pierdem scrierile altor file. */
+/** Read, modify, write, synchronously, so no other tab's write is lost. */
 export function transact<T>(fn: (db: MockDb, hooks: EngineHooks) => T): T {
   const db = load();
   const out = fn(db, hooksFor(db));
@@ -138,7 +140,7 @@ export function resetMock() {
   notify();
 }
 
-// ------------------------------------------------------------------ cârligele dintre zone și Banca Demo
+// ------------------------------------------------------------------ the hooks between the zones and Demo Bank
 
 function hooksFor(db: MockDb): EngineHooks {
   const nextSeq = () => ++db.seq;
@@ -155,29 +157,25 @@ function hooksFor(db: MockDb): EngineHooks {
       if (!txId) return;
       const tx = acct.transactions.find((t) => t.id === txId);
       if (tx) {
-        tx.status = "rambursată";
+        tx.status = "refunded";
         tx.disputable = false;
       }
       acct.balance = Math.round((acct.balance + c.ctx.amount) * 100) / 100;
       acct.transactions.unshift({
         id: `RF-${c.caseId}`,
         ts: isoRo(at),
-        description: `Rambursare contestație ${c.caseId}`,
+        description: `Refund for dispute ${c.caseId}`,
         amount: c.ctx.amount,
         direction: "in",
-        status: "executată",
+        status: "booked",
         disputable: false,
       });
-      acct.notifications.unshift({ ts: isoRo(at), text: `Ți-am returnat ${formatLei(c.ctx.amount)}`, kind: "refund" });
+      acct.notifications.unshift({ ts: isoRo(at), text: `We refunded ${money(c.ctx.amount)} for dispute ${c.caseId}.`, kind: "refund" });
     },
   };
 }
 
-function formatLei(v: number): string {
-  return `${new Intl.NumberFormat("ro-RO", { maximumFractionDigits: 2 }).format(v)} lei`;
-}
-
-// ------------------------------------------------------------------ cazuri
+// ------------------------------------------------------------------ cases
 
 export function victimRefFor(caseId: string): string {
   return `VCT-${sha256(caseId).slice(0, 4)}`;
@@ -270,16 +268,16 @@ function defaultAmount(scenario: string): number {
 }
 
 function aliasFor(ref: string): string {
-  if (ref === "CUST-DEMO-01") return "Client 0042";
-  if (ref === "CUST-DEMO-02") return "Client 0117";
-  return `Client ${String(parseInt(sha256(ref).slice(0, 4), 16) % 1000).padStart(4, "0")}`;
+  if (ref === "CUST-DEMO-01") return "Customer 0042";
+  if (ref === "CUST-DEMO-02") return "Customer 0117";
+  return `Customer ${String(parseInt(sha256(ref).slice(0, 4), 16) % 1000).padStart(4, "0")}`;
 }
 
-// ------------------------------------------------------------------ starea inițială
+// ------------------------------------------------------------------ the initial state
 
 function seed(now: number): MockDb {
   const db: MockDb = {
-    v: 4,
+    v: 5,
     rev: 0,
     seq: 0,
     caseCounter: 114,
@@ -290,7 +288,7 @@ function seed(now: number): MockDb {
     wall: {
       layers: WALL_LAYERS.map((l) => ({ ...l })),
       denials: seedDenials(now),
-      blocks: [{ at: isoRo(now - 2.6 * H), case_id: "CT-2026-000116", reasons: ["termen interzis în ciorna scrisorii"], terms: ["investigație"] }],
+      blocks: [{ at: isoRo(now - 2.6 * H), case_id: "CT-2026-000116", reasons: ["a banned term in the draft letter"], terms: ["investigation"] }],
       noninterference: { runs: 200, leaks: 0, at: isoRo(now - 3 * H) },
     },
     aml: seedAml(now),
@@ -308,7 +306,7 @@ function seed(now: number): MockDb {
   ];
   for (const s of seeds) {
     const receivedAt = now - s.agoH * H;
-    const c = createMockCase(db, { scenario: s.scenario, customerRef: s.ref, receivedAt, alias: `Client ${s.ref.slice(5)}` });
+    const c = createMockCase(db, { scenario: s.scenario, customerRef: s.ref, receivedAt, alias: `Customer ${s.ref.slice(5)}` });
     prerun(c, receivedAt + 20_000, hooks, s.approval ?? null, 210);
   }
   return db;
@@ -321,33 +319,33 @@ function seedBank(now: number): MockDb["bank"] {
     description,
     amount,
     direction,
-    status: "executată",
+    status: "booked",
     disputable: false,
   });
   return {
     "CUST-DEMO-01": {
-      customer_alias: "Client 0042",
+      customer_alias: "Customer 0042",
       balance: 12480.55,
       iban_masked: "RO49 BDEM •••• •••• •••• 0042",
       transactions: [
-        tx("TX-D1-006", 5, "Supermarket Demo", -184.3, "out"),
-        tx("TX-D1-005", 27, "Farmacia Demo", -62.15, "out"),
-        tx("TX-D1-004", 50, "Factură energie (Furnizor Demo)", -231.4, "out"),
-        tx("TX-D1-003", 74, "Abonament transport Demo", -80, "out"),
-        tx("TX-D1-002", 120, "Restaurant Demo", -146, "out"),
-        tx("TX-D1-001", 170, "Salariu (Angajator Demo SRL)", 6200, "in"),
+        tx("TX-D1-006", 5, "Demo Supermarket", -184.3, "out"),
+        tx("TX-D1-005", 27, "Demo Pharmacy", -62.15, "out"),
+        tx("TX-D1-004", 50, "Electricity bill, Demo Energy", -231.4, "out"),
+        tx("TX-D1-003", 74, "Demo Transit monthly pass", -80, "out"),
+        tx("TX-D1-002", 120, "Demo Restaurant", -146, "out"),
+        tx("TX-D1-001", 170, "Salary, Demo Employer SRL", 6200, "in"),
       ],
       notifications: [],
       linked: {},
     },
     "CUST-DEMO-02": {
-      customer_alias: "Client 0117",
+      customer_alias: "Customer 0117",
       balance: 7930.1,
       iban_masked: "RO49 BDEM •••• •••• •••• 0117",
       transactions: [
-        tx("TX-D2-003", 9, "Benzinărie Demo", -275.8, "out"),
-        tx("TX-D2-002", 46, "Librăria Demo", -94.5, "out"),
-        tx("TX-D2-001", 150, "Salariu (Angajator Demo SRL)", 5400, "in"),
+        tx("TX-D2-003", 9, "Demo Gas Station", -275.8, "out"),
+        tx("TX-D2-002", 46, "Demo Bookstore", -94.5, "out"),
+        tx("TX-D2-001", 150, "Salary, Demo Employer SRL", 5400, "in"),
       ],
       notifications: [],
       linked: {},
@@ -357,7 +355,7 @@ function seedBank(now: number): MockDb["bank"] {
 
 export { ATTACKS };
 
-// ------------------------------------------------------------------ fila-lider avansează rulările
+// ------------------------------------------------------------------ the leader tab advances the runs
 
 function hasActiveRuns(db: MockDb): boolean {
   if (Object.values(db.cases).some((c) => c.run && !c.run.done)) return true;
@@ -403,7 +401,7 @@ export function startDriver() {
   }, 200);
 }
 
-// ------------------------------------------------------------------ fluxurile de evenimente
+// ------------------------------------------------------------------ the event streams
 
 export function caseEventSource(caseId: string) {
   return (onEvent: (e: AgentEvent) => void) => {

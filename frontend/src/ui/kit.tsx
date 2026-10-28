@@ -1,10 +1,12 @@
 import { AlertTriangle, Check, Clock3, Hand, Loader2, Minus, X } from "lucide-react";
 import {
   Component,
+  createContext,
   forwardRef,
   type ButtonHTMLAttributes,
   type ErrorInfo,
   type ReactNode,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -131,15 +133,19 @@ export function IdTag({ children, onClick, title, tone = "neutral" }: {
 
 // ---------------------------------------------------------------- containers
 
+/** Panels inside a titled page section use h3 for their own title; the section provides the level. */
+export const PanelHeadingLevel = createContext<2 | 3>(2);
+
 export function Panel({ title, actions, children, className, bodyClassName, id, description }: {
   title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; bodyClassName?: string; id?: string; description?: ReactNode;
 }) {
+  const H = useContext(PanelHeadingLevel) === 3 ? "h3" : "h2";
   return (
     <section id={id} className={cx("rounded-xl bg-paper shadow-[var(--shadow-card)]", className)}>
-      {(title || actions) && (
+      {(title || actions || description) && (
         <header className="flex min-h-12 items-center justify-between gap-3 px-5 pt-4 pb-1">
           <div className="min-w-0">
-            {title && <h2 className="text-[0.9333rem] font-semibold">{title}</h2>}
+            {title && <H className="text-[0.9333rem] font-semibold">{title}</H>}
             {description && <p className="mt-0.5 text-[0.8667rem] text-muted">{description}</p>}
           </div>
           {actions && <div className="flex items-center gap-2">{actions}</div>}

@@ -237,3 +237,9 @@
   }
   :root[data-theme="dark"] .hl { background: none; color: var(--color-yellow); }
 }
+
+/* An indeterminate progress bar: a short segment travels along the track (transform only). */
+@keyframes bar-run {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
+}

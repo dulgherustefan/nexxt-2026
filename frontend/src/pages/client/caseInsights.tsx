@@ -299,7 +299,7 @@ export function LegalSourcesPanel({ grounding, onOpen }: { grounding: GroundingE
   return (
     <section aria-labelledby="legal-sources">
       <div className="mb-3">
-        <h2 id="legal-sources" className="text-[0.9333rem] font-semibold">Legal sources</h2>
+        <h3 id="legal-sources" className="text-[0.9333rem] font-semibold">Legal sources</h3>
         <p className="mt-0.5 text-[0.8667rem] text-muted">The passages the letter and the arguments rely on. Open one to read it.</p>
       </div>
       <HitList label="Legal sources">

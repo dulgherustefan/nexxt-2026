@@ -1,22 +1,27 @@
 import {
   ArrowLeft,
+  ArrowsCounterClockwise,
+  Bank,
   Check,
   CheckCircle,
+  CreditCard,
   Gavel,
+  ShieldWarning,
   SealCheck,
   SealWarning,
   ShieldCheck,
   Warning,
   X,
 } from "@phosphor-icons/react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Link, useParams } from "react-router";
 import { channelLabel, dateTime, hasAmount, money, questionLabel, shortHash, verdictLabel } from "../../api/format";
 import { useApi, useResource } from "../../api/runtime";
 import { useEventStream } from "../../api/sse";
 import type { CaseDetail, CounterfactualResult, Decision, Fact, FilterResult, KbHit, LedgerResponse, VerifyResult } from "../../api/types";
 import {
-  Badge, Banner, Button, cx, DeadlineText, EmptyState, ErrorNote, IdTag, KeyValues, Panel, SectionBoundary, Skeleton, Status, Tabs,
+  Badge, Banner, Button, cx, DeadlineText, EmptyState, ErrorNote, IdTag, Panel, PanelHeadingLevel, SectionBoundary, Skeleton, Status,
 } from "../../ui/kit";
 import {
   IdentificationPanel, isPickPending, LegalSourcesPanel, LinkedCasesPanel, NumericCheckItem, NumericMismatches, PickPaymentBanner, PrecedentsPanel,
@@ -27,9 +32,14 @@ import { PassageSheet, SourceChips } from "./knowledgeUi";
 
 type OpenPassage = (hit: KbHit, usedIn?: string[]) => void;
 
-type TabId = "evidence" | "rules" | "letter";
-
 const RELOAD_ON = new Set(["decision", "interrupt", "refund", "ledger_seal", "hold_signal", "wall_block", "diode", "match", "routing"]);
+
+/** The page follows the case: what the customer said, the refund, the recovery, the letter, the evidence file. */
+type SectionId = "claim" | "refund" | "recovery" | "letter" | "evidence";
+const SECTIONS: SectionId[] = ["claim", "refund", "recovery", "letter", "evidence"];
+
+/** How many evidence items show before "Show all". */
+const EVIDENCE_PREVIEW = 6;
 
 export default function CasePage() {
   const { id = "" } = useParams();
@@ -37,10 +47,16 @@ export default function CasePage() {
   const detail = useResource(() => api.caseDetail(id), [api, id], { pollMs: 2500 });
   const source = useMemo(() => api.caseEvents(id), [api, id]);
   const stream = useEventStream(source, id);
-  const [tab, setTab] = useState<TabId>("evidence");
   const [flash, setFlash] = useState<string | null>(null);
+  const [allEvidence, setAllEvidence] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [passage, setPassage] = useState<{ hit: KbHit; usedIn?: string[] } | null>(null);
   const openPassage: OpenPassage = (hit, usedIn) => setPassage({ hit, usedIn });
+  const d = detail.data;
+  const sign = useSignature(d, id, detail.reload);
+  const banner = useRef<HTMLDivElement>(null);
+  const bannerInView = useInView(banner, Boolean(d?.interrupt?.pending));
+  const active = useActiveSection(Boolean(d));
 
   useEffect(() => {
     const e = stream.last;
@@ -53,12 +69,16 @@ export default function CasePage() {
   }, [id]);
 
   const cite = (factId: string) => {
-    setTab("evidence");
+    const at = (d?.facts ?? []).findIndex((f) => f.fact_id === factId);
+    if (at >= EVIDENCE_PREVIEW) setAllEvidence(true);
     setFlash(factId);
     window.setTimeout(() => document.getElementById(`fact-${factId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 60);
   };
+  const showRules = () => {
+    setRulesOpen(true);
+    window.setTimeout(() => document.getElementById("case-rules")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  };
 
-  const d = detail.data;
   if (detail.error && !d) {
     return (
       <div className="flex flex-col gap-4">
@@ -69,55 +89,96 @@ export default function CasePage() {
   }
   if (!d) return <CaseSkeleton />;
 
-  return (
-    <div className="flex flex-col gap-6">
-      <CaseHeader d={d} />
-      {isPickPending(d)
-        ? <PickPaymentBanner d={d} caseId={id} events={stream.events} onDone={detail.reload} />
-        : d.interrupt?.pending && <SignatureBanner d={d} caseId={id} onDone={detail.reload} />}
-      {!d.interrupt?.pending && d.letter?.filter?.passed === false && (
-        <Banner
-          tone="danger"
-          icon={<Warning size={20} className="text-danger" />}
-          title="The letter check stopped the letter to the customer."
-          actions={<Button onClick={() => { setTab("letter"); document.getElementById("details")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>See what was stopped</Button>}
-        >
-          {d.letter.filter.blocked_terms?.length
-            ? <>It contains {d.letter.filter.blocked_terms.map((t) => `“${t}”`).join(", ")}, which can’t go to the customer. </>
-            : <>The check found something that can’t go to the customer. </>}
-          The refund isn’t affected. The letter only goes out after a person fixes it.
-        </Banner>
-      )}
-      <SectionBoundary label="Decision"><DecisionPanel d={d} onCite={cite} onRules={() => setTab("rules")} onPassage={openPassage} /></SectionBoundary>
+  const pending = Boolean(d.interrupt?.pending) && !isPickPending(d);
+  const agents = <SectionBoundary label="Agents"><LiveSteps d={d} events={stream.events} streamStatus={stream.status} /></SectionBoundary>;
 
-      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_22.5rem]">
-        <div id="details" className="min-w-0 scroll-mt-4">
-          <Tabs<TabId>
-            label="Case details"
-            value={tab}
-            onChange={setTab}
-            tabs={[
-              { id: "evidence", label: "Evidence", count: d.facts?.length ?? 0 },
-              { id: "rules", label: "Rules and deadlines", count: d.rules?.hits?.length ?? 0 },
-              { id: "letter", label: "Letter to the customer" },
-            ]}
-          />
-          <div className="pt-5">
-            <SectionBoundary label={tab}>
-              {tab === "evidence" && <EvidenceTab facts={d.facts ?? []} flash={flash} />}
-              {tab === "rules" && <RulesTab d={d} onPassage={openPassage} />}
-              {tab === "letter" && <LetterTab d={d} caseId={id} onCite={cite} onPassage={openPassage} />}
-            </SectionBoundary>
+  return (
+    <div className="flex flex-col gap-5">
+      <CaseHeader d={d} />
+      <div ref={banner} className="flex flex-col gap-3 empty:hidden">
+        {isPickPending(d)
+          ? <PickPaymentBanner d={d} caseId={id} events={stream.events} onDone={detail.reload} />
+          : pending && <SignatureBanner d={d} sign={sign} />}
+        {!d.interrupt?.pending && d.letter?.filter?.passed === false && (
+          <Banner
+            tone="danger"
+            icon={<Warning size={20} className="text-danger" />}
+            title="The letter check stopped the letter to the customer."
+            actions={<Button onClick={() => jumpTo("letter")}>See what was stopped</Button>}
+          >
+            {d.letter.filter.blocked_terms?.length
+              ? <>It contains {d.letter.filter.blocked_terms.map((t) => `“${t}”`).join(", ")}, which can’t go to the customer. </>
+              : <>The check found something that can’t go to the customer. </>}
+            The refund isn’t affected. The letter only goes out after a person fixes it.
+          </Banner>
+        )}
+      </div>
+
+      <CaseJourney
+        steps={journey(d)}
+        active={active}
+        action={pending && !bannerInView ? <div className="hidden sm:block"><CompactSignature sign={sign} /></div> : null}
+      />
+      {/* on a phone the step bar has no room for buttons: they sit at the bottom of the screen instead */}
+      {/* portalled: the page wrapper's enter animation would otherwise pin a fixed bar to the page, not the screen */}
+      {pending && !bannerInView && createPortal(
+        <div className="fixed inset-x-0 bottom-0 z-30 flex justify-end border-t border-line bg-paper/90 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md sm:hidden">
+          <CompactSignature sign={sign} both />
+        </div>,
+        document.body,
+      )}
+
+      <div className="xl:hidden">{agents}</div>
+
+      <div className="grid items-start gap-x-8 gap-y-10 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <PanelHeadingLevel.Provider value={3}>
+          <div className="flex min-w-0 flex-col gap-12">
+            <CaseSection id="claim" title="What the customer reported" meta={d.complaint?.received_at ? `Received ${dateTime(d.complaint.received_at)}` : undefined}>
+              <div className="grid items-start gap-4 lg:grid-cols-2">
+                <SectionBoundary label="Customer's message"><ComplaintPanel d={d} /></SectionBoundary>
+                <SectionBoundary label="Customer and payment"><IdentificationPanel d={d} /></SectionBoundary>
+              </div>
+              <SectionBoundary label="Linked cases"><div className="mt-4 empty:hidden"><LinkedCasesPanel d={d} /></div></SectionBoundary>
+            </CaseSection>
+
+            <CaseSection id="refund" title="Refund decision" meta={<RefundMeta d={d} />}>
+              <SectionBoundary label="Decision"><DecisionPanel d={d} onCite={cite} onRules={showRules} onPassage={openPassage} /></SectionBoundary>
+              <details
+                id="case-rules"
+                open={rulesOpen}
+                onToggle={(e) => setRulesOpen((e.currentTarget as HTMLDetailsElement).open)}
+                className="group mt-4 scroll-mt-40 lg:scroll-mt-28"
+              >
+                <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded-md text-[0.9333rem] font-medium text-ink-soft transition-colors hover:text-ink">
+                  <span aria-hidden className="grid size-5 place-items-center rounded-full bg-hover text-[0.75rem] transition-transform duration-200 group-open:rotate-90">›</span>
+                  Rules and deadlines
+                  <span className="tnum text-muted">{d.rules?.hits?.length ?? 0}</span>
+                </summary>
+                <div className="pt-4">
+                  <SectionBoundary label="Rules"><RulesTab d={d} onPassage={openPassage} /></SectionBoundary>
+                </div>
+              </details>
+            </CaseSection>
+
+            <CaseSection id="recovery" title="Getting the money back" meta="Drafts only. A person sends each one.">
+              <SectionBoundary label="Recovery"><RecoveryPanel d={d} /></SectionBoundary>
+            </CaseSection>
+
+            <CaseSection id="letter" title="Letter to the customer">
+              <SectionBoundary label="Letter"><LetterTab d={d} caseId={id} onCite={cite} onPassage={openPassage} /></SectionBoundary>
+            </CaseSection>
+
+            <CaseSection id="evidence" title="Evidence file" meta="Each item is hashed when collected.">
+              <SectionBoundary label="Evidence">
+                <EvidenceFile d={d} caseId={id} flash={flash} all={allEvidence} onShowAll={() => setAllEvidence(true)} />
+              </SectionBoundary>
+            </CaseSection>
           </div>
-        </div>
-        <aside className="flex flex-col gap-4">
-          <SectionBoundary label="Agents"><LiveSteps d={d} events={stream.events} streamStatus={stream.status} /></SectionBoundary>
-          <SectionBoundary label="Customer and payment"><IdentificationPanel d={d} /></SectionBoundary>
-          <SectionBoundary label="Linked cases"><LinkedCasesPanel d={d} /></SectionBoundary>
-          <SectionBoundary label="Recovery"><RecoveryPanel d={d} /></SectionBoundary>
+        </PanelHeadingLevel.Provider>
+
+        <aside aria-label="Case tools" className="flex flex-col gap-4 xl:sticky xl:top-28">
+          <div className="hidden xl:block">{agents}</div>
           <SectionBoundary label="Change a fact"><CounterfactualPanel d={d} caseId={id} /></SectionBoundary>
-          <SectionBoundary label="Evidence file"><LedgerPanel caseId={id} sealed={Boolean(d.ledger?.sealed)} count={d.ledger?.count ?? d.facts?.length ?? 0} /></SectionBoundary>
-          <SectionBoundary label="Customer's message"><ComplaintPanel d={d} /></SectionBoundary>
           <SectionBoundary label="Similar past cases"><PrecedentsPanel caseId={id} /></SectionBoundary>
         </aside>
       </div>
@@ -125,6 +186,190 @@ export default function CasePage() {
       {passage && <PassageSheet hit={passage.hit} onClose={() => setPassage(null)} note={passage.usedIn?.length ? usedInNote(passage.usedIn) : undefined} />}
     </div>
   );
+}
+
+// ---------------------------------------------------------------- the journey: five steps, each a section of the page
+
+type StepState = "done" | "now" | "running" | "stopped" | "todo";
+interface JourneyStep { id: SectionId; label: string; state: StepState; note: string }
+
+const CLOSED = ["RAMBURSAT", "RESPINS", "INCHIS", "EXCEPTIE", "TRASEU_APP"];
+
+/** Where the case stands on each of its five parts, read from the case itself. */
+function journey(d: CaseDetail): JourneyStep[] {
+  const status = String(d.summary.status);
+  const working = status === "IN_ANALIZA" || status === "NOU";
+  const pick = isPickPending(d);
+  const signing = Boolean(d.interrupt?.pending) && !pick;
+  const refund = d.decisions?.find((x) => x.question === "rambursare_t1");
+  const r = d.recovery;
+  const fraudster = d.decisions?.find((x) => x.question === "recuperare_escroc");
+  const facts = d.facts?.length ?? 0;
+  const later = (fallback: string): Pick<JourneyStep, "state" | "note"> =>
+    signing || pick ? { state: "todo", note: "After your decision" } : working ? { state: "running", note: fallback } : { state: "todo", note: "Not needed" };
+
+  const steps: JourneyStep[] = [
+    {
+      id: "claim", label: "Claim",
+      ...(pick ? { state: "now", note: "Pick the payment" }
+        : d.complaint ? { state: "done", note: d.match && !d.match.tx_id ? "Payment not found" : "Read and matched" }
+          : { state: "running", note: "Reading" }),
+    },
+    {
+      id: "refund", label: "Refund",
+      ...(signing ? { state: "now", note: "Needs your approval" }
+        : status === "RAMBURSAT" ? { state: "done", note: "Refunded" }
+          : status === "RESPINS" ? { state: "done", note: "Rejected" }
+            : status === "EXCEPTIE" ? { state: "done", note: "Exception signed" }
+              : status === "TRASEU_APP" ? { state: "done", note: "Recall route" }
+                : refund ? { state: "done", note: verdictLabel(refund.decision, refund.question) }
+                  : pick ? { state: "todo", note: "After the payment is picked" }
+                    : working ? { state: "running", note: "Applying the rules" } : { state: "todo", note: "Not yet" }),
+    },
+    {
+      id: "recovery", label: "Recovery",
+      ...(r?.chargeback?.eligible ? { state: "done", note: "Chargeback drafted" }
+        : r?.recall ? { state: "done", note: "Recall drafted" }
+          : r?.dnsc_report ? { state: "done", note: "Report drafted" }
+            : fraudster || r ? { state: "done", note: "Nothing to file" }
+              : later("Preparing drafts")),
+    },
+    {
+      id: "letter", label: "Letter",
+      ...(d.letter ? (d.letter.filter?.passed === false ? { state: "stopped", note: "Stopped by the check" } : { state: "done", note: "Passed the check" })
+        : later("Writing")),
+    },
+    {
+      id: "evidence", label: "Evidence",
+      ...(d.ledger?.sealed ? { state: "done", note: `${facts} items, sealed` }
+        : facts ? { state: working ? "running" : "done", note: `${facts} item${facts === 1 ? "" : "s"}` }
+          : working ? { state: "running", note: "Collecting" } : { state: "todo", note: "None yet" }),
+    },
+  ];
+  if (status === "EROARE") {
+    const first = steps.find((s) => s.state !== "done");
+    if (first) Object.assign(first, { state: "stopped", note: "Failed: restart the case" });
+  }
+  return steps;
+}
+
+function jumpTo(id: SectionId) {
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  document.getElementById(`case-${id}`)?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+}
+
+/** The section the reader is in: the first one crossing a band near the top of the screen. */
+function useActiveSection(ready: boolean): SectionId {
+  const [active, setActive] = useState<SectionId>("claim");
+  useEffect(() => {
+    if (!ready) return;
+    const seen = new Map<string, boolean>();
+    const obs = new IntersectionObserver((entries) => {
+      for (const e of entries) seen.set(e.target.id.slice(5), e.isIntersecting);
+      const first = SECTIONS.find((s) => seen.get(s));
+      if (first) setActive(first);
+    }, { rootMargin: "-160px 0px -55% 0px" });
+    for (const s of SECTIONS) {
+      const el = document.getElementById(`case-${s}`);
+      if (el) obs.observe(el);
+    }
+    return () => obs.disconnect();
+  }, [ready]);
+  return active;
+}
+
+function useInView(ref: React.RefObject<HTMLElement | null>, enabled: boolean): boolean {
+  const [inView, setInView] = useState(true);
+  useEffect(() => {
+    const el = ref.current;
+    if (!enabled || !el) return;
+    const obs = new IntersectionObserver(([e]) => setInView(e.isIntersecting), { rootMargin: "-64px 0px 0px 0px" });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [ref, enabled]);
+  return inView;
+}
+
+const BAR: Record<StepState, string> = {
+  done: "bg-ink",
+  now: "bg-yellow",
+  running: "bg-ink/25",
+  stopped: "bg-danger",
+  todo: "bg-transparent",
+};
+
+/** Sticky under the header: five steps, each one jumps to its section and says where that part stands. */
+function CaseJourney({ steps, active, action }: { steps: JourneyStep[]; active: SectionId; action: ReactNode }) {
+  return (
+    <nav
+      aria-label="Case sections"
+      className="sticky top-14 z-20 -mx-5 border-b border-line bg-paper/90 px-5 backdrop-blur-md sm:-mx-8 sm:px-8 lg:top-0 lg:-mx-10 lg:px-10"
+    >
+      <div className="flex items-center gap-5">
+        <ol className="grid min-w-0 flex-1 grid-cols-5 gap-1 py-2 sm:gap-1.5">
+          {steps.map((s) => {
+            const here = active === s.id;
+            return (
+              <li key={s.id} className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => jumpTo(s.id)}
+                  aria-current={here ? "location" : undefined}
+                  className={cx(
+                    "group flex w-full min-w-0 flex-col gap-1.5 rounded-lg px-2 py-1.5 text-left transition-colors duration-150",
+                    here ? "bg-hover" : "hover:bg-hover/60",
+                  )}
+                >
+                  <span aria-hidden className="relative block h-1 overflow-hidden rounded-full bg-line">
+                    <span
+                      className={cx(
+                        "absolute inset-0 origin-left rounded-full transition-[transform,background-color] duration-500 ease-[var(--ease-out)]",
+                        BAR[s.state],
+                        s.state === "todo" ? "scale-x-0" : "scale-x-100",
+                      )}
+                    />
+                    {s.state === "running" && <span className="absolute inset-y-0 left-0 w-1/3 animate-[bar-run_1.4s_var(--ease-in-out)_infinite] rounded-full bg-ink/60" />}
+                  </span>
+                  <span className={cx(
+                    "truncate text-[0.8rem] transition-colors sm:text-[0.8667rem]",
+                    here ? "font-semibold text-ink" : "font-medium text-ink-soft group-hover:text-ink",
+                  )}>
+                    {s.label}
+                  </span>
+                  <span className={cx(
+                    "hidden truncate text-[0.75rem] sm:block",
+                    s.state === "now" ? "font-medium text-ink" : s.state === "stopped" ? "text-danger" : "text-muted",
+                  )}>
+                    {s.note}
+                  </span>
+                  <span className="sr-only">: {s.note}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+        {action}
+      </div>
+    </nav>
+  );
+}
+
+function CaseSection({ id, title, meta, children }: { id: SectionId; title: string; meta?: ReactNode; children: ReactNode }) {
+  return (
+    <section id={`case-${id}`} aria-labelledby={`case-${id}-title`} className="scroll-mt-40 lg:scroll-mt-28">
+      <div className="mb-3.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 id={`case-${id}-title`} className="text-[1.1rem] font-semibold tracking-[-0.015em]">{title}</h2>
+        {meta && <div className="text-[0.8667rem] text-muted">{meta}</div>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function RefundMeta({ d }: { d: CaseDetail }) {
+  const deadline = d.clock?.t1_deadline ?? d.summary.deadline;
+  if (!deadline) return null;
+  return <span>Due <DeadlineText deadline={deadline} done={CLOSED.includes(String(d.summary.status))} /></span>;
 }
 
 // ---------------------------------------------------------------- header
@@ -200,13 +445,23 @@ const SIGN_COPY: Record<string, { yes: string; no: string; consequence: string }
   EXCEPTIE_FRAUDA_CLIENT: { yes: "Confirm exception", no: "Don’t confirm, refund", consequence: "No refund for now. Only use this if the authorities have been notified." },
 };
 
-function SignatureBanner({ d, caseId, onDone }: { d: CaseDetail; caseId: string; onDone: () => Promise<void> }) {
+interface Signature {
+  copy: { yes: string; no: string; consequence: string };
+  busy: "approve" | "reject" | null;
+  locked: boolean;
+  resuming: boolean;
+  error: string | null;
+  act: (action: "approve" | "reject") => Promise<void>;
+}
+
+/** One signature state, shared by the banner and the compact buttons in the step bar. */
+function useSignature(d: CaseDetail | undefined, caseId: string, onDone: () => Promise<void>): Signature {
   const api = useApi();
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const it = d.interrupt!;
-  const copy = SIGN_COPY[String(it.verdict)] ?? { yes: "Approve", no: "Decline", consequence: "The decision applies right away." };
-  const locked = Boolean(it.resuming) || busy !== null;
+  const it = d?.interrupt;
+  const copy = SIGN_COPY[String(it?.verdict)] ?? { yes: "Approve", no: "Decline", consequence: "The decision applies right away." };
+  const resuming = Boolean(it?.resuming);
   async function act(action: "approve" | "reject") {
     setBusy(action);
     setError(null);
@@ -219,19 +474,34 @@ function SignatureBanner({ d, caseId, onDone }: { d: CaseDetail; caseId: string;
       setBusy(null);
     }
   }
+  return { copy, busy, locked: resuming || busy !== null, resuming, error, act };
+}
+
+function SignatureBanner({ d, sign }: { d: CaseDetail; sign: Signature }) {
+  const it = d.interrupt!;
   return (
     <Banner
       tone="now"
       title={it.prompt ?? "This decision needs your approval."}
       actions={<>
-        <Button busy={busy === "reject"} disabled={locked} onClick={() => act("reject")}>{copy.no}</Button>
-        <Button variant="primary" busy={busy === "approve"} disabled={locked} onClick={() => act("approve")}>{copy.yes}</Button>
+        <Button busy={sign.busy === "reject"} disabled={sign.locked} onClick={() => sign.act("reject")}>{sign.copy.no}</Button>
+        <Button variant="primary" busy={sign.busy === "approve"} disabled={sign.locked} onClick={() => sign.act("approve")}>{sign.copy.yes}</Button>
       </>}
     >
-      {it.resuming ? "Signature received. Applying the decision…" : copy.consequence}
+      {sign.resuming ? "Signature received. Applying the decision…" : sign.copy.consequence}
       {it.rule_ids?.length ? <span className="ml-1 text-muted">Rules: {it.rule_ids.join(", ")}.</span> : null}
-      {error && <span className="mt-1 block font-medium text-danger">{error}.</span>}
+      {sign.error && <span className="mt-1 block font-medium text-danger">{sign.error}.</span>}
     </Banner>
+  );
+}
+
+/** The same two buttons, in the step bar, once the banner has scrolled away. */
+function CompactSignature({ sign, both = false }: { sign: Signature; both?: boolean }) {
+  return (
+    <div className="flex shrink-0 animate-enter items-center gap-2">
+      <Button size="sm" className={both ? undefined : "hidden md:inline-flex"} busy={sign.busy === "reject"} disabled={sign.locked} onClick={() => sign.act("reject")}>{sign.copy.no}</Button>
+      <Button size="sm" variant="primary" busy={sign.busy === "approve"} disabled={sign.locked} onClick={() => sign.act("approve")}>{sign.copy.yes}</Button>
+    </div>
   );
 }
 
@@ -289,7 +559,7 @@ function DecisionPanel({ d, onCite, onRules, onPassage }: { d: CaseDetail; onCit
               <Status tone="dark" live>Working on it</Status>
             )}
           </p>
-          <h2 className="mt-2 text-[1.45rem] leading-snug font-semibold tracking-[-0.02em]">{sentence.title}</h2>
+          <h3 className="mt-2 text-[1.4rem] leading-snug font-semibold tracking-[-0.02em]">{sentence.title}</h3>
           <p className="mt-1 text-muted">
             {!final && reason?.sentence ? reason.sentence : sentence.detail}
             {!final && reason?.rule_id && !refund?.rule_ids?.slice(0, 3).includes(reason.rule_id) ? <span className="id-text ml-1.5 text-[0.7667rem] text-subtle">{reason.rule_id}</span> : null}
@@ -395,23 +665,27 @@ function Arguments({ title, model, lines, onCite }: { title: string; model?: str
 
 function TrustLabel({ f }: { f: Fact }) {
   return f.labels?.trust === "untrusted"
-    ? <Status tone="warn">Untrusted</Status>
+    ? <Status tone="warn">Customer, untrusted</Status>
     : <Status tone="ok">Bank systems</Status>;
 }
 
-function EvidenceTab({ facts, flash }: { facts: Fact[]; flash: string | null }) {
+function EvidenceFile({ d, caseId, flash, all, onShowAll }: { d: CaseDetail; caseId: string; flash: string | null; all: boolean; onShowAll: () => void }) {
+  const facts = d.facts ?? [];
   if (!facts.length) return <EmptyState title="No evidence yet">The collectors add evidence here as they find it, each item with its source, time and hash.</EmptyState>;
+  const shown = all ? facts : facts.slice(0, EVIDENCE_PREVIEW);
+  const untrusted = facts.filter((f) => f.labels?.trust === "untrusted").length;
   return (
-    <div className="overflow-hidden rounded-2xl bg-paper shadow-[var(--shadow-card)]">
-      <div className="hidden grid-cols-[5.5rem_minmax(0,1fr)_9rem_7rem] gap-4 border-b border-line px-5 py-2.5 text-[0.8rem] text-subtle sm:grid">
-        <span>ID</span><span>What it shows</span><span>Trust</span><span>Hash</span>
+    <div className="overflow-hidden rounded-xl bg-paper shadow-[var(--shadow-card)]">
+      <SealStrip caseId={caseId} sealed={Boolean(d.ledger?.sealed)} count={d.ledger?.count ?? facts.length} untrusted={untrusted} />
+      <div className="hidden grid-cols-[5.5rem_minmax(0,1fr)_9rem_7rem] gap-4 border-y border-line bg-canvas px-5 py-2 text-[0.8rem] text-subtle sm:grid">
+        <span>ID</span><span>What it shows</span><span>Source</span><span>Hash</span>
       </div>
       <ul className="divide-y divide-line">
-        {facts.map((f) => (
+        {shown.map((f) => (
           <li
             key={f.fact_id}
             id={`fact-${f.fact_id}`}
-            className={cx("grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-4 gap-y-1 px-5 py-3.5 sm:grid-cols-[5.5rem_minmax(0,1fr)_9rem_7rem]", flash === f.fact_id && "animate-flash")}
+            className={cx("grid scroll-mt-40 grid-cols-[5.5rem_minmax(0,1fr)] gap-x-4 gap-y-1 px-5 py-3.5 sm:grid-cols-[5.5rem_minmax(0,1fr)_9rem_7rem]", flash === f.fact_id && "animate-flash")}
           >
             <span className="id-text text-[0.8rem] leading-6 font-medium text-subtle">{f.fact_id}</span>
             <div className="min-w-0">
@@ -424,6 +698,15 @@ function EvidenceTab({ facts, flash }: { facts: Fact[]; flash: string | null }) 
           </li>
         ))}
       </ul>
+      {!all && facts.length > EVIDENCE_PREVIEW && (
+        <button
+          type="button"
+          onClick={onShowAll}
+          className="flex w-full items-center justify-center gap-1.5 border-t border-line px-5 py-3 text-[0.9333rem] font-medium text-ink-soft transition-colors hover:bg-canvas hover:text-ink"
+        >
+          Show all {facts.length} items
+        </button>
+      )}
     </div>
   );
 }
@@ -528,6 +811,7 @@ function LetterTab({ d, caseId, onCite, onPassage }: { d: CaseDetail; caseId: st
   const [checked, setChecked] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkOpen, setCheckOpen] = useState(false);
   const blocked = letter?.filter?.passed === false;
   const letterSpans = blocked && letter
     ? (letter.filter?.term_spans?.length ? letter.filter.term_spans : spansFromTerms(letter.body, letter.filter?.blocked_terms))
@@ -536,6 +820,7 @@ function LetterTab({ d, caseId, onCite, onPassage }: { d: CaseDetail; caseId: st
     if (!letter) return;
     setDraft(letter.body);
     setResult(null);
+    setCheckOpen(true);
     window.setTimeout(() => {
       const box = document.getElementById("letter-check") as HTMLTextAreaElement | null;
       box?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -596,7 +881,12 @@ function LetterTab({ d, caseId, onCite, onPassage }: { d: CaseDetail; caseId: st
         </Panel>
       )}
 
-      <Panel title="Check a text before it goes out" description="Catches personal data and words that must not reach the customer.">
+      <details open={checkOpen} onToggle={(e) => setCheckOpen((e.currentTarget as HTMLDetailsElement).open)} className="group">
+        <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded-md text-[0.9333rem] font-medium text-ink-soft transition-colors hover:text-ink">
+          <span aria-hidden className="grid size-5 place-items-center rounded-full bg-hover text-[0.75rem] transition-transform duration-200 group-open:rotate-90">›</span>
+          Check another text before it goes out
+        </summary>
+      <Panel className="mt-4" description="Catches personal data and words that must not reach the customer.">
         <label htmlFor="letter-check" className="sr-only">Text to check</label>
         <textarea
           id="letter-check"
@@ -622,6 +912,7 @@ function LetterTab({ d, caseId, onCite, onPassage }: { d: CaseDetail; caseId: st
           </div>
         )}
       </Panel>
+      </details>
     </div>
   );
 }
@@ -672,50 +963,75 @@ function ChargebackStages({ current }: { current: number }) {
   );
 }
 
+function RecoveryRow({ icon, title, children, aside }: { icon: ReactNode; title: ReactNode; children?: ReactNode; aside?: ReactNode }) {
+  return (
+    <li className="flex gap-4 px-5 py-4">
+      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-hover text-ink-soft">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+          <p className="font-medium">{title}</p>
+          {aside}
+        </div>
+        {children}
+      </div>
+    </li>
+  );
+}
+
+const draft = <Badge>Draft</Badge>;
+
 function RecoveryPanel({ d }: { d: CaseDetail }) {
   const r = d.recovery;
   const fraudster = d.decisions?.find((x) => x.question === "recuperare_escroc");
-  if (!fraudster && !r?.chargeback && !r?.recall && !r?.dnsc_report) return null;
+  if (!fraudster && !r?.chargeback && !r?.recall && !r?.dnsc_report) {
+    return (
+      <EmptyState title={d.interrupt?.pending ? "Waiting for the refund decision" : "Nothing drafted yet"}>
+        After the refund, VersoML picks the route that can win: a card chargeback, a recall from the payee’s bank, and a phishing report.
+      </EmptyState>
+    );
+  }
   const cb = r?.chargeback;
   return (
-    <Panel title="Recovery" description="Drafts only. A person sends each one.">
-      <div className="flex flex-col gap-4">
-        {fraudster && (
-          <p className="text-[0.9333rem]">
-            <span className="font-medium">{verdictLabel(fraudster.decision, fraudster.question)}</span>
-            {fraudster.rule_ids?.length ? <span className="id-text ml-2 text-[0.7667rem] text-subtle">{fraudster.rule_ids.join(" · ")}</span> : null}
-          </p>
-        )}
-        {cb && (
-          <div className="flex flex-col gap-2.5">
-            <p className="text-[0.9333rem]">
-              <span className="font-medium">{cb.eligible ? `File chargeback${cb.reason_code ? ` ${cb.reason_code}` : ""}` : "Don’t file a chargeback"}</span>
-              {cb.explanation && <span className="mt-0.5 block text-muted">{cb.explanation}</span>}
-            </p>
-            {cb.eligible ? <ChargebackStages current={1} /> : null}
-          </div>
-        )}
-        {r?.recall && (
-          <div className="border-t border-line pt-3.5 text-[0.9333rem]">
-            <p className="font-medium">{RECALL_KIND[String(r.recall.kind)] ?? r.recall.kind}</p>
-            {r.recall.note && <p className="mt-0.5 text-muted">{r.recall.note}</p>}
-            {r.recall.xml && (
-              <details className="mt-2">
-                <summary className="cursor-pointer text-[0.8667rem] font-medium text-ink-soft underline underline-offset-2">camt.056 message (draft)</summary>
-                <pre className="mt-2 max-h-56 overflow-auto rounded-xl bg-canvas p-3 text-[0.72rem] leading-snug">{r.recall.xml}</pre>
-              </details>
-            )}
-          </div>
-        )}
-        {r?.dnsc_report && (
-          <details className="border-t border-line pt-3.5 text-[0.9333rem]">
-            <summary className="cursor-pointer font-medium">Phishing report for DNSC (draft)</summary>
-            {r.dnsc_report.title && <p className="mt-2 font-medium">{r.dnsc_report.title}</p>}
-            <p className="mt-1 whitespace-pre-wrap text-muted">{r.dnsc_report.text}</p>
+    <ul className="divide-y divide-line overflow-hidden rounded-xl bg-paper shadow-[var(--shadow-card)]">
+      {fraudster && (
+        <RecoveryRow
+          icon={<ArrowsCounterClockwise size={18} />}
+          title={verdictLabel(fraudster.decision, fraudster.question)}
+          aside={fraudster.rule_ids?.length ? <span className="id-text text-[0.7667rem] text-subtle">{fraudster.rule_ids.join(" · ")}</span> : null}
+        >
+          <ReasonLine reason={reasonFor(fraudster, d.reasons)} className="mt-0.5" />
+        </RecoveryRow>
+      )}
+      {cb && (
+        <RecoveryRow
+          icon={<CreditCard size={18} />}
+          title={cb.eligible ? `File a chargeback${cb.reason_code ? `, reason ${cb.reason_code}` : ""}` : "Don’t file a chargeback"}
+          aside={cb.eligible ? draft : null}
+        >
+          {cb.explanation && <p className="mt-0.5 text-[0.9333rem] text-muted">{cb.explanation}</p>}
+          {cb.eligible ? <div className="mt-3 max-w-[28rem]"><ChargebackStages current={1} /></div> : null}
+        </RecoveryRow>
+      )}
+      {r?.recall && (
+        <RecoveryRow icon={<Bank size={18} />} title={RECALL_KIND[String(r.recall.kind)] ?? r.recall.kind} aside={draft}>
+          {r.recall.note && <p className="mt-0.5 text-[0.9333rem] text-muted">{r.recall.note}</p>}
+          {r.recall.xml && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-[0.8667rem] font-medium text-ink-soft underline decoration-line-strong underline-offset-2 hover:text-ink">The camt.056 message</summary>
+              <pre className="mt-2 max-h-56 overflow-auto rounded-xl bg-canvas p-3 text-[0.72rem] leading-snug">{r.recall.xml}</pre>
+            </details>
+          )}
+        </RecoveryRow>
+      )}
+      {r?.dnsc_report && (
+        <RecoveryRow icon={<ShieldWarning size={18} />} title={r.dnsc_report.title || "Phishing report for DNSC"} aside={draft}>
+          <details className="mt-1">
+            <summary className="cursor-pointer text-[0.8667rem] font-medium text-ink-soft underline decoration-line-strong underline-offset-2 hover:text-ink">Read the report</summary>
+            <p className="mt-2 max-w-[70ch] text-[0.9333rem] whitespace-pre-wrap text-muted">{r.dnsc_report.text}</p>
           </details>
-        )}
-      </div>
-    </Panel>
+        </RecoveryRow>
+      )}
+    </ul>
   );
 }
 
@@ -767,7 +1083,7 @@ function CounterfactualPanel({ d, caseId }: { d: CaseDetail; caseId: string }) {
   );
 }
 
-function LedgerPanel({ caseId, sealed, count }: { caseId: string; sealed: boolean; count: number }) {
+function SealStrip({ caseId, sealed, count, untrusted }: { caseId: string; sealed: boolean; count: number; untrusted: number }) {
   const api = useApi();
   const [ledger, setLedger] = useState<LedgerResponse | null>(null);
   const [verify, setVerify] = useState<VerifyResult | null>(null);
@@ -790,31 +1106,43 @@ function LedgerPanel({ caseId, sealed, count }: { caseId: string; sealed: boolea
   const qrSvg = ledger?.seal?.qr_svg;
   const qr = qrSvg && !qrSvg.includes("xmlns=") ? qrSvg.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ') : qrSvg;
   return (
-    <Panel title="Evidence file">
-      <KeyValues rows={[
-        ["Items", <span className="tnum">{count}</span>],
-        ["Sealed", sealed ? "Yes, Merkle root signed with Ed25519" : "Not yet (when the case closes)"],
-        ledger?.seal ? ["Root", <span className="font-mono text-[0.75rem]" title={ledger.seal.root}>{shortHash(ledger.seal.root, 12)}</span>] : null,
-      ]} />
-      <Button className="mt-4" size="sm" busy={busy} onClick={check}>Verify integrity</Button>
+    <div className="px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className={cx("grid size-9 shrink-0 place-items-center rounded-full", sealed ? "bg-ok-soft text-ok" : "bg-hover text-muted")}>
+            {sealed ? <SealCheck size={18} weight="fill" /> : <SealCheck size={18} />}
+          </span>
+          <p className="min-w-0 leading-tight">
+            <span className="block font-medium">{sealed ? "Sealed and signed" : "Not sealed yet"}</span>
+            <span className="mt-0.5 block text-[0.8667rem] text-muted">
+              <span className="tnum">{count}</span> items{untrusted ? <> · <span className="tnum">{untrusted}</span> from the customer, marked untrusted</> : null}
+              {sealed ? " · Merkle root signed with Ed25519" : " · the seal goes on when the case closes"}
+            </span>
+          </p>
+        </div>
+        <Button size="sm" busy={busy} onClick={check}>Verify integrity</Button>
+      </div>
       {error && <p className="mt-2 text-[0.9333rem] text-danger">{error}.</p>}
       {verify && (
-        <div className="mt-4">
-          <p className={cx("flex items-center gap-2 font-medium", verify.valid ? "text-ok" : "text-danger")}>
-            {verify.valid ? <><SealCheck size={18} /> File intact</> : <><SealWarning size={18} /> {sealed ? "Doesn’t verify" : "Not sealed yet"}</>}
-          </p>
-          <ul className="mt-2 flex flex-col gap-1 text-[0.8667rem]">
-            {verify.checks.map((c, i) => (
-              <li key={i} className="flex items-start gap-1.5">
-                {c.ok ? <CheckCircle size={15} weight="fill" className="mt-0.5 shrink-0 text-ok" /> : <X size={15} className="mt-0.5 shrink-0 text-danger" />}
-                <span className="text-ink-soft">{c.name}</span>
-              </li>
-            ))}
-          </ul>
-          {qr && <img className="mt-3 size-28 rounded-lg bg-paper ring-1 ring-line" alt="QR code with the signed root of the evidence file" src={`data:image/svg+xml;utf8,${encodeURIComponent(qr)}`} />}
+        <div className="mt-4 flex animate-enter flex-wrap items-start gap-5 rounded-xl bg-canvas px-4 py-3">
+          <div className="min-w-[14rem] flex-1">
+            <p className={cx("flex items-center gap-2 font-medium", verify.valid ? "text-ok" : "text-danger")}>
+              {verify.valid ? <><SealCheck size={18} /> File intact</> : <><SealWarning size={18} /> {sealed ? "Doesn’t verify" : "Not sealed yet"}</>}
+            </p>
+            <ul className="mt-2 grid gap-1 text-[0.8667rem] sm:grid-cols-2">
+              {verify.checks.map((c, i) => (
+                <li key={i} className="flex items-start gap-1.5">
+                  {c.ok ? <CheckCircle size={15} weight="fill" className="mt-0.5 shrink-0 text-ok" /> : <X size={15} className="mt-0.5 shrink-0 text-danger" />}
+                  <span className="text-ink-soft">{c.name}</span>
+                </li>
+              ))}
+            </ul>
+            {ledger?.seal && <p className="mt-2 text-[0.8rem] text-muted">Root <span className="font-mono" title={ledger.seal.root}>{shortHash(ledger.seal.root, 12)}</span></p>}
+          </div>
+          {qr && <img className="size-24 rounded-lg bg-white p-1 ring-1 ring-line" alt="QR code with the signed root of the evidence file" src={`data:image/svg+xml;utf8,${encodeURIComponent(qr)}`} />}
         </div>
       )}
-    </Panel>
+    </div>
   );
 }
 

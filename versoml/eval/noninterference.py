@@ -1,10 +1,10 @@
-"""Testul de neinterferență (stratul 6 al zidului), rulat într-un proces separat, pe un director var/ separat.
+"""The non-interference test (layer 6 of the wall), run in its own process, on its own var/ directory.
 
-1. Seed nou, LLM offline (determinist), OSINT pe înregistrări.
-2. Rulează graful real al Judecătorului pe scenarii cu zona AML GOALĂ.
-3. Umple baza AML cu dosare adversariale: canary-uri, text de tipping-off, „HOLD" în text liber.
-4. Rulează din nou aceleași cazuri. Deciziile trebuie să fie identice, iar toate ieșirile zonei client
-   (cazuri, scrisori, evenimente, registru) trebuie să aibă zero canary și zero termeni interziși.
+1. A fresh seed, the LLM offline (deterministic), OSINT from recordings.
+2. Run the dispute judge's real graph on the scenarios with an EMPTY AML zone.
+3. Fill the AML database with adversarial files: canary tokens, tipping-off text, "HOLD" in free text.
+4. Run the same cases again. The decisions must be identical, and every client-zone output (cases, letters,
+   events, ledger) must hold zero canary tokens and zero forbidden terms.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ async def _run_cases(service, scenarios: list[str]) -> dict[str, dict]:
             await asyncio.sleep(0.25)
             doc = service.rt.cases.get(case_id) or {}
             if (doc.get("interrupt") or {}).get("pending"):
-                await service.approve(case_id, "approve", "aprobare automată (test)", "OPERATOR-TEST")
+                await service.approve(case_id, "approve", "automatic approval (test)", "OPERATOR-TEST")
             if doc.get("finished_at") or doc.get("status") == "EROARE":
                 break
         doc = service.rt.cases.get(case_id) or {}
@@ -39,7 +39,7 @@ async def _run_cases(service, scenarios: list[str]) -> dict[str, dict]:
 
 
 def _plant_adversarial(settings, canaries) -> list[str]:
-    """Scrie în baza AML dosare pline de canary și text de tipping-off."""
+    """Writes AML files full of canary tokens and tipping-off text into the AML database."""
     from versoml.shared.store import JsonStore
 
     leads = JsonStore(settings.aml_db, "versoml_leads", ("status", "recommendation"))
@@ -48,9 +48,9 @@ def _plant_adversarial(settings, canaries) -> list[str]:
         token = canaries.mint(f"PL-ADV{i}")
         tokens.append(token)
         leads.put(f"PL-ADV{i}", {"lead_id": f"PL-ADV{i}", "status": "RTS_DEPUS", "canary": token,
-                                 "rts": {"narrative": [{"text": f"Raport de tranzacție suspectă transmis la ONPCSB {token}",
+                                 "rts": {"narrative": [{"text": f"Suspicious transaction report sent to ONPCSB {token}",
                                                         "cites": []}]},
-                                 "note": f"HOLD: clientul e suspect de spălare de bani {token}"})
+                                 "note": f"HOLD: the customer is suspected of money laundering {token}"})
     return tokens
 
 
@@ -127,4 +127,4 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-    os._exit(0)  # niciun fir rămas deschis nu ține procesul de evaluare
+    os._exit(0)  # no thread left open keeps the evaluation process alive

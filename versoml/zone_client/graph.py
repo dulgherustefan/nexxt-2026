@@ -1,4 +1,4 @@
-"""Graful Judecătorului (LangGraph): colectori în paralel, întrerupere pentru semnătura umană."""
+"""The dispute judge's graph (LangGraph): collectors in parallel, an interrupt for human approval."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ def build_graph(checkpointer=None):
     graph.add_edge(COLLECTORS, "motor_reguli")
     graph.add_edge("motor_reguli", "outbox_aml")
     graph.add_edge("outbox_aml", "rambursare")
-    # dezbaterea și recuperarea nu depind una de alta: rulează în paralel, după rambursare
+    # the debate and the recovery do not depend on each other: they run in parallel, after the refund
     graph.add_edge("rambursare", "dezbatere")
     graph.add_edge("rambursare", "recuperare")
     graph.add_edge(["dezbatere", "recuperare"], "redactor")

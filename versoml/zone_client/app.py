@@ -1,4 +1,4 @@
-"""Aplicația zonei client (port 8000): API-ul consolei de contestații, Banca Demo și UI-ul."""
+"""The client zone app (port 8000): the disputes console API, the Demo Bank app and the website."""
 
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ async def lifespan(app: FastAPI):
                 pass
 
     async with AsyncExitStack() as stack:
-        if MCP_APP is not None:  # managerul de sesiuni al MCP-ului prin HTTP
+        if MCP_APP is not None:  # the session manager of MCP over HTTP
             await stack.enter_async_context(MCP_APP.router.lifespan_context(MCP_APP))
         task = asyncio.create_task(outbox_loop())
         yield
@@ -85,7 +85,7 @@ async def lifespan(app: FastAPI):
         await service.close()
 
 
-app = FastAPI(title="VersoML · zona client", version=__version__, lifespan=lifespan)
+app = FastAPI(title="VersoML · client zone", version=__version__, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
                    allow_methods=["*"], allow_headers=["*"])
 
@@ -94,7 +94,7 @@ def svc():
     return get_service()
 
 
-# ---------------------------------------------------------------- meta și statistici
+# ---------------------------------------------------------------- meta and statistics
 
 
 @app.get("/api/meta")
@@ -116,17 +116,17 @@ def scenarios() -> list[dict]:
     return svc().scenarios()
 
 
-# ---------------------------------------------------------------- cazuri
+# ---------------------------------------------------------------- cases
 
 
 @app.post("/api/cases")
 async def create_case(body: CreateCase) -> dict:
     if not body.scenario_id and not body.complaint:
-        raise HTTPException(400, "Trimite scenario_id sau complaint.")
+        raise HTTPException(400, "Send scenario_id or complaint.")
     try:
         case_id = svc().create_case(body.scenario_id, body.complaint)
     except KeyError as exc:
-        raise HTTPException(404, f"Scenariu necunoscut: {exc}") from exc
+        raise HTTPException(404, f"Unknown scenario: {exc}") from exc
     return {"case_id": case_id}
 
 
@@ -139,7 +139,7 @@ def list_cases() -> list[dict]:
 def case_detail(case_id: str) -> dict:
     detail = svc().detail(case_id)
     if not detail:
-        raise HTTPException(404, "Caz inexistent")
+        raise HTTPException(404, "No such case")
     return detail
 
 
@@ -148,7 +148,7 @@ async def run_case(case_id: str) -> dict:
     try:
         return {"run_id": await svc().run_case(case_id)}
     except KeyError as exc:
-        raise HTTPException(404, "Caz inexistent") from exc
+        raise HTTPException(404, "No such case") from exc
 
 
 @app.get("/api/cases/{case_id}/events")
@@ -182,7 +182,7 @@ async def ticker(request: Request):
 @app.post("/api/cases/{case_id}/approve")
 async def approve(case_id: str, body: Approve) -> dict:
     if body.action not in ("approve", "reject"):
-        raise HTTPException(400, "action trebuie să fie approve sau reject")
+        raise HTTPException(400, "action must be approve or reject")
     return await svc().approve(case_id, body.action, body.note, body.approver)
 
 
@@ -199,7 +199,7 @@ def letter_check(case_id: str, body: LetterCheck) -> dict:
     return result
 
 
-# ---------------------------------------------------------------- registrul de probe
+# ---------------------------------------------------------------- the evidence ledger
 
 
 @app.get("/api/ledger/{case_id}")
@@ -222,12 +222,12 @@ async def verify(request: Request) -> dict:
     body = await request.json()
     rt = svc().rt
     if "zone" not in body and body.get("case_id"):
-        # UI-ul trimite {case_id, facts, seal} din /api/ledger; restul dosarului îl completăm din registru
+        # the website sends {case_id, facts, seal} from /api/ledger; the rest of the file comes from the ledger
         body = {**rt.ledger.export_dossier(body["case_id"]), **{k: v for k, v in body.items() if v is not None}}
     return verify_dossier(body, public_key=rt.ledger.public_key())
 
 
-# ---------------------------------------------------------------- reguli
+# ---------------------------------------------------------------- rules
 
 
 @app.get("/api/rules")
@@ -254,7 +254,7 @@ async def rules_params_set(request: Request) -> dict:
         raise HTTPException(400, str(exc)) from exc
 
 
-# ---------------------------------------------------------------- zidul
+# ---------------------------------------------------------------- the wall
 
 
 @app.get("/api/wall")
@@ -273,12 +273,12 @@ async def diode_hold(request: Request) -> dict:
     signature = request.headers.get("X-VersoML-Signature", "")
     try:
         signal = svc().rt.diode.receive_hold(raw, signature)
-    except Exception as exc:  # noqa: BLE001 - orice abatere de la schemă sau semnătură e refuz
-        raise HTTPException(400, f"HoldSignal respins: {type(exc).__name__}") from exc
+    except Exception as exc:  # noqa: BLE001 - anything off the schema or the signature is refused
+        raise HTTPException(400, f"HoldSignal rejected: {type(exc).__name__}") from exc
     return svc().receive_hold(signal)
 
 
-# ---------------------------------------------------------------- evaluare și MCP
+# ---------------------------------------------------------------- evaluation and MCP
 
 
 @app.get("/api/eval")
@@ -286,7 +286,7 @@ def eval_report() -> dict:
     path = svc().rt.settings.var_dir / "eval" / "report.json"
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
-    return {"status": "missing", "message": "Rulează `versoml eval` ca să generezi raportul."}
+    return {"status": "missing", "message": "No evaluation report yet. Run `versoml eval`."}
 
 
 @app.get("/api/mcp")
@@ -296,7 +296,7 @@ def mcp_info() -> dict:
     return info(svc().rt.client_url())
 
 
-# ---------------------------------------------------------------- Banca Demo
+# ---------------------------------------------------------------- Demo Bank
 
 
 @app.get("/api/bank/{customer_ref}")
@@ -311,20 +311,20 @@ async def bank_dispute(customer_ref: str, body: BankDispute) -> dict:
 
 @app.post("/api/demo/scam")
 async def demo_scam(body: DemoScam) -> dict:
-    # async: plata pornește și fluxul spre AML ca task în bucla de evenimente
+    # async: the payment also starts the feed to AML, as a task on the event loop
     return svc().demo_scam(body.customer_ref)
 
 
 @app.post("/api/demo/reset")
 def demo_reset() -> dict:
-    """Golește cazurile și notificările (pentru repetițiile de demo)."""
+    """Clears the cases and notifications (for demo rehearsals)."""
     rt = svc().rt
     rt.cases.clear()
     rt.notifications.clear()
     return {"ok": True}
 
 
-# ---------------------------------------------------------------- MCP prin HTTP și UI
+# ---------------------------------------------------------------- MCP over HTTP and the website
 
 
 MCP_APP = None
@@ -337,8 +337,8 @@ def _mount_mcp() -> None:
 
         MCP_APP = http_app(Zone.CLIENT)
         app.mount("/mcp", MCP_APP)
-    except Exception as exc:  # noqa: BLE001 - UI-ul și API-ul merg și fără MCP prin HTTP
-        log.warning("MCP prin HTTP indisponibil: %s", exc)
+    except Exception as exc:  # noqa: BLE001 - the website and the API work without MCP over HTTP
+        log.warning("MCP over HTTP unavailable: %s", exc)
 
 
 _mount_mcp()
@@ -357,4 +357,4 @@ def spa(path: str):
     index = DIST / "index.html"
     if index.exists():
         return FileResponse(index)
-    return JSONResponse({"zone": "client", "ui": "frontend/dist lipsește: rulează `npm run build` în frontend/"})
+    return JSONResponse({"zone": "client", "ui": "frontend/dist is missing: run `npm run build` in frontend/"})

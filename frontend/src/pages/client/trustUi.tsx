@@ -1,21 +1,37 @@
 /**
- * Piese comune pentru paginile de încredere (Zidul, Reguli, Evaluare, MCP):
- * plurale în română, copiere cu rezervă, bloc de cod, căutare fără diacritice.
+ * Shared pieces for the Rules, Evaluation and MCP pages: copy to clipboard with a fallback,
+ * code blocks, accent-insensitive search and a few text helpers.
  */
-import { Check, Copy } from "lucide-react";
+import { Check, Copy } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
-import { num } from "../../api/format";
+import { isValidDate, num, TZ } from "../../api/format";
 import { cx } from "../../ui/kit";
 
-/** 1 regulă · 3 reguli · 20 de reguli · 101 reguli · 120 de reguli. */
-export function ro(n: number, one: string, many: string): string {
-  if (n === 1) return `1 ${one}`;
-  const rest = Math.abs(n) % 100;
-  const de = n !== 0 && (rest === 0 || rest >= 20);
-  return `${num(n)} ${de ? "de " : ""}${many}`;
+// ---------------------------------------------------------------- text
+
+/** "29 Oct 2026, 23:59", Bucharest time. `null` when the value isn't a date. */
+export function dateTimeYear(v: string | number | Date | null | undefined): string | null {
+  if (v === null || v === undefined || v === "" || !isValidDate(v)) return null;
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: TZ, day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).format(v instanceof Date ? v : new Date(v));
 }
 
-/** Pentru căutare: fără diacritice, litere mici, cedila tratată ca virgula. */
+/**
+ * A few backend texts still say "T+1". The console says "next business day" instead,
+ * so the same deadline never has two names.
+ */
+export function withoutT1(text: string): string {
+  return text
+    .replace(/\s*\(T\+1\)/g, "")
+    .replace(/^T\+1 clock\b/, "Refund deadline clock")
+    .replace(/^T\+1 runs from\b/, "The refund deadline runs from")
+    .replace(/\bthe T\+1 (refund|deadline)\b/g, "the next-business-day $1")
+    .replace(/\bT\+1 (refund|deadline)\b/g, "next-business-day $1")
+    .replace(/\bT\+1\b/g, "next business day");
+}
+
+/** For search: no accents, lower case. */
 export function fold(s: string | null | undefined): string {
   return (s ?? "")
     .normalize("NFD")
@@ -23,7 +39,17 @@ export function fold(s: string | null | undefined): string {
     .toLowerCase();
 }
 
-/** Clipboard API când există (context securizat), altfel `execCommand("copy")`. */
+/** Romanian plural (1 regulă, 3 reguli, 20 de reguli). Only the legacy wall page still uses it. */
+export function ro(n: number, one: string, many: string): string {
+  if (n === 1) return `1 ${one}`;
+  const rest = Math.abs(n) % 100;
+  const de = n !== 0 && (rest === 0 || rest >= 20);
+  return `${num(n)} ${de ? "de " : ""}${many}`;
+}
+
+// ---------------------------------------------------------------- clipboard
+
+/** The Clipboard API when the page is in a secure context, `execCommand("copy")` otherwise. */
 export async function copyText(text: string): Promise<boolean> {
   try {
     if (window.isSecureContext && navigator.clipboard?.writeText) {
@@ -31,7 +57,7 @@ export async function copyText(text: string): Promise<boolean> {
       return true;
     }
   } catch {
-    /* trecem la varianta veche */
+    /* fall through to the older way */
   }
   try {
     const ta = document.createElement("textarea");
@@ -59,60 +85,114 @@ function selectContents(el: HTMLElement | null) {
   sel?.addRange(range);
 }
 
-/** Bloc de cod copiabil. Dacă browserul refuză copierea, textul rămâne selectat pentru Ctrl+C. */
-export function CodeBlock({ code, label, className }: { code: string; label?: string; className?: string }) {
-  const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
-  const pre = useRef<HTMLPreElement>(null);
+/**
+ * A quiet copy button: "Copy" turns into "Copied" for a moment. If the browser refuses,
+ * `onFail` runs so the caller can select the text for a manual copy.
+ */
+export function CopyButton({ text, label = "Copy", onFail, className }: {
+  text: string; label?: string; onFail?: () => void; className?: string;
+}) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
-  useEffect(() => setState("idle"), [code]);
+  const done = copied === text;
 
   async function onCopy() {
-    const ok = await copyText(code);
+    const ok = await copyText(text);
     window.clearTimeout(timer.current);
-    if (ok) {
-      setState("copied");
-      timer.current = window.setTimeout(() => setState("idle"), 2000);
-    } else {
-      setState("manual");
-      selectContents(pre.current);
+    setFailed(!ok);
+    if (!ok) {
+      setCopied(null);
+      onFail?.();
+      return;
     }
+    setCopied(text);
+    timer.current = window.setTimeout(() => setCopied(null), 1600);
   }
 
   return (
-    <div className={cx("overflow-hidden rounded-md border border-line bg-canvas", className)}>
-      <div className="flex min-h-10 items-center justify-between gap-3 border-b border-line bg-paper px-3 py-1.5">
-        <span className="text-[0.8667rem] font-semibold text-muted">{label}</span>
-        <button
-          type="button"
-          onClick={onCopy}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line-strong bg-paper px-2.5 text-[0.8667rem] font-semibold hover:bg-hover"
-        >
-          {state === "copied" ? <Check aria-hidden className="size-3.5 text-ok" /> : <Copy aria-hidden className="size-3.5" />}
-          <span aria-live="polite">{state === "copied" ? "Copiat" : "Copiază"}</span>
-        </button>
+    <>
+      <button
+        type="button"
+        onClick={onCopy}
+        className={cx(
+          "press inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[0.8rem] font-medium transition-colors",
+          done ? "text-ink" : "text-ink-soft hover:bg-hover hover:text-ink",
+          className,
+        )}
+      >
+        {done ? <Check aria-hidden size={14} weight="bold" className="text-ok" /> : <Copy aria-hidden size={14} className="text-subtle" />}
+        {done ? "Copied" : label}
+      </button>
+      <span className="sr-only" role="status" aria-live="polite">
+        {done ? "Copied to the clipboard." : failed ? "Copying didn't work. The text is selected, so you can copy it yourself." : ""}
+      </span>
+    </>
+  );
+}
+
+function ManualCopyNote() {
+  return (
+    <p className="border-t border-line bg-paper px-4 py-2 text-[0.8rem] text-muted">
+      This browser blocked copying. The text is selected: press ⌘C on a Mac or Ctrl+C elsewhere.
+    </p>
+  );
+}
+
+// ---------------------------------------------------------------- code
+
+/** A labeled, copyable block of code or configuration. */
+export function CodeBlock({ code, label, className }: { code: string; label?: string; className?: string }) {
+  const pre = useRef<HTMLPreElement>(null);
+  const [manual, setManual] = useState(false);
+  return (
+    <div className={cx("overflow-hidden rounded-xl bg-canvas ring-1 ring-inset ring-line", className)}>
+      <div className="flex h-10 items-center justify-between gap-3 border-b border-line bg-paper pr-1.5 pl-4">
+        <span className="truncate text-[0.8rem] font-medium text-muted">{label}</span>
+        <CopyButton text={code} onFail={() => { setManual(true); selectContents(pre.current); }} />
       </div>
-      <pre ref={pre} className="overflow-x-auto px-3 py-2.5 font-mono text-[0.8667rem] leading-relaxed whitespace-pre text-ink">{code}</pre>
-      {state === "manual" && (
-        <p className="border-t border-line bg-paper px-3 py-1.5 text-[0.8667rem] text-muted">
-          Browserul nu permite copierea automată aici. Textul e selectat: apasă Ctrl+C (⌘C pe Mac).
-        </p>
-      )}
+      <pre
+        ref={pre}
+        tabIndex={0}
+        className="max-h-[28rem] overflow-auto px-4 py-3 font-mono text-[0.8rem] leading-relaxed whitespace-pre text-ink-soft"
+      >
+        {code}
+      </pre>
+      {manual && <ManualCopyNote />}
     </div>
   );
 }
 
-/** Cod scurt în text: doar pentru comenzi și identificatori. */
-export function InlineCode({ children }: { children: string }) {
-  return <code className="rounded-sm border border-line bg-canvas px-1 py-px font-mono text-[0.8667rem]">{children}</code>;
+/** One shell command with a prompt sign and a copy button. */
+export function CommandLine({ command, className }: { command: string; className?: string }) {
+  const code = useRef<HTMLElement>(null);
+  const [manual, setManual] = useState(false);
+  return (
+    <div className={cx("w-full overflow-hidden rounded-xl bg-paper text-left shadow-[var(--shadow-card)]", className)}>
+      <div className="flex h-11 items-center gap-3 pr-1.5 pl-4">
+        <span aria-hidden className="font-mono text-[0.8667rem] text-subtle select-none">$</span>
+        <code ref={code} className="min-w-0 flex-1 overflow-x-auto font-mono text-[0.8667rem] whitespace-nowrap text-ink">
+          {command}
+        </code>
+        <CopyButton text={command} label="Copy command" onFail={() => { setManual(true); selectContents(code.current); }} />
+      </div>
+      {manual && <ManualCopyNote />}
+    </div>
+  );
 }
 
-/** Tabel standard, aliniat cu lista de contestații. */
+/** Short code inside a sentence: commands and identifiers only. */
+export function InlineCode({ children }: { children: string }) {
+  return <code className="rounded-md bg-hover px-1.5 py-0.5 font-mono text-[0.8rem] text-ink-soft">{children}</code>;
+}
+
+/** Table classes for the legacy wall page, in the console's list style. */
 export const TABLE = {
-  wrap: "overflow-x-auto rounded-lg border border-line bg-paper",
+  wrap: "overflow-x-auto rounded-2xl bg-paper shadow-[var(--shadow-card)]",
   table: "w-full border-collapse text-left",
-  headRow: "border-b border-line bg-canvas text-[0.8667rem] text-muted",
-  th: "px-4 py-2.5 font-semibold",
+  headRow: "border-b border-line text-[0.8rem] text-subtle",
+  th: "px-5 py-2.5 font-normal",
   row: "border-b border-line last:border-b-0 align-top",
-  td: "px-4 py-3",
+  td: "px-5 py-3",
 };

@@ -1,527 +1,295 @@
-import { CircleCheck, CircleMinus, CircleX, FileQuestion, RefreshCw } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
-import { dateTime, relative, statusLabel } from "../../api/format";
+import { ArrowClockwise, CaretRight, ChartLineUp } from "@phosphor-icons/react";
+import { useMemo, useState } from "react";
+import { clock, num, relative, scenarioLabel, verdictLabel } from "../../api/format";
 import { useApi, useResource } from "../../api/runtime";
-import { Badge, Button, cx, EmptyState, ErrorNote, KeyValues, PageHeader, Panel, SectionBoundary, Skeleton, useNowTick } from "../../ui/kit";
-import {
-  APPROX_TOLERANCE,
-  get,
-  isObj,
-  normalizeEval,
-  outcome,
-  pct,
-  showMetric,
-  showTarget,
-  showValue,
-  type EvalRow,
-  type Obj,
-  type Outcome,
-} from "./evalReport";
-import { CodeBlock, InlineCode, TABLE } from "./trustUi";
+import { Badge, Button, cx, Dot, EmptyState, ErrorNote, IdTag, PageHeader, SectionBoundary, Skeleton, Status, useNowTick, type Tone } from "../../ui/kit";
+import { METRIC_GROUPS, normalizeEval, type EvalModel, type Failure, type Metric } from "./evalReport";
+import { CommandLine, CopyButton, dateTimeYear } from "./trustUi";
+
+type Report = Extract<EvalModel, { kind: "report" }>;
+
+const COMMAND = "uv run versoml eval --fast";
 
 const LLM_MODE: Record<string, string> = {
-  live: "LLM live (Claude pe Bedrock)",
-  replay: "LLM în replay (răspunsuri înregistrate)",
-  offline: "fără LLM (reguli și șabloane)",
+  live: "Live model on Amazon Bedrock",
+  replay: "Recorded model answers",
+  offline: "No model, rules and templates only",
 };
+
+const OUTCOME: Record<Metric["outcome"], { word: string; tone: Tone }> = {
+  pass: { word: "Pass", tone: "ok" },
+  fail: { word: "Fail", tone: "danger" },
+  none: { word: "No data", tone: "neutral" },
+};
+
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
+/** "a", "a and b", "a, b, and c". */
+function listOf(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
 
 export default function EvalPage() {
   const api = useApi();
   const res = useResource(() => api.evalReport(), [api]);
   const model = useMemo(() => (res.data ? normalizeEval(res.data) : null), [res.data]);
-  const now = useNowTick(60_000);
+  const [checking, setChecking] = useState(false);
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
 
-  const reloadButton = (
-    <Button icon={<RefreshCw aria-hidden className="size-4" />} busy={res.loading && Boolean(res.data)} onClick={() => void res.reload()}>
-      Reîncarcă raportul
-    </Button>
-  );
+  async function check() {
+    setChecking(true);
+    await res.reload();
+    setChecking(false);
+    setCheckedAt(Date.now());
+  }
 
   return (
     <>
       <PageHeader
-        title="Evaluare"
-        description="Ce am măsurat pe date sintetice: regulile pe setul de aur, zidul, confidențialitatea, injecțiile și modelele ML."
-        actions={model?.kind === "report" ? reloadButton : undefined}
-      >
-        {model?.kind === "report" && (
-          <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.9333rem]">
-            <span>
-              Generat <span className="font-semibold">{dateTime(model.at)}</span>
-              {model.at && <span className="text-muted"> ({relative(model.at, now)})</span>}
-            </span>
-            <span aria-hidden className="text-subtle">·</span>
-            <span>{model.llmMode ? LLM_MODE[model.llmMode] ?? `LLM: ${model.llmMode}` : "mod LLM nespecificat"}</span>
-            {model.simulated && <Badge>Raport simulat, mod demonstrativ</Badge>}
-          </p>
-        )}
-      </PageHeader>
+        title="Evaluation"
+        description="How the rules and the claim classifier score on synthetic cases, measured before anyone relies on them."
+        actions={
+          model?.kind === "report" ? (
+            <Button icon={<ArrowClockwise aria-hidden size={16} />} busy={checking} onClick={check}>Reload report</Button>
+          ) : undefined
+        }
+      />
 
       {res.error && !res.data ? (
-        <ErrorNote error={res.error} what="raportul de evaluare" onRetry={res.reload} />
+        <ErrorNote error={res.error} what="the evaluation report" onRetry={check} />
       ) : !model ? (
-        <div className="flex flex-col gap-2">{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-11" />)}</div>
+        <ResultsSkeleton />
       ) : model.kind === "missing" ? (
-        <Missing onRetry={() => void res.reload()} busy={res.loading} />
+        <Missing onCheck={check} checking={checking} checkedAt={checkedAt} failed={Boolean(res.error)} />
       ) : (
         <>
-          {res.error && <p className="mb-3 text-[0.8667rem] text-danger">Nu am putut reîncărca raportul; afișez ultima versiune primită.</p>}
-          <SectionBoundary label="Sinteza">
-            <Summary rows={model.rows} />
+          {res.error && (
+            <p role="alert" className="mb-3 text-[0.8667rem] text-danger">Couldn’t reload the report. Showing the last one received.</p>
+          )}
+          <SectionBoundary label="Results">
+            <Results model={model} />
           </SectionBoundary>
-          <div className="mt-6 grid gap-4 xl:grid-cols-2">
-            <SectionBoundary label="Reguli">
-              <RulesSection golden={model.sections.rules_golden} generated={model.sections.rules_generated} />
+          {model.failures.length > 0 && (
+            <SectionBoundary label="Wrong decisions">
+              <Failures items={model.failures} />
             </SectionBoundary>
-            <SectionBoundary label="Zid și neinterferență">
-              <NonInterference data={model.sections.noninterference} />
-            </SectionBoundary>
-            <SectionBoundary label="Filtrul de scrisori">
-              <LetterFilter data={model.sections.letter_filter} />
-            </SectionBoundary>
-            <SectionBoundary label="Confidențialitate și injecții">
-              <PrivacyInjection privacy={model.sections.privacy} injection={model.sections.injection} />
-            </SectionBoundary>
-            <div className="xl:col-span-2">
-              <SectionBoundary label="Modele ML">
-                <MlSection data={model.sections.ml} />
-              </SectionBoundary>
-            </div>
-          </div>
-          <details className="mt-6 rounded-lg border border-line bg-paper">
-            <summary className="cursor-pointer px-4 py-3 font-semibold">Date brute</summary>
-            <pre className="max-h-[32rem] overflow-auto border-t border-line bg-canvas px-4 py-3 font-mono text-[0.8667rem] leading-relaxed">
-              {JSON.stringify(model.raw, null, 2)}
-            </pre>
-          </details>
+          )}
+          <RawReport raw={model.raw} />
         </>
       )}
     </>
   );
 }
 
-// ------------------------------------------------------------------ stări
+// ---------------------------------------------------------------- no report yet
 
-function Missing({ onRetry, busy }: { onRetry: () => void; busy: boolean }) {
+function Missing({ onCheck, checking, checkedAt, failed }: { onCheck: () => void; checking: boolean; checkedAt: number | null; failed: boolean }) {
   return (
     <EmptyState
-      icon={<FileQuestion className="size-6" />}
-      title="Raportul de evaluare nu a fost generat încă."
+      icon={<ChartLineUp aria-hidden size={20} />}
+      title="No evaluation report yet"
       action={
-        <div className="flex w-full max-w-xl flex-col items-start gap-3">
-          <CodeBlock className="w-full" label="În terminal, în folderul proiectului" code="uv run versoml eval" />
-          <p className="text-[0.9333rem] text-muted">
-            Varianta rapidă, fără rulările complete ale grafului: <InlineCode>uv run versoml eval --fast</InlineCode>
+        <div className="mt-1 flex w-full max-w-md flex-col items-center gap-3">
+          <CommandLine command={COMMAND} />
+          <Button icon={<ArrowClockwise aria-hidden size={16} />} busy={checking} onClick={onCheck}>Check again</Button>
+          <p role="status" className="min-h-5 text-[0.8667rem] text-muted">
+            {checking
+              ? ""
+              : failed
+                ? <span className="text-danger">Couldn’t reach the server. Check that it’s running, then try again.</span>
+                : checkedAt
+                  ? <>Checked at <span className="tnum">{clock(checkedAt, false)}</span>. Still no report.</>
+                  : ""}
           </p>
-          <Button icon={<RefreshCw aria-hidden className="size-4" />} busy={busy} onClick={onRetry}>Verifică din nou</Button>
         </div>
       }
     >
-      Comanda rulează regulile pe setul de aur (40 de cazuri) și pe 300 de cazuri generate, testul de neinterferență, filtrul de scrisori și modelele ML, apoi scrie raportul. Când se termină, apasă „Verifică din nou”.
+      Run this in the project folder. It checks the rules and the claim classifier on synthetic cases, then saves the report this page reads.
     </EmptyState>
   );
 }
 
-function SectionNote({ data }: { data: unknown }): ReactNode {
-  if (data === undefined || data === null) return <p className="text-[0.9333rem] text-muted">Lipsește din acest raport.</p>;
-  if (isObj(data) && typeof data.status === "string") {
-    return (
-      <p className="text-[0.9333rem] text-danger">
-        Secțiunea nu a rulat ({data.status}){typeof data.error === "string" ? `: ${data.error}` : "."}
-      </p>
-    );
-  }
-  return null;
-}
+// ---------------------------------------------------------------- results
 
-// ------------------------------------------------------------------ sinteza
+const METRIC_GRID = "md:grid-cols-[minmax(0,1fr)_7rem_6.5rem_7rem]";
 
-const OUTCOME: Record<Outcome, { word: string; icon: ReactNode; cls: string }> = {
-  met: { word: "atins", icon: <CircleCheck aria-hidden className="size-4" />, cls: "text-ok" },
-  below: { word: "sub țintă", icon: <CircleX aria-hidden className="size-4" />, cls: "text-danger" },
-  na: { word: "n/a", icon: <CircleMinus aria-hidden className="size-4" />, cls: "text-muted" },
-};
+function Results({ model }: { model: Report }) {
+  const now = useNowTick(60_000);
+  const total = model.metrics.length;
+  const passed = model.metrics.filter((m) => m.outcome === "pass").length;
+  const failed = model.metrics.filter((m) => m.outcome === "fail");
+  const noData = total - passed - failed.length;
 
-function Summary({ rows }: { rows: EvalRow[] }) {
-  const results = rows.map((r) => outcome(r.value, r.target));
-  const judged = results.filter((o) => o !== "na").length;
-  const met = results.filter((o) => o === "met").length;
-  const hasApprox = rows.some((r) => r.target?.trim().startsWith("≈"));
+  const title = passed + failed.length === 0
+    ? "No results in this report"
+    : failed.length === 0 && noData === 0
+      ? `All ${total} checks passed`
+      : `${passed} of ${total} checks passed`;
+  const notes = [
+    failed.length > 0 ? `Below target: ${listOf(failed.map((m) => lowerFirst(m.name)))}.` : null,
+    noData > 0 ? (noData === 1 ? "1 check has no data in this report." : `${noData} checks have no data in this report.`) : null,
+  ].filter(Boolean);
+  const tone: Tone = failed.length > 0 ? "danger" : passed === 0 || noData > 0 ? "neutral" : "ok";
+
+  const at = dateTimeYear(model.at);
+  const mode = model.llmMode ? LLM_MODE[model.llmMode] ?? `Model mode: ${model.llmMode}` : "Model mode not recorded";
+
   return (
-    <section aria-labelledby="eval-summary">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="eval-summary" className="text-[1.0667rem] font-semibold">Sinteză</h2>
-        {judged > 0 && (
-          <p className={cx("font-semibold", met === judged ? "text-ok" : "text-danger")}>
-            {met} din {judged} ținte atinse
+    <section aria-labelledby="eval-title" className="overflow-clip rounded-2xl bg-paper shadow-[var(--shadow-card)]">
+      <header className="flex items-start gap-3 px-5 py-4">
+        <span className="flex h-[1.6rem] shrink-0 items-center"><Dot tone={tone} /></span>
+        <div className="min-w-0">
+          <h2 id="eval-title" className="text-[1.0667rem] leading-[1.6rem] font-semibold">{title}</h2>
+          {notes.length > 0 && <p className="text-[0.9333rem] text-ink-soft">{notes.join(" ")}</p>}
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8667rem] text-muted">
+            <span>
+              {at && model.at ? (
+                <>Generated <span className="tnum">{at}</span> · {relative(model.at, now)}</>
+              ) : (
+                "Generation time not recorded"
+              )}
+            </span>
+            <span aria-hidden className="text-subtle">·</span>
+            <span>{mode}</span>
+            {model.cases ? (
+              <>
+                <span aria-hidden className="text-subtle">·</span>
+                <span className="tnum">{num(model.cases)} synthetic cases</span>
+              </>
+            ) : null}
+            {model.simulated && (
+              <Badge className="ml-1" title="This report comes from demo data, not from a run of the evaluation.">Demo data</Badge>
+            )}
           </p>
-        )}
-      </div>
-      {rows.length === 0 ? (
-        <EmptyState title="Raportul nu are rânduri de sinteză.">Secțiunile de mai jos și datele brute sunt totuși disponibile.</EmptyState>
-      ) : (
-        <div className={TABLE.wrap}>
-          <table className={cx(TABLE.table, "min-w-[40rem]")}>
-            <thead>
-              <tr className={TABLE.headRow}>
-                <th scope="col" className={TABLE.th}>Metrică</th>
-                <th scope="col" className={cx(TABLE.th, "text-right")}>Valoare</th>
-                <th scope="col" className={cx(TABLE.th, "text-right")}>Țintă</th>
-                <th scope="col" className={TABLE.th}>Rezultat</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => {
-                const o = OUTCOME[results[i]];
-                return (
-                  <tr key={`${r.name}-${i}`} className={TABLE.row}>
-                    <td className={TABLE.td}>{r.name}</td>
-                    <td className={cx(TABLE.td, "text-right font-semibold whitespace-nowrap tabular-nums")}>{showValue(r.value, r.target)}</td>
-                    <td className={cx(TABLE.td, "text-right whitespace-nowrap text-ink-soft tabular-nums")}>{showTarget(r.target, r.value)}</td>
-                    <td className={cx(TABLE.td, "whitespace-nowrap")}>
-                      <span className={cx("inline-flex items-center gap-1.5 font-medium", o.cls)}>
-                        {o.icon}
-                        {o.word}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
         </div>
-      )}
-      {hasApprox && (
-        <p className="mt-2 text-[0.8667rem] text-muted">
-          Ținta „≈ 0” e considerată atinsă sub {pct(APPROX_TOLERANCE)}. „Comparație” marchează o linie de bază, fără țintă.
-        </p>
-      )}
+      </header>
+
+      <div aria-hidden className={cx("hidden gap-x-4 border-t border-line px-5 py-2 text-[0.8rem] text-subtle md:grid", METRIC_GRID)}>
+        <span>Check</span>
+        <span className="text-right">Result</span>
+        <span className="text-right">Target</span>
+        <span className="pl-2">Status</span>
+      </div>
+
+      {METRIC_GROUPS.map((g) => {
+        const rows = model.metrics.filter((m) => m.group === g.id);
+        if (rows.length === 0) return null;
+        return (
+          <div key={g.id} role="group" aria-labelledby={`eval-group-${g.id}`}>
+            <h3 id={`eval-group-${g.id}`} className="border-y border-line bg-canvas px-5 py-2 text-[0.8rem] font-medium text-muted">
+              {g.title}
+            </h3>
+            <ul className="divide-y divide-line">
+              {rows.map((m) => <MetricRow key={m.id} m={m} />)}
+            </ul>
+          </div>
+        );
+      })}
     </section>
   );
 }
 
-// ------------------------------------------------------------------ secțiuni
-
-function kv(data: unknown, spec: Array<[string, string]>): Array<[ReactNode, ReactNode]> {
-  if (!isObj(data)) return [];
-  return spec
-    .filter(([k]) => data[k] !== undefined && data[k] !== null)
-    .map(([k, label]) => [label, <span key={k} className="font-medium tabular-nums">{k === "at" ? dateTime(String(data[k])) : showMetric(k, data[k])}</span>]);
-}
-
-function MetricTable({ rows, cols, first }: { rows: Array<{ label: ReactNode; data: unknown }>; cols: Array<[string, string]>; first: string }) {
-  const present = rows.filter((r) => isObj(r.data));
-  if (present.length === 0) return null;
+function MetricRow({ m }: { m: Metric }) {
+  const o = OUTCOME[m.outcome];
+  const sub = m.problem ?? m.detail;
   return (
-    <div className="overflow-x-auto rounded-md border border-line">
-      <table className="w-full min-w-[30rem] border-collapse text-left text-[0.9333rem]">
-        <thead>
-          <tr className="border-b border-line bg-canvas text-[0.8667rem] text-muted">
-            <th scope="col" className="px-3 py-2 font-semibold">{first}</th>
-            {cols.map(([, label]) => <th key={label} scope="col" className="px-3 py-2 text-right font-semibold">{label}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {present.map((r, i) => (
-            <tr key={i} className="border-b border-line last:border-b-0">
-              <td className="px-3 py-2">{r.label}</td>
-              {cols.map(([k]) => (
-                <td key={k} className="px-3 py-2 text-right whitespace-nowrap tabular-nums">
-                  {isObj(r.data) && r.data[k] !== undefined && r.data[k] !== null ? showMetric(k, r.data[k]) : "—"}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-const RULE_ROWS: Array<[string, string]> = [
-  ["cases", "Cazuri"],
-  ["verdict_accuracy", "Verdict T+1 corect"],
-  ["requires_human_accuracy", "Implicarea omului corectă"],
-  ["escalation_recall", "Recall escaladări spre om"],
-  ["deadline_accuracy", "Termene T+1 corecte"],
-  ["recovery_accuracy", "Recuperare corectă"],
-  ["ms_per_case", "Timp pe caz"],
-];
-
-function RulesSection({ golden, generated }: { golden: unknown; generated: unknown }) {
-  const failures = [
-    ...(Array.isArray(get(golden, "failures")) ? (get(golden, "failures") as unknown[]) : []),
-    ...(Array.isArray(get(generated, "failures")) ? (get(generated, "failures") as unknown[]) : []),
-  ].filter(isObj);
-  const note = !isObj(golden) && !isObj(generated)
-    ? <SectionNote data={undefined} />
-    : isObj(golden) && typeof golden.status === "string"
-      ? <SectionNote data={golden} />
-      : isObj(generated) && typeof generated.status === "string"
-        ? <SectionNote data={generated} />
-        : null;
-  return (
-    <Panel title="Reguli: setul de aur și cazurile generate" className="h-full">
-      {note}
-      {(isObj(golden) || isObj(generated)) && (
-        <div className="overflow-x-auto rounded-md border border-line">
-          <table className="w-full min-w-[26rem] border-collapse text-left text-[0.9333rem]">
-            <thead>
-              <tr className="border-b border-line bg-canvas text-[0.8667rem] text-muted">
-                <th scope="col" className="px-3 py-2 font-semibold">Indicator</th>
-                <th scope="col" className="px-3 py-2 text-right font-semibold">Set de aur</th>
-                <th scope="col" className="px-3 py-2 text-right font-semibold">Cazuri generate</th>
-              </tr>
-            </thead>
-            <tbody>
-              {RULE_ROWS.filter(([k]) => get(golden, k) !== undefined || get(generated, k) !== undefined).map(([k, label]) => (
-                <tr key={k} className="border-b border-line last:border-b-0">
-                  <td className="px-3 py-2">{label}</td>
-                  {[golden, generated].map((src, i) => {
-                    const v = get(src, k);
-                    return (
-                      <td key={i} className="px-3 py-2 text-right font-medium whitespace-nowrap tabular-nums">
-                        {v === undefined || v === null ? "—" : showMetric(k, v)}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-              <tr>
-                <td className="px-3 py-2">Eșecuri</td>
-                {[golden, generated].map((src, i) => {
-                  const f = get(src, "failures");
-                  return <td key={i} className="px-3 py-2 text-right font-medium tabular-nums">{Array.isArray(f) ? f.length : "—"}</td>;
-                })}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-      {failures.length > 0 && (
-        <div className="mt-3">
-          <p className="font-semibold text-danger">Cazuri greșite</p>
-          <ul className="mt-1 flex flex-col gap-1 text-[0.9333rem]">
-            {failures.slice(0, 12).map((f, i) => (
-              <li key={i}>
-                <code className="font-mono text-[0.8667rem]">{String(f.id ?? "—")}</code> ({String(f.scenario ?? "—")}): așteptat {String(f.expected ?? "—")}, obținut {String(f.got ?? "—")}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </Panel>
-  );
-}
-
-function NonInterference({ data }: { data: unknown }) {
-  const statuses = isObj(get(data, "statuses")) ? (get(data, "statuses") as Obj) : null;
-  const rows = kv(data, [
-    ["runs", "Rulări"],
-    ["mismatches", "Decizii schimbate de zona AML"],
-    ["leaks", "Scurgeri peste zid"],
-    ["canaries_planted", "Canary plantate"],
-    ["canary_hits_in_client_zone", "Canary găsite în zona client"],
-    ["letters_failing_filter", "Scrisori care nu trec filtrul"],
-    ["bytes_scanned", "Date scanate"],
-    ["at", "Rulat la"],
-  ]);
-  return (
-    <Panel title="Zid și neinterferență" className="h-full">
-      <SectionNote data={data} />
-      {rows.length > 0 && (
-        <>
-          <p className="mb-3 text-[0.9333rem] text-muted">Aceleași contestații, rulate cu zona AML goală și apoi plină de dosare cu canary.</p>
-          <KeyValues rows={rows} />
-        </>
-      )}
-      {statuses && Object.keys(statuses).length > 0 && (
-        <div className="mt-4 overflow-x-auto rounded-md border border-line">
-          <table className="w-full min-w-[26rem] border-collapse text-left text-[0.9333rem]">
-            <thead>
-              <tr className="border-b border-line bg-canvas text-[0.8667rem] text-muted">
-                <th scope="col" className="px-3 py-2 font-semibold">Scenariu</th>
-                <th scope="col" className="px-3 py-2 font-semibold">AML goală</th>
-                <th scope="col" className="px-3 py-2 font-semibold">AML plină</th>
-                <th scope="col" className="px-3 py-2 font-semibold">Aceeași stare</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(statuses).map(([sid, pair]) => {
-                const [a, b] = Array.isArray(pair) ? pair : [pair, undefined];
-                const sameState = a !== undefined && a === b;
-                return (
-                  <tr key={sid} className="border-b border-line last:border-b-0">
-                    <td className="px-3 py-2"><code className="font-mono text-[0.8667rem]">{sid}</code></td>
-                    <td className="px-3 py-2">{statusLabel(a === undefined ? null : String(a))}</td>
-                    <td className="px-3 py-2">{statusLabel(b === undefined ? null : String(b))}</td>
-                    <td className="px-3 py-2">
-                      <span className={cx("inline-flex items-center gap-1.5 font-medium", sameState ? "text-ok" : "text-danger")}>
-                        {sameState ? <CircleCheck aria-hidden className="size-4" /> : <CircleX aria-hidden className="size-4" />}
-                        {sameState ? "da" : "nu"}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Panel>
-  );
-}
-
-function LetterFilter({ data }: { data: unknown }) {
-  const rows = kv(data, [
-    ["adversarial", "Scrisori de tipping-off încercate"],
-    ["blocked", "Blocate"],
-    ["tipping_off_recall", "Recall tipping-off"],
-    ["clean", "Scrisori curate"],
-    ["false_blocks", "Scrisori curate blocate greșit"],
-  ]);
-  const examples = get(data, "false_block_examples");
-  return (
-    <Panel title="Filtrul de scrisori" className="h-full">
-      <SectionNote data={data} />
-      {rows.length > 0 && <KeyValues rows={rows} />}
-      {Array.isArray(examples) && examples.length > 0 && (
-        <div className="mt-3">
-          <p className="font-semibold text-danger">Blocate greșit</p>
-          <ul className="mt-1 list-disc pl-5 text-[0.9333rem]">{examples.map((e, i) => <li key={i}>{String(e)}</li>)}</ul>
-        </div>
-      )}
-    </Panel>
-  );
-}
-
-function PrivacyInjection({ privacy, injection }: { privacy: unknown; injection: unknown }) {
-  const p = kv(privacy, [
-    ["complaints_checked", "Reclamații verificate"],
-    ["raw_pii_to_llm", "Date personale brute trimise LLM-ului"],
-    ["pseudonyms_created", "Pseudonime create"],
-  ]);
-  const inj = kv(injection, [
-    ["injection_cases", "Reclamații cu injecție"],
-    ["detected", "Detectate"],
-    ["detection_rate", "Rată de detecție"],
-    ["false_positive_rate", "Alarme false pe reclamații curate"],
-    ["decision_changed_by_injection", "Decizii schimbate de injecție"],
-  ]);
-  const note = get(injection, "note");
-  return (
-    <Panel title="Confidențialitate și injecții" className="h-full">
-      <h3 className="text-[0.9333rem] font-semibold">Confidențialitate</h3>
-      <div className="mt-2">{p.length > 0 ? <KeyValues rows={p} /> : <SectionNote data={privacy} />}</div>
-      <h3 className="mt-4 border-t border-line pt-3 text-[0.9333rem] font-semibold">Injecții de prompt</h3>
-      <div className="mt-2">{inj.length > 0 ? <KeyValues rows={inj} /> : <SectionNote data={injection} />}</div>
-      {typeof note === "string" && <p className="mt-2 text-[0.9333rem] text-muted">{note}</p>}
-    </Panel>
-  );
-}
-
-const CLASS_COLS: Array<[string, string]> = [["accuracy", "Acuratețe"], ["macro_f1", "Macro-F1"], ["ece", "ECE"]];
-const BIN_COLS: Array<[string, string]> = [["auc", "AUC"], ["pr_auc", "PR-AUC"], ["f1", "F1"], ["precision", "Precizie"], ["recall", "Recall"], ["threshold", "Prag"]];
-
-function MlSection({ data }: { data: unknown }) {
-  const status = get(data, "status");
-  if (!isObj(data) || typeof status === "string") {
-    return (
-      <Panel title="Modele ML">
-        {status === "neantrenat" ? (
-          <p className="text-[0.9333rem]">
-            Modelele nu sunt antrenate încă. Rulează <InlineCode>uv run versoml train</InlineCode>, apoi din nou evaluarea.
-          </p>
-        ) : (
-          <SectionNote data={data} />
-        )}
-      </Panel>
-    );
-  }
-  const m1 = get(data, "m1_classifier");
-  const m2 = get(data, "m2_client_fraud");
-  const m5 = get(data, "m5_mule");
-  const version = (v: unknown) => (typeof v === "string" ? <code className="font-mono text-[0.8667rem]">{v}</code> : null);
-  const note = get(data, "note");
-  return (
-    <Panel title="Modele ML">
-      {typeof note === "string" && <p className="mb-4 text-[0.9333rem] text-muted">{note}</p>}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="min-w-0">
-          <h3 className="font-semibold">M1 · clasificarea reclamației</h3>
-          {isObj(m1) ? (
-            <div className="mt-2 flex flex-col gap-3">
-              <MetricTable
-                first="Ce prezice"
-                cols={CLASS_COLS}
-                rows={[
-                  { label: "Canalul", data: m1.channel },
-                  { label: "Tipul disputei", data: m1.dispute_type },
-                  { label: "Scenariul", data: m1.scenario },
-                ]}
-              />
-              <KeyValues
-                rows={[
-                  m1.n_train !== undefined && ["Antrenare / test", <span key="n" className="tabular-nums">{showMetric("n", m1.n_train)} / {showMetric("n", m1.n_test)}</span>],
-                  typeof m1.held_out === "string" && ["Cum am testat", <span key="h" className="text-[0.9333rem] text-ink-soft">{m1.held_out}</span>],
-                  typeof m1.model_version === "string" && ["Versiune", version(m1.model_version)],
-                ]}
-              />
-            </div>
-          ) : (
-            <SectionNote data={m1} />
-          )}
-        </div>
-        <div className="min-w-0">
-          <h3 className="font-semibold">M2 · semnal de fraudă a clientului</h3>
-          {isObj(m2) ? (
-            <div className="mt-2 flex flex-col gap-3">
-              <MetricTable first="Set" cols={BIN_COLS} rows={[{ label: "Test separat", data: m2.held_out }]} />
-              <KeyValues
-                rows={[
-                  m2.brier !== undefined && ["Brier", <span key="b" className="tabular-nums">{showMetric("brier", m2.brier)}</span>],
-                  m2.fraud_rate !== undefined && ["Rata fraudei în date", <span key="f" className="tabular-nums">{showMetric("fraud_rate", m2.fraud_rate)}</span>],
-                  typeof m2.note === "string" && ["Notă", <span key="n" className="text-[0.9333rem] text-ink-soft">{m2.note}</span>],
-                  typeof m2.model_version === "string" && ["Versiune", version(m2.model_version)],
-                ]}
-              />
-            </div>
-          ) : (
-            <SectionNote data={m2} />
-          )}
-        </div>
-        <div className="min-w-0 lg:col-span-2">
-          <h3 className="font-semibold">M5 · cont-cărăuș, față de liniile de bază</h3>
-          {isObj(m5) ? (
-            <div className="mt-2 flex flex-col gap-3">
-              <MetricTable
-                first="Model"
-                cols={BIN_COLS}
-                rows={[
-                  { label: "Doar reguli (bază)", data: m5.rules_only },
-                  { label: "GBDT fără graf", data: m5.gbdt_no_graph },
-                  { label: <span className="font-semibold">GBDT pe graf</span>, data: m5.gbdt_graph ?? m5.graph_aware },
-                  { label: "GBDT pe graf, prag 0,5", data: m5["gbdt_graph_at_0.5"] },
-                ]}
-              />
-              <KeyValues
-                rows={[
-                  m5.n_accounts !== undefined && ["Conturi evaluate", <span key="a" className="tabular-nums">{showMetric("n", m5.n_accounts)}</span>],
-                  m5.mule_rate !== undefined && ["Rata cărăușilor în date", <span key="r" className="tabular-nums">{showMetric("mule_rate", m5.mule_rate)}</span>],
-                  m5.false_positive_rate_hard_negatives !== undefined && [
-                    "Alarme false pe contraexemple dificile",
-                    <span key="fp" className="tabular-nums">{showMetric("false_positive_rate", m5.false_positive_rate_hard_negatives)}</span>,
-                  ],
-                  typeof m5.cv === "string" && ["Validare", <span key="cv" className="text-[0.9333rem] text-ink-soft">{m5.cv}</span>],
-                  typeof m5.model_version === "string" && ["Versiune", version(m5.model_version)],
-                ]}
-              />
-            </div>
-          ) : (
-            <SectionNote data={m5} />
-          )}
-        </div>
+    <li className={cx("grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 px-5 py-3 md:items-center", METRIC_GRID)}>
+      <div className="min-w-0">
+        <p className="font-medium">{m.name}</p>
+        {sub && <p className={cx("mt-0.5 text-[0.8rem] leading-snug", m.problem ? "text-warn" : "text-muted")}>{sub}</p>}
+        <p className="mt-0.5 text-[0.8rem] text-muted md:hidden">
+          Target <span className="tnum">{m.targetText}</span>
+        </p>
       </div>
-    </Panel>
+      <div className="flex flex-col items-end gap-1 md:contents">
+        <p className="tnum text-right font-medium">
+          {m.value === null ? <span className="sr-only">No result</span> : <><span className="sr-only">Result </span>{m.valueText}</>}
+        </p>
+        <p className="tnum hidden text-right text-[0.9333rem] text-muted md:block">
+          <span className="sr-only">Target </span>
+          {m.targetText}
+        </p>
+        <span className="md:pl-2">
+          <Status tone={o.tone}>{o.word}</Status>
+        </span>
+      </div>
+    </li>
+  );
+}
+
+function Failures({ items }: { items: Failure[] }) {
+  return (
+    <section aria-labelledby="eval-failures" className="mt-6 overflow-clip rounded-2xl bg-paper shadow-[var(--shadow-card)]">
+      <header className="px-5 py-4">
+        <h2 id="eval-failures" className="text-[0.9333rem] font-semibold">Wrong decisions</h2>
+        <p className="mt-0.5 text-[0.8667rem] text-muted">Cases where the rules didn’t reach the expected refund decision. The run lists up to 12 per set.</p>
+      </header>
+      <ul className="divide-y divide-line border-t border-line">
+        {items.map((f, i) => (
+          <li key={`${f.set}-${f.id}-${i}`} className="grid gap-x-4 gap-y-1 px-5 py-3 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)] sm:items-center">
+            <span className="flex min-w-0 items-center gap-2.5">
+              <IdTag>{f.id || "No ID"}</IdTag>
+              <span className="truncate text-[0.8rem] text-muted">{f.set === "golden" ? "Golden set" : "Generated"}</span>
+            </span>
+            <p className="text-[0.9333rem]">
+              <span className="text-muted">{f.scenario ? scenarioLabel(f.scenario) : "Unknown scenario"}:</span>{" "}
+              expected <span className="font-medium">{f.expected ? verdictLabel(f.expected) : "no decision"}</span>,
+              got <span className="font-medium">{f.got ? verdictLabel(f.got) : "no decision"}</span>
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function RawReport({ raw }: { raw: unknown }) {
+  const json = useMemo(() => JSON.stringify(raw, null, 2) ?? "", [raw]);
+  return (
+    <details className="group mt-6 rounded-2xl bg-paper shadow-[var(--shadow-card)]">
+      <summary
+        className={cx(
+          "flex cursor-pointer list-none items-center gap-2 rounded-2xl px-5 py-3.5 text-[0.9333rem] font-medium transition-colors select-none",
+          "hover:bg-canvas group-open:rounded-b-none [&::-webkit-details-marker]:hidden",
+        )}
+      >
+        <CaretRight aria-hidden size={14} className="text-subtle transition-transform duration-150 group-open:rotate-90" />
+        Raw report
+        <span className="font-normal text-muted">JSON</span>
+      </summary>
+      <div className="border-t border-line">
+        <div className="flex items-center justify-between gap-3 py-1.5 pr-1.5 pl-5">
+          <span className="text-[0.8rem] text-muted">The full file the server sent, including sections this page doesn’t list.</span>
+          <CopyButton text={json} label="Copy JSON" />
+        </div>
+        <pre
+          tabIndex={0}
+          className="max-h-[32rem] overflow-auto rounded-b-2xl border-t border-line bg-canvas px-5 py-4 font-mono text-[0.8rem] leading-relaxed text-ink-soft"
+        >
+          {json}
+        </pre>
+      </div>
+    </details>
+  );
+}
+
+function ResultsSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-2xl bg-paper shadow-[var(--shadow-card)]" aria-busy="true">
+      <div className="flex flex-col gap-2 px-5 py-4">
+        <Skeleton className="h-5 w-56" />
+        <Skeleton className="h-4 w-80 max-w-full" />
+      </div>
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <div key={i} className="flex items-center gap-6 border-t border-line px-5 py-3.5">
+          <Skeleton className="h-4 flex-1" />
+          <Skeleton className="h-4 w-14" />
+          <Skeleton className="hidden h-4 w-12 md:block" />
+          <Skeleton className="h-4 w-16" />
+        </div>
+      ))}
+    </div>
   );
 }

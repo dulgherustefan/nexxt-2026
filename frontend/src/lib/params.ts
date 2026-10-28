@@ -1,13 +1,20 @@
-/** Etichete pentru parametrii [U] cunoscuți. Cheile necunoscute se afișează „umanizat". */
-export const PARAM_HELP: Record<string, { label: string; rule?: string; unit?: string }> = {
-  plafon_aprobare_ron: { label: "Plafon de rambursare automată", rule: "DSP-59", unit: "lei" },
-  prag_ore_risc_sla: { label: "Alertă de termen, cu atâtea ore înainte", rule: "DSP-03", unit: "ore" },
-  autoritate_notificare_frauda: { label: "Autoritatea notificată la excepție", rule: "DSP-05" },
-  prag_rubrica_recuperare: { label: "Pragul rubricii pentru recuperare", rule: "DSP-06", unit: "puncte" },
-  dispute_count_scope: { label: "Ce dispute se numără la limita de 35", rule: "DSP-26" },
-  curs_eur_ron: { label: "Curs EUR/RON pentru plafonul de 30 EUR", rule: "PAY-05", unit: "lei/EUR" },
+/** The groups the Rules page sorts the engine parameters into. */
+export type ParamGroup = "refunds" | "deadlines" | "schemes" | "recovery" | "oversight" | "other";
+
+/**
+ * Labels for the parameter keys the demo data still uses. The backend keys are labeled in
+ * pages/client/paramMeta.ts; any other key falls back to `humanizeParam`.
+ */
+export const PARAM_HELP: Record<string, { label: string; rule?: string; unit?: string; group?: ParamGroup }> = {
+  plafon_aprobare_ron: { label: "Automatic refund cap", rule: "DSP-59", unit: "RON", group: "refunds" },
+  prag_ore_risc_sla: { label: "At-risk alert", rule: "DSP-03", unit: "hours before the deadline", group: "deadlines" },
+  autoritate_notificare_frauda: { label: "Authority notified of a fraud exception", rule: "DSP-05", group: "refunds" },
+  prag_rubrica_recuperare: { label: "Recovery score threshold", rule: "DSP-06", unit: "points", group: "recovery" },
+  dispute_count_scope: { label: "Disputes counted toward the limit of 35", rule: "DSP-26", group: "schemes" },
+  curs_eur_ron: { label: "EUR to RON rate", rule: "PAY-05", unit: "RON per EUR", group: "refunds" },
 };
 
+/** "auto_refund_cap" → "Auto refund cap". */
 export function humanizeParam(key: string): string {
   const s = key.replace(/[_.-]+/g, " ").trim();
   return s.charAt(0).toUpperCase() + s.slice(1);

@@ -1,70 +1,79 @@
-# VERSOML · frontend
+# VersoML frontend
 
-Consola de contestații, consola AML, Banca Demo și pagina falsă de demo. Vite + React 19 + TypeScript strict + Tailwind CSS v4 și lucide-react. Lista de pași a agenților și graful banilor sunt desenate local (fără biblioteci de grafuri). Fonturile (Archivo, JetBrains Mono) sunt incluse în build, deci totul merge fără internet.
+The bank console for "I didn't make this payment" disputes, the homepage that explains it, and the Demo Bank pages used in the live demo. Built with Vite, React 19, TypeScript (strict), Tailwind CSS v4 and React Router 7. Icons come from Phosphor. The fonts (Host Grotesk, Fragment Mono) are bundled, so everything works offline.
 
-Designul și tokenurile: [DESIGN.md](DESIGN.md). Contractul API: `docs/06_implementare.md` §6.
+Design rules and tokens: [DESIGN.md](DESIGN.md). API contract: `docs/06_implementare.md` §6.
 
-## Pornire
+## Run it
 
-Cerințe: Node 24, npm 11.
+Requires Node 24 and npm 11.
 
 ```bash
 cd frontend
 npm install
 
-npm run dev        # zona client: proxy /api și /diode → http://127.0.0.1:8000
-npm run dev:aml    # zona AML:    proxy → http://127.0.0.1:8001
-npm run dev:mock   # fără backend: date simulate + rularea demo-ului în browser
+npm run dev        # console and homepage; proxies /api and /diode to http://127.0.0.1:8000
+npm run dev:mock   # no backend: demo data, and the demo case runs in the browser
 
-npm run build      # tsc -b (strict, zero erori) + vite build → frontend/dist
-npm run preview    # servește dist/ cu același proxy
+npm run build      # tsc -b (strict, zero errors), then vite build into frontend/dist
+npm run preview    # serves dist/ with the same proxy
 ```
 
-Ținta proxy-ului se poate schimba: `VITE_API_TARGET=http://127.0.0.1:8001 npm run dev`.
+`npm run dev` expects the backend on port 8000. Start it from the project root with `uv run versoml up`. To point the proxy somewhere else: `VITE_API_TARGET=http://127.0.0.1:9000 npm run dev`.
 
-În producție, FastAPI servește `frontend/dist` pe ambele porturi; căile de assets sunt absolute de la `/` (`/assets/...`), iar fallback-ul SPA (orice rută necunoscută → `index.html`) e pe server. Aplicația află zona din `GET /api/meta` (`zone: "client" | "aml"`).
+In production, FastAPI serves `frontend/dist`. Asset paths are absolute (`/assets/...`) and the server answers any unknown path with `index.html`, so deep links such as `/cases/CT-2026-000123` load directly.
 
-Serverul de dev ascultă și pe IP-ul din rețea (`host: true`), ca telefoanele să deschidă `/banca` și `/demo/livrare`. „Coduri QR pentru jurați” din bara laterală (sau `?qr=1`) arată QR-urile, construite din adresa la care e deschisă consola.
+The dev server also listens on your network address (`host: true`), so phones on the same Wi-Fi can open `/bank` and `/demo/delivery`. "QR codes for the jury" in the sidebar (or `?qr=1` in the URL) shows QR codes built from the address the console is open at.
 
-## Modul mock
+## Routes
 
-UI-ul trece singur pe date simulate dacă `GET /api/meta` nu răspunde (în 2,5 s) sau nu întoarce JSON. Se poate forța cu `VITE_MOCK=1` (`npm run dev:mock`) sau cu `?mock=1` în URL.
+| Path | Page |
+|---|---|
+| `/` | Homepage. It paints right away, without waiting for the server. |
+| `/cases` | Cases, most urgent first |
+| `/cases/:id` | One case: the decision, the deadline, the evidence, recovery and the letter |
+| `/rules` | The rule catalog and the parameters the bank sets |
+| `/evaluation` | The evaluation report: refund decisions, deadlines, privacy, prompt injections, the claim classifier |
+| `/mcp` | MCP setup for Claude Desktop, Cursor and HTTP clients, and the tools the server offers |
+| `/bank` | Demo Bank, the customer's phone app. `?client=CUST-DEMO-02` opens the second customer. |
+| `/demo/delivery` | The fake courier page from the demo scam |
 
-- `?zone=aml` deschide zona AML (se ține minte în fila curentă; `?zone=client` revine).
-- Starea stă în `localStorage`, deci filele o împart: Banca Demo, consola client și consola AML deschise în file diferite văd aceleași cazuri. O filă-lider avansează rulările; dacă o închizi, preia alta.
-- „Pornește demo-ul T+1" rulează graful Judecătorului în ~25 s: Receptor → Clasificator → Ceasornicar → 4 colectori în paralel → Motor de reguli → Rambursare (așteaptă semnătura) ‖ Procuror + Avocat → Cântăritor → Recuperare → Redactor → Filtru zid → Sigiliu. Faptele au hash-uri SHA-256 reale, înlănțuite, cu rădăcină Merkle și QR (semnătura e simulată).
-- Pagina falsă → plata de 3.200 lei în Banca Demo → „Nu am făcut eu plata" → cazul pornește → aprobi în consolă → „Ți-am returnat 3.200 lei" pe telefon.
-- Faptele trec „prin diodă" în zona AML: victima apare în graful pistei `PST-2026-0007`. „Pornește Investigatorul" rulează OSINT, Graf + ML, Avocatul nevinovăției și ciorna RTS; „Emite HOLD" trimite înapoi doar un boolean.
-- Resetarea datelor mock: „Resetează datele demo” din caseta de stare din bara laterală (sau ștergi cheile `versoml.mock.*` din `localStorage`).
+The old Romanian paths (`/cazuri`, `/cazuri/:id`, `/reguli`, `/evaluare`, `/banca`, `/demo/livrare`) redirect to the new ones, so printed QR codes keep working.
 
-Toate datele sunt sintetice: bănci fictive (BDEM, XBNK, YBNK), domenii `.example`, clienți cu alias. Rapoartele din mock (de exemplu evaluarea) sunt marcate „simulat".
+## Mock mode
 
-## Rute
+The console switches to demo data by itself when `GET /api/meta` doesn't answer within 2.5 seconds or doesn't return JSON. To force it, run `npm run dev:mock` (it sets `VITE_MOCK=1`) or add `?mock=1` to the URL. The status at the bottom of the sidebar shows which mode you're in.
 
-Zona client: `/` contestațiile, sortate după urgență · `/cazuri/:id` cazul · `/zid` · `/reguli` · `/evaluare` · `/mcp` · `/banca` (Banca Demo, `?client=CUST-DEMO-02` pentru al doilea jurat) · `/demo/livrare` (pagina falsă).
+- State lives in `localStorage`, so tabs share it: Demo Bank, the case list and a case page open in different tabs see the same cases. One tab leads the runs; if you close it, another one takes over.
+- "Run demo case" runs a case end to end in about 25 seconds: intake, evidence, decision (it waits for your approval when one is needed), recovery and the reply letter. Each fact gets a real SHA-256 hash, chained into a Merkle root with a QR code. Only the signature is simulated.
+- The whole story: the fake courier page, a RON 3,200.00 payment in Demo Bank, "I didn't make this payment", the case starts, you approve it in the console, and the phone shows the refund.
+- "Reset demo data" under the sidebar status clears everything. Deleting the `versoml.mock.*` keys from `localStorage` does the same.
 
-Zona AML: `/` · `/piste/:leadId` · `/osint` · `/zid` (jurnalul de politici AML).
+All data is synthetic: made-up banks (BDEM, XBNK, YBNK), `.example` domains and customers with aliases. Reports in mock mode, such as the evaluation, carry a "Demo data" label.
 
-## Structura
+## Structure
 
 ```
 src/
-  api/        types.ts (oglinda versoml/contracts.py), client.ts (un apel per endpoint din §6),
-              sse.ts (EventSource cu reconectare și de-duplicare după seq), runtime.tsx (zona, modul, useResource),
-              format.ts (lei, ore RO, etichete în română, normalizarea ş/ţ → ș/ț)
-  lib/        pipeline.ts (graful Judecătorului, potrivirea evenimentelor pe noduri), params.ts
-  mocks/      store.ts (starea comună), engine.ts (rularea scriptată), stories.ts (scenariile),
-              aml.ts (pista, graful, OSINT), fixtures.ts, sha256.ts, calendar.ts
-  ui/         kit.tsx (primitivele: butoane, badge-uri, file, panouri, stări goale și de eroare)
-  shell/      AppShell.tsx (bara laterală, banda de mediu), PhoneDemo.tsx (codurile QR)
-  pages/      client/*, aml/*, demo/* (Banca Demo, pagina falsă)
+  api/        types.ts (mirrors versoml/contracts.py), client.ts (one call per endpoint),
+              sse.ts (EventSource with reconnects and de-duplication by seq),
+              runtime.tsx (live or mock mode, useResource), format.ts (money, Bucharest time, labels)
+  lib/        pipeline.ts (the case steps and how events map onto them), params.ts
+  mocks/      store.ts (shared state), engine.ts (the scripted run), stories.ts (scenarios), fixtures.ts, ...
+  ui/         kit.tsx (buttons, statuses, panels, tabs, empty and error states), Logo.tsx
+  shell/      AppShell.tsx (sidebar and system status), PhoneDemo.tsx (QR codes)
+  pages/      home/*, client/* (cases, case, rules, evaluation, MCP), demo/* (Demo Bank, fake courier page)
 ```
 
-## Ce așteaptă UI-ul de la backend (în plus față de forme)
+## What the UI expects from the backend
 
-- Evenimentele SSE au `step` egal cu ID-ul nodului din `CaseDetail.pipeline` (ID-urile canonice sunt în `src/lib/pipeline.ts`: `receptor`, `clasificator`, `ceasornicar`, `colector_tranzactie|sca|dispozitiv|domeniu`, `motor_reguli`, `outbox_aml`, `rambursare`, `procuror`, `avocat`, `cantaritor`, `recuperare`, `redactor`, `filtru_zid`, `sigiliu`). Dacă nu se potrivesc exact, UI-ul încearcă după etichetă și după `agent`.
-- `seq` crescător pe flux (de-duplicarea la reconectare). Fără `seq`, cheia e conținutul evenimentului.
-- Opțional: `STEP_FINISHED.data.status = "skipped" | "blocked"`, `CUSTOM interrupt` cu `data.pending`, `TEXT_MESSAGE_CONTENT` cu `data.message_id` și `data.delta` (dezbaterea live), iar în zona AML `data.graph_update: true` când se schimbă graful și pașii `receptor_fapte`, `osint`, `graf_ml`, `avocat_nevinovatie`, `redactor_rts`, `analist`.
-- Banca Demo citește și `GET /api/cases/{id}` (doar `summary`) ca să arate starea contestației.
-- Verificarea dosarului trimite la `POST /api/verify` obiectul `{case_id, facts, seal}` din `GET /api/ledger/{id}`; „Exportă JSON" descarcă același obiect.
-- `PUT /api/rules/params` primește doar cheile schimbate.
+On top of the shapes in `src/api/types.ts`:
+
+- SSE events carry a `step` equal to a node ID from `CaseDetail.pipeline`. The canonical IDs are in `src/lib/pipeline.ts`: `receptor`, `clasificator`, `ceasornicar`, `colector_tranzactie|sca|dispozitiv|domeniu`, `motor_reguli`, `rambursare`, `procuror`, `avocat`, `cantaritor`, `recuperare`, `redactor`, `filtru_zid`, `sigiliu`. When they don't match exactly, the UI tries the step's label and `agent`.
+- `seq` goes up within a stream; the UI uses it to drop duplicates after a reconnect. Without `seq`, the event's content is the key.
+- Optional: `STEP_FINISHED.data.status = "skipped" | "blocked"`, a `CUSTOM interrupt` event with `data.pending`, and `TEXT_MESSAGE_CONTENT` with `data.message_id` and `data.delta` for the live debate.
+- Demo Bank also reads `GET /api/cases/{id}` (only `summary`) to show the dispute's status.
+- The evidence check sends the `{case_id, facts, seal}` object from `GET /api/ledger/{id}` to `POST /api/verify`. "Export JSON" downloads the same object.
+- `PUT /api/rules/params` gets only the changed keys. A 400 whose `detail` reads `key: reason; key2: reason` puts each reason under its field.
+- `GET /api/eval` returns `var/eval/report.json`, or `{status: "missing", message}` until the first `uv run versoml eval --fast`. The page lists the client metrics from `sections`; the raw JSON stays one click away.
+- `GET /api/rules`: rules in the `AML` pack or the `aml` zone, and `aml_*` parameters, aren't shown. `GET /api/mcp`: only client-zone tools are listed, and AML servers are left out of the configs people copy.

@@ -112,7 +112,7 @@ export default function EvidenceSeal() {
                   d={`M${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`}
                   fill="none"
                   strokeWidth={s === "idle" ? 1 : 1.75}
-                  className={cx("transition-[stroke] duration-200", s === "broken" ? "stroke-[#ff6b55]" : s === "lit" ? "stroke-yellow" : "stroke-white/20")}
+                  className={cx("transition-[stroke] duration-200", s === "broken" ? "stroke-bad-solid" : s === "lit" ? "stroke-yellow-text" : "stroke-glass/20")}
                   initial={{ pathLength: play ? 0 : 1 }}
                   animate={{ pathLength: inView || reduce ? 1 : 0 }}
                   transition={{ duration: 0.3, ease: EASE, delay: play ? 0.9 + d * 0.25 : 0 }}
@@ -132,7 +132,7 @@ export default function EvidenceSeal() {
                   r={root ? 6 : 3.5}
                   className={cx(
                     "transition-[fill] duration-200",
-                    s === "broken" || (root && !rootOk) ? "fill-[#ff6b55]" : s === "lit" || (root && focus !== null) ? "fill-yellow" : root ? "fill-white" : "fill-white/45",
+                    s === "broken" || (root && !rootOk) ? "fill-bad-solid" : s === "lit" || (root && focus !== null) ? "fill-yellow" : root ? "fill-night-text" : "fill-glass/45",
                   )}
                 />
               );
@@ -140,16 +140,16 @@ export default function EvidenceSeal() {
           )}
         </svg>
 
-        <div aria-live="polite" className={cx("rounded-xl px-4 py-3 ring-1 transition-colors duration-200", rootOk ? "bg-white/[0.04] ring-night-line" : "bg-[#ff6b55]/10 ring-[#ff6b55]/40")}>
+        <div aria-live="polite" className={cx("rounded-xl px-4 py-3 ring-1 transition-colors duration-200", rootOk ? "bg-glass/[0.04] ring-night-line" : "bg-bad-solid/10 ring-bad-solid/40")}>
           <p className="flex items-center gap-2 text-[0.9333rem] font-medium">
-            {rootOk ? <SealCheck size={18} className="text-[#7ee2a8]" /> : <SealWarning size={18} className="text-[#ff8a78]" />}
+            {rootOk ? <SealCheck size={18} className="text-good" /> : <SealWarning size={18} className="text-bad" />}
             {rootOk ? "Sealed · signature valid" : "Root mismatch · signature invalid"}
           </p>
           <p className="mt-1 font-mono text-[0.72rem] break-all text-night-muted">root {short(current[depth - 1][0])}</p>
-          {!rootOk && <p className="mt-1 text-[0.8rem] text-[#ffb3a8]">EV-005 changed after it was sealed.</p>}
+          {!rootOk && <p className="mt-1 text-[0.8rem] text-bad">EV-005 changed after it was sealed.</p>}
         </div>
 
-        <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl px-4 py-3 ring-1 ring-night-line transition-colors hover:bg-white/[0.04]">
+        <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl px-4 py-3 ring-1 ring-night-line transition-colors hover:bg-glass/[0.04]">
           <span className="text-[0.9333rem]">
             Change one word
             <span className="block text-[0.8rem] text-night-muted">“did not” becomes “did”</span>
@@ -159,7 +159,7 @@ export default function EvidenceSeal() {
             role="switch"
             aria-checked={tampered}
             onClick={() => setTampered((t) => !t)}
-            className={cx("relative h-6 w-10 shrink-0 rounded-full transition-colors duration-200", tampered ? "bg-[#ff6b55]" : "bg-white/20")}
+            className={cx("relative h-6 w-10 shrink-0 rounded-full transition-colors duration-200", tampered ? "bg-bad-solid" : "bg-glass/20")}
           >
             <span className={cx("absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform duration-200 ease-[var(--ease-out)]", tampered && "translate-x-4")} />
             <span className="sr-only">Change one word in the customer’s statement</span>
@@ -180,14 +180,14 @@ function EvidenceItem({ index, item, hash, changed, play, active, onFocus }: {
       onMouseEnter={onFocus}
       onFocus={onFocus}
       style={{ height: ROW }}
-      className={cx("flex items-center gap-4 px-4 outline-none transition-colors duration-150 focus-visible:bg-white/[0.06]", active && "bg-white/[0.04]")}
+      className={cx("flex items-center gap-4 px-4 outline-none transition-colors duration-150 focus-visible:bg-glass/[0.06]", active && "bg-glass/[0.04]")}
     >
       <span className="id-text w-14 shrink-0 text-[0.8rem] text-night-muted">{item.id}</span>
       <div className="min-w-0 flex-1 leading-tight">
         <p className="truncate text-[0.9333rem] text-night-text">{item.label}</p>
         <p className="truncate text-[0.75rem] text-night-muted">{item.source}</p>
       </div>
-      <span className={cx("font-mono text-[0.75rem] transition-colors duration-200", changed ? "text-[#ff8a78]" : active ? "text-yellow" : "text-night-muted")}>
+      <span className={cx("font-mono text-[0.75rem] transition-colors duration-200", changed ? "text-bad" : active ? "text-yellow-text" : "text-night-muted")}>
         <span aria-hidden>{shown}</span>
         <span className="sr-only">{short(hash)}</span>
       </span>

@@ -7,6 +7,7 @@ import { TUNNEL_HEADERS } from "../../api/sse";
 import { AnimatedGridPattern } from "../../components/fx/AnimatedGridPattern";
 import { NumberTicker } from "../../components/fx/NumberTicker";
 import { Logo } from "../../ui/Logo";
+import { ThemeToggle } from "../../ui/ThemeToggle";
 import { cx } from "../../ui/kit";
 import EvidenceSeal from "./EvidenceSeal";
 import FlowDiagram from "./FlowDiagram";
@@ -22,7 +23,7 @@ export default function HomePage() {
   return (
     <MotionConfig reducedMotion="user" transition={{ duration: 0.3, ease: EASE }}>
       <LazyMotion features={loadFeatures} strict>
-        <div className="min-h-dvh bg-night text-night-text selection:bg-yellow selection:text-[#2b2d33]">
+        <div className="min-h-dvh bg-night text-night-text selection:bg-yellow selection:text-on-yellow">
           <Nav />
           <main>
             <Hero />
@@ -60,12 +61,12 @@ function YellowLink({ to, children, size = "lg" }: { to: string; children: React
     <Link
       to={to}
       className={cx(
-        "press group inline-flex items-center gap-2 rounded-full bg-yellow font-semibold text-[#2b2d33] transition-colors hover:bg-[#ffee3d]",
+        "press group inline-flex items-center gap-2 rounded-full bg-yellow font-semibold text-on-yellow transition-colors hover:bg-yellow-hover",
         size === "lg" ? "h-12 pr-2 pl-6 text-[0.9667rem]" : "h-9 pr-1.5 pl-4 text-[0.9333rem]",
       )}
     >
       {children}
-      <span className={cx("grid place-items-center rounded-full bg-[#2b2d33] text-yellow transition-transform duration-200 ease-[var(--ease-out)] group-hover:translate-x-0.5", size === "lg" ? "size-8" : "size-6")}>
+      <span className={cx("grid place-items-center rounded-full bg-on-yellow text-yellow-text transition-transform duration-200 ease-[var(--ease-out)] group-hover:translate-x-0.5", size === "lg" ? "size-8" : "size-6")}>
         <ArrowRight size={size === "lg" ? 15 : 12} weight="bold" />
       </span>
     </Link>
@@ -104,7 +105,7 @@ function Nav() {
       <div
         className={cx(
           "mx-auto flex h-14 max-w-[880px] items-center justify-between gap-4 rounded-full pr-2 pl-5 ring-1 transition-[background-color,box-shadow] duration-300",
-          scrolled ? "bg-[#141518]/80 shadow-[0_12px_40px_-12px_rgb(0_0_0/0.6)] ring-white/10 backdrop-blur-md" : "bg-transparent ring-transparent",
+          scrolled ? "bg-night-2/80 shadow-[var(--shadow-nav)] ring-glass/10 backdrop-blur-md" : "bg-transparent ring-transparent",
         )}
       >
         <Link to="/" aria-label="VersoML home" className="rounded-md text-[1.02rem] text-night-text">
@@ -116,7 +117,10 @@ function Nav() {
           <a href="#recovery" className="transition-colors hover:text-night-text">Recovery</a>
           <a href="#results" className="transition-colors hover:text-night-text">Results</a>
         </nav>
-        <YellowLink to="/cases" size="md">Open console</YellowLink>
+        <div className="flex items-center gap-1.5">
+          <ThemeToggle className="text-night-muted hover:bg-glass/[0.06] hover:text-night-text" />
+          <YellowLink to="/cases" size="md">Open console</YellowLink>
+        </div>
       </div>
     </header>
   );
@@ -129,13 +133,13 @@ function Hero() {
   return (
     <section className="relative overflow-hidden pt-36 pb-16 sm:pt-44 lg:pb-6">
       <div aria-hidden className="absolute inset-0 [mask-image:radial-gradient(60%_55%_at_50%_30%,#000_10%,transparent_90%)]">
-        <AnimatedGridPattern className="text-white" numSquares={14} maxOpacity={0.09} duration={3.6} />
+        <AnimatedGridPattern className="text-glass" numSquares={14} maxOpacity={0.09} duration={3.6} />
       </div>
       <div aria-hidden className="pointer-events-none absolute top-[-18rem] left-1/2 size-[56rem] -translate-x-1/2 bg-[radial-gradient(closest-side,rgb(254_230_0/0.13),transparent)]" />
       <Container className="relative">
         <div className="mx-auto max-w-[56rem] text-center">
           <h1 className="text-[2.7rem] leading-[1.02] font-semibold tracking-[-0.04em] sm:text-[4.4rem]">
-            Disputed payments, refunded by the <span className="text-yellow">next business day</span>.
+            Disputed payments, refunded by the <span className="hl">next business day</span>.
           </h1>
           <m.p
             initial={reduce ? false : { opacity: 0, y: 10 }}
@@ -174,7 +178,7 @@ function Hero() {
 
 function Evidence() {
   return (
-    <section id="evidence" className="relative scroll-mt-20 border-t border-white/[0.07] py-24 lg:py-32">
+    <section id="evidence" className="relative scroll-mt-20 border-t border-glass/[0.07] py-24 lg:py-32">
       <Container>
         <div className="grid gap-6 lg:grid-cols-2 lg:items-end">
           <Reveal>
@@ -209,7 +213,7 @@ function Recovery() {
   const inView = useInView(ref, { once: true, amount: 0.35 });
   const reduce = useReducedMotion();
   return (
-    <section id="recovery" className="scroll-mt-20 border-t border-white/[0.07] py-24 lg:py-32">
+    <section id="recovery" className="scroll-mt-20 border-t border-glass/[0.07] py-24 lg:py-32">
       <Container className="grid gap-12 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-20">
         <Reveal>
           <Eyebrow>Recovery</Eyebrow>
@@ -218,7 +222,7 @@ function Recovery() {
             A chargeback that fails still costs fees. VersoML checks the scheme rules first and picks the route that can work.
           </p>
         </Reveal>
-        <ul ref={ref} className="divide-y divide-white/[0.07] overflow-hidden rounded-[22px] bg-[#131416] ring-1 ring-white/10">
+        <ul ref={ref} className="divide-y divide-glass/[0.07] overflow-hidden rounded-[22px] bg-night-2 ring-1 ring-glass/10">
           {RECOVERY.map((r, i) => (
             <m.li
               key={r.payment}
@@ -227,7 +231,7 @@ function Recovery() {
               animate={inView ? { opacity: 1, x: 0 } : undefined}
               transition={{ duration: 0.5, ease: EASE, delay: i * 0.09 }}
             >
-              <span className={cx("mt-0.5", r.ok ? "text-yellow" : "text-[#ff7a66]")}>
+              <span className={cx("mt-0.5", r.ok ? "text-yellow-text" : "text-bad")}>
                 {r.ok ? <CheckCircle size={20} weight="fill" /> : <XCircle size={20} weight="fill" />}
               </span>
               <p className="text-night-muted">{r.payment}</p>
@@ -286,7 +290,7 @@ function Results() {
     { value: p.pii, suffix: "", label: "personal data sent to the model" },
   ];
   return (
-    <section id="results" className="scroll-mt-20 border-t border-white/[0.07] py-24 lg:py-32">
+    <section id="results" className="scroll-mt-20 border-t border-glass/[0.07] py-24 lg:py-32">
       <Container>
         <div className="flex flex-wrap items-end justify-between gap-6">
           <Reveal>
@@ -296,19 +300,19 @@ function Results() {
           <Reveal delay={0.1}>
             <p className="max-w-[38ch] text-night-muted">
               {p.cases} synthetic cases, run on {dateLong(p.at)}.{" "}
-              <Link to="/evaluation" className="font-medium text-night-text underline decoration-white/25 underline-offset-4 hover:decoration-yellow">Read the report</Link>
+              <Link to="/evaluation" className="font-medium text-night-text underline decoration-glass/25 underline-offset-4 hover:decoration-yellow">Read the report</Link>
             </p>
           </Reveal>
         </div>
         <dl className="relative mt-14 grid sm:grid-cols-2 lg:grid-cols-4">
           {items.map((it, i) => (
-            <div key={it.label} className="relative border-t border-white/[0.09] px-1 pt-7 pb-8 sm:px-6 lg:border-l lg:first:border-l-0">
-              <span aria-hidden className="absolute -top-[3px] -left-[3px] hidden size-[5px] rounded-full bg-white/40 lg:block" />
+            <div key={it.label} className="relative border-t border-glass/[0.09] px-1 pt-7 pb-8 sm:px-6 lg:border-l lg:first:border-l-0">
+              <span aria-hidden className="absolute -top-[3px] -left-[3px] hidden size-[5px] rounded-full bg-glass/40 lg:block" />
               <dt className="sr-only">{it.label}</dt>
               <dd>
                 <p className="text-[2.8rem] leading-none font-semibold tracking-[-0.04em] text-night-text">
                   <NumberTicker value={it.value} delay={i * 0.12} />
-                  <span className="text-yellow">{it.suffix}</span>
+                  <span className="text-yellow-text">{it.suffix}</span>
                 </p>
                 <p className="mt-4 max-w-[22ch] text-[0.9333rem] text-night-muted">{it.label}</p>
               </dd>
@@ -324,7 +328,7 @@ function Results() {
 
 function FinalCta() {
   return (
-    <section className="relative overflow-hidden border-t border-white/[0.07] py-28 lg:py-36">
+    <section className="relative overflow-hidden border-t border-glass/[0.07] py-28 lg:py-36">
       <div aria-hidden className="pointer-events-none absolute bottom-[-22rem] left-1/2 size-[54rem] -translate-x-1/2 bg-[radial-gradient(closest-side,rgb(254_230_0/0.11),transparent)]" />
       <Container className="relative text-center">
         <Reveal>
@@ -346,7 +350,7 @@ function FinalCta() {
 
 function Footer() {
   return (
-    <footer className="border-t border-white/[0.07]">
+    <footer className="border-t border-glass/[0.07]">
       <Container className="flex flex-col gap-6 py-10 text-[0.8667rem] text-night-muted md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3 text-night-text">
           <Logo className="text-[0.95rem]" />

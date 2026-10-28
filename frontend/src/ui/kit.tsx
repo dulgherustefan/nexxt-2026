@@ -22,7 +22,7 @@ export function cx(...parts: Array<string | false | null | undefined>): string {
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: "bg-ink text-paper hover:bg-ink-soft shadow-[0_1px_2px_rgb(18_19_22/0.12)]",
+  primary: "bg-yellow text-on-yellow hover:bg-yellow-hover shadow-[0_1px_2px_rgb(18_19_22/0.12)]",
   secondary: "bg-paper text-ink shadow-[var(--shadow-card)] hover:bg-hover",
   ghost: "bg-transparent text-ink-soft hover:bg-hover hover:text-ink",
   danger: "bg-paper text-danger shadow-[var(--shadow-card)] hover:bg-danger-soft",
@@ -75,7 +75,7 @@ const TONE_TEXT: Record<Tone, string> = {
 
 const TONE_BG: Record<Tone, string> = {
   neutral: "bg-hover text-ink-soft",
-  now: "bg-yellow-tint text-ink ring-1 ring-inset ring-[#f1dc5c]",
+  now: "bg-yellow-tint text-ink ring-1 ring-inset ring-yellow-line",
   ok: "bg-ok-soft text-ok",
   danger: "bg-danger-soft text-danger",
   dark: "bg-ink text-paper",
@@ -99,7 +99,7 @@ export function Badge({ tone = "neutral", icon, children, className, title }: {
 
 /** Status dot. Only pulses while something is running or waiting on a person. */
 export function Dot({ tone = "neutral", live = false, className }: { tone?: Tone; live?: boolean; className?: string }) {
-  const color = { neutral: "bg-[#b9bac2]", now: "bg-yellow", ok: "bg-ok", danger: "bg-danger", dark: "bg-ink", warn: "bg-warn" }[tone];
+  const color = { neutral: "bg-dot", now: "bg-yellow", ok: "bg-ok", danger: "bg-danger", dark: "bg-ink", warn: "bg-warn" }[tone];
   return <span aria-hidden className={cx("inline-block size-2 shrink-0 rounded-full", color, live && "live-dot", className)} />;
 }
 
@@ -119,7 +119,7 @@ export function IdTag({ children, onClick, title, tone = "neutral" }: {
 }) {
   const cls = cx(
     "id-text inline-flex h-[1.375rem] items-center rounded-md px-1.5 text-[0.7667rem] font-medium whitespace-nowrap ring-1 ring-inset",
-    tone === "now" ? "bg-yellow-tint text-ink ring-[#f1dc5c]" : "bg-paper text-muted ring-line",
+    tone === "now" ? "bg-yellow-tint text-ink ring-yellow-line" : "bg-paper text-muted ring-line",
     onClick && "cursor-pointer transition-colors hover:text-ink hover:ring-line-strong",
   );
   return onClick ? (
@@ -173,7 +173,7 @@ export function Banner({ tone = "now", icon, title, children, actions }: {
   tone?: "now" | "danger" | "neutral" | "ok"; icon?: ReactNode; title: ReactNode; children?: ReactNode; actions?: ReactNode;
 }) {
   const styles = {
-    now: "bg-paper shadow-[var(--shadow-raise)] ring-1 ring-inset ring-[#efe08a]",
+    now: "bg-yellow-tint shadow-[var(--shadow-raise)] ring-1 ring-inset ring-yellow-line",
     danger: "bg-danger-soft ring-1 ring-inset ring-danger-line",
     neutral: "bg-canvas ring-1 ring-inset ring-line",
     ok: "bg-ok-soft ring-1 ring-inset ring-ok-line",

@@ -142,20 +142,20 @@ function Summary({ stats, counts }: { stats?: Stats; counts: Record<Filter, numb
     stats?.deadlines_at_risk ? `${stats.deadlines_at_risk} at risk of missing the deadline` : null,
   ].filter(Boolean);
   return (
-    <section aria-label="Summary" className="grid gap-6 rounded-2xl bg-paper px-6 py-5 shadow-[var(--shadow-card)] md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+    <section aria-label="Summary" className="grid gap-6 rounded-2xl bg-yellow px-6 py-5 text-on-yellow md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
       <div>
-        <p className="text-[0.9333rem] text-muted">Refunded so far</p>
+        <p className="text-[0.9333rem] font-medium text-on-yellow-muted">Refunded so far</p>
         {refunded ? (
           <p className="mt-1 text-[2.2rem] leading-none font-semibold tracking-[-0.03em]">{refunded}</p>
         ) : (
-          <Skeleton className="mt-2 h-9 w-56" />
+          <div aria-hidden className="mt-2 h-9 w-56 animate-pulse rounded-md bg-on-yellow/10" />
         )}
-        <p className="mt-2.5 text-[0.9333rem] text-muted">
+        <p className="mt-2.5 text-[0.9333rem] text-on-yellow-muted">
           {stats ? `${stats.refunded} of ${stats.cases_total} case${stats.cases_total === 1 ? "" : "s"} refunded` : " "}
           {stats?.avg_decision_seconds ? ` · average time to a decision ${duration(stats.avg_decision_seconds)}` : ""}
         </p>
       </div>
-      <p className="text-[0.9333rem] text-ink-soft md:text-right">
+      <p className="text-[0.9333rem] font-medium md:text-right">
         {parts.length ? parts.join(" · ") : counts.all ? "Nothing waiting on you." : ""}
       </p>
     </section>
@@ -201,7 +201,7 @@ function CaseList({ cases, onOpen }: { cases: CaseSummary[]; onOpen: (id: string
                 <span className="flex min-w-0 items-center gap-3">
                   <span className={cx(
                     "grid size-9 shrink-0 place-items-center rounded-full text-[0.75rem] font-semibold",
-                    s.group === "you" ? "bg-yellow-tint text-ink ring-1 ring-inset ring-[#f1dc5c]" : "bg-hover text-ink-soft",
+                    s.group === "you" ? "bg-yellow-tint text-ink ring-1 ring-inset ring-yellow-line" : "bg-hover text-ink-soft",
                   )}>
                     {initials(c.customer_alias)}
                   </span>

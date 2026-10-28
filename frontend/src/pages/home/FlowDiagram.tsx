@@ -28,7 +28,7 @@ const Node = forwardRef<HTMLDivElement, { icon: Icon; label: string; sub: string
           ref={ref}
           className={cx(
             "relative z-10 grid size-11 shrink-0 place-items-center rounded-xl ring-1",
-            tone === "yellow" ? "bg-yellow text-[#2b2d33] ring-yellow" : "bg-[#18191c] text-night-text ring-white/10",
+            tone === "yellow" ? "bg-yellow text-on-yellow ring-yellow" : "bg-night-3 text-night-text ring-glass/10",
           )}
         >
           <I size={20} />
@@ -49,14 +49,14 @@ export default function FlowDiagram() {
   const ins = [useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null)];
   const outs = [useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null)];
   return (
-    <div className="relative overflow-hidden rounded-[28px] bg-[#111214] p-6 ring-1 ring-white/10 sm:p-10">
+    <div className="relative overflow-hidden rounded-[28px] bg-night-2 p-6 ring-1 ring-glass/10 sm:p-10">
       <BorderBeam size={180} duration={10} />
       <div ref={box} className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-6 sm:gap-10">
         <div className="flex flex-col items-end gap-5 sm:gap-6">
           {IN.map((n, i) => <Node key={n.label} ref={ins[i]} {...n} side="in" />)}
         </div>
-        <div ref={hub} className="relative z-10 grid size-24 place-items-center rounded-[26px] bg-[#18191c] ring-1 ring-yellow/40 shadow-[0_0_60px_-10px_rgb(254_230_0/0.35)] sm:size-28">
-          <LogoMark className="size-11 text-white sm:size-12" />
+        <div ref={hub} className="relative z-10 grid size-24 place-items-center rounded-[26px] bg-night-3 ring-1 ring-yellow/40 shadow-[0_0_60px_-10px_rgb(254_230_0/0.35)] sm:size-28">
+          <LogoMark className="size-11 text-night-text sm:size-12" />
           <span className="absolute -bottom-7 text-[0.8rem] font-medium whitespace-nowrap text-night-muted">VersoML</span>
         </div>
         <div className="flex flex-col items-start gap-7 sm:gap-9">

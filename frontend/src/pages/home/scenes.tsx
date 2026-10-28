@@ -26,14 +26,14 @@ const list: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.11
 const item: Variants = { hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: EASE } } };
 
 function Live({ tone = "yellow" }: { tone?: "yellow" | "green" }) {
-  return <span className={cx("live-dot inline-block size-2 rounded-full", tone === "yellow" ? "bg-yellow" : "bg-[#5bd08a]")} />;
+  return <span className={cx("live-dot inline-block size-2 rounded-full", tone === "yellow" ? "bg-yellow" : "bg-good")} />;
 }
 
 function Chip({ children, tone = "muted" }: { children: React.ReactNode; tone?: "muted" | "yellow" | "green" }) {
   return (
     <span className={cx(
       "inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-[0.75rem] font-medium whitespace-nowrap",
-      tone === "yellow" ? "bg-yellow/12 text-yellow" : tone === "green" ? "bg-[#5bd08a]/12 text-[#7ee2a8]" : "bg-white/6 text-night-muted",
+      tone === "yellow" ? "bg-yellow/12 text-yellow-text" : tone === "green" ? "bg-good/12 text-good" : "bg-glass/6 text-night-muted",
     )}>
       {children}
     </span>
@@ -44,18 +44,18 @@ export function ClaimScene() {
   return (
     <m.div variants={list} initial="hidden" animate="show" className="flex h-full flex-col gap-4 p-6">
       <m.div variants={item} className="flex items-center gap-3">
-        <span className="grid size-9 place-items-center rounded-full bg-white/8 text-[0.75rem] font-semibold text-night-text">DC</span>
+        <span className="grid size-9 place-items-center rounded-full bg-glass/8 text-[0.75rem] font-semibold text-night-text">DC</span>
         <div className="leading-tight">
           <p className="text-[0.9333rem] font-medium text-night-text">Demo Customer 01</p>
           <p className="text-[0.8rem] text-night-muted">Demo Bank app · 19:38</p>
         </div>
         <span className="ml-auto"><Chip tone="yellow"><Live /> New claim</Chip></span>
       </m.div>
-      <m.p variants={item} className="max-w-[38ch] rounded-2xl rounded-tl-md bg-white/6 px-4 py-3 text-[0.9333rem] leading-relaxed text-night-text/90">
+      <m.p variants={item} className="max-w-[38ch] rounded-2xl rounded-tl-md bg-glass/6 px-4 py-3 text-[0.9333rem] leading-relaxed text-night-text/90">
         “I didn’t make this payment. I paid a 2.99 delivery fee on a courier site, and an hour later RON 3,200.00 went to a shop I’ve never heard of.”
       </m.p>
-      <m.div variants={item} className="mt-auto flex items-center gap-3 rounded-xl bg-white/[0.03] px-4 py-3 ring-1 ring-night-line">
-        <span className="grid size-9 place-items-center rounded-lg bg-white/6 text-night-muted"><Storefront size={18} /></span>
+      <m.div variants={item} className="mt-auto flex items-center gap-3 rounded-xl bg-glass/[0.03] px-4 py-3 ring-1 ring-night-line">
+        <span className="grid size-9 place-items-center rounded-lg bg-glass/6 text-night-muted"><Storefront size={18} /></span>
         <div className="min-w-0 leading-tight">
           <p className="truncate text-[0.9333rem] font-medium text-night-text">Nova Electro Online</p>
           <p className="text-[0.8rem] text-night-muted">Card •• 4821 · online · 18:31</p>
@@ -91,13 +91,13 @@ function EvidenceRow({ icon: I, label, finding, hash, delay, animate }: (typeof 
   const settled = text === hash;
   return (
     <m.li variants={item} className="flex items-center gap-3 py-3.5">
-      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white/6 text-night-text"><I size={18} /></span>
+      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-glass/6 text-night-text"><I size={18} /></span>
       <div className="min-w-0 flex-1 leading-tight">
         <p className="text-[0.9333rem] font-medium text-night-text">{label}</p>
         <p className="mt-0.5 truncate text-[0.8rem] text-night-muted">{finding}</p>
       </div>
       <span aria-hidden className="hidden w-[7.5rem] text-right font-mono text-[0.72rem] text-night-muted sm:block">{text}</span>
-      <CheckCircle size={18} weight={settled ? "fill" : "regular"} className={cx("shrink-0 transition-colors duration-300", settled ? "text-yellow" : "text-white/20")} />
+      <CheckCircle size={18} weight={settled ? "fill" : "regular"} className={cx("shrink-0 transition-colors duration-300", settled ? "text-yellow-text" : "text-glass/20")} />
     </m.li>
   );
 }
@@ -117,7 +117,7 @@ export function DecisionScene() {
       </m.div>
       <m.div variants={item} className="mt-auto">
         <div className="relative h-8">
-          <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-white/12" />
+          <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-glass/12" />
           <m.div
             className="absolute top-1/2 left-0 h-px w-full origin-left -translate-y-1/2 bg-yellow"
             initial={{ scaleX: 0 }}
@@ -127,13 +127,13 @@ export function DecisionScene() {
           <m.div className="absolute inset-0" initial={{ x: "0%", opacity: 0 }} animate={{ x: "6%", opacity: 1, transition: { delay: 0.5, duration: 0.6, ease: EASE } }}>
             <span className="absolute top-1/2 left-0 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-yellow ring-4 ring-yellow/20" />
           </m.div>
-          <span className="absolute top-1/2 right-0 size-2.5 -translate-y-1/2 rounded-full ring-1 ring-white/40" />
+          <span className="absolute top-1/2 right-0 size-2.5 -translate-y-1/2 rounded-full ring-1 ring-glass/40" />
         </div>
         <div className="flex justify-between text-[0.8rem]">
           <span><span className="text-night-muted">Reported</span> <span className="tnum text-night-text">Wed 19:38</span></span>
           <span className="text-right"><span className="text-night-muted">Deadline</span> <span className="tnum text-night-text">Thu 23:59</span></span>
         </div>
-        <p className="mt-3 text-[0.8rem] text-night-muted"><span className="font-medium text-yellow">Decided at 19:38:57</span>, 28 hours before the deadline.</p>
+        <p className="mt-3 text-[0.8rem] text-night-muted"><span className="font-medium text-yellow-text">Decided at 19:38:57</span>, 28 hours before the deadline.</p>
       </m.div>
     </m.div>
   );
@@ -148,15 +148,15 @@ export function RefundScene({ animate }: { animate: boolean }) {
   }, [animate]);
   return (
     <m.div variants={list} initial="hidden" animate="show" className="flex h-full flex-col gap-4 p-6">
-      <m.div variants={item} className="rounded-xl bg-white/[0.04] px-5 py-5 ring-1 ring-night-line">
+      <m.div variants={item} className="rounded-xl bg-glass/[0.04] px-5 py-5 ring-1 ring-night-line">
         <p className="text-[0.8rem] text-night-muted">Customer balance</p>
         <p className="mt-1.5 text-[2.1rem] leading-none font-semibold tracking-[-0.03em] text-night-text">
           <NumberFlow value={balance} locales="en-GB" prefix="RON " format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} />
         </p>
-        <p className="mt-2.5 text-[0.8rem] font-medium text-[#7ee2a8]">+RON 3,200.00 refunded · Wed 19:39</p>
+        <p className="mt-2.5 text-[0.8rem] font-medium text-good">+RON 3,200.00 refunded · Wed 19:39</p>
       </m.div>
       <m.div variants={item} className="flex items-center gap-3 rounded-xl px-4 py-3 ring-1 ring-night-line">
-        <span className="grid size-8 place-items-center rounded-full bg-yellow text-[#2b2d33]"><CheckCircle size={16} weight="bold" /></span>
+        <span className="grid size-8 place-items-center rounded-full bg-yellow text-on-yellow"><CheckCircle size={16} weight="bold" /></span>
         <div className="min-w-0 flex-1 leading-tight">
           <p className="text-[0.9333rem] font-medium text-night-text">Sent automatically · 19:39</p>
           <p className="mt-0.5 text-[0.8rem] text-night-muted">Under the RON 5,000.00 limit, with no risk signals.</p>
@@ -175,7 +175,7 @@ export function RecoveryScene() {
   return (
     <m.ul variants={list} initial="hidden" animate="show" className="flex h-full flex-col justify-center gap-2.5 p-6">
       {rows.map((r) => (
-        <m.li key={r.title} variants={item} className="flex items-center gap-3 rounded-xl bg-white/[0.03] px-4 py-3.5 ring-1 ring-night-line">
+        <m.li key={r.title} variants={item} className="flex items-center gap-3 rounded-xl bg-glass/[0.03] px-4 py-3.5 ring-1 ring-night-line">
           <r.icon size={18} className="shrink-0 text-night-text" />
           <div className="min-w-0 flex-1 leading-tight">
             <p className="text-[0.9333rem] font-medium text-night-text">{r.title}</p>

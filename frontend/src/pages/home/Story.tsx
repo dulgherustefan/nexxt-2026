@@ -58,12 +58,12 @@ export default function Story() {
                 const active = i === step;
                 return (
                   <li key={s.title} className="grid grid-cols-[2px_minmax(0,1fr)] gap-x-5">
-                    <span className="relative block bg-white/10">
+                    <span className="relative block bg-glass/10">
                       <span className="absolute inset-x-0 top-0 block bg-yellow" style={{ height: `${fill * 100}%` }} />
                     </span>
                     <div className="pb-6">
                       <p className="flex items-baseline gap-3">
-                        <span className={cx("tnum text-[0.8rem] transition-colors duration-300", active ? "text-yellow" : "text-night-muted")}>{String(i + 1).padStart(2, "0")}</span>
+                        <span className={cx("tnum text-[0.8rem] transition-colors duration-300", active ? "text-yellow-text" : "text-night-muted")}>{String(i + 1).padStart(2, "0")}</span>
                         <span className={cx("text-[1.15rem] font-semibold transition-colors duration-300", active ? "text-night-text" : "text-night-muted")}>{s.title}</span>
                       </p>
                       <m.div
@@ -80,9 +80,9 @@ export default function Story() {
               })}
             </ol>
           </div>
-          <div className="relative h-[420px] rounded-[28px] bg-[#131416] ring-1 ring-white/10 shadow-[0_40px_120px_-40px_rgb(254_230_0/0.18)]">
+          <div className="relative h-[420px] rounded-[28px] bg-night-2 ring-1 ring-glass/10 shadow-[0_40px_120px_-40px_rgb(254_230_0/0.18)]">
             <BorderBeam size={160} duration={9} />
-            <div className="flex h-12 items-center gap-2 border-b border-white/[0.07] px-5">
+            <div className="flex h-12 items-center gap-2 border-b border-glass/[0.07] px-5">
               <span className="id-text text-[0.8rem] text-night-muted">CT-2026-311068</span>
               <span className="ml-auto text-[0.8rem] text-night-muted">Step {step + 1} of {n}</span>
             </div>
@@ -121,7 +121,7 @@ export function StoryStacked() {
               <span className="text-[1.1rem] font-semibold text-night-text">{s.title}</span>
             </p>
             <p className="mt-2 leading-relaxed text-night-muted">{s.body}</p>
-            <div className="mt-4 h-[340px] overflow-hidden rounded-2xl bg-[#131416] ring-1 ring-white/10">{s.scene(!reduce)}</div>
+            <div className="mt-4 h-[340px] overflow-hidden rounded-2xl bg-night-2 ring-1 ring-glass/10">{s.scene(!reduce)}</div>
           </li>
         ))}
       </ol>

@@ -751,7 +751,7 @@ function CounterfactualPanel({ d, caseId }: { d: CaseDetail; caseId: string }) {
               const b = result.before.find((x) => x.question === a.question);
               const changed = result.changed.includes(a.question);
               return (
-                <li key={a.question} className={cx("rounded-lg px-3 py-2", changed ? "bg-yellow-tint ring-1 ring-inset ring-[#f1dc5c]" : "bg-canvas")}>
+                <li key={a.question} className={cx("rounded-lg px-3 py-2", changed ? "bg-yellow-tint ring-1 ring-inset ring-yellow-line" : "bg-canvas")}>
                   <span className="text-muted">{questionLabel(a.question)} </span>
                   {changed
                     ? <><s className="text-subtle">{verdictLabel(b?.decision, a.question)}</s> <span className="font-medium">{verdictLabel(a.decision, a.question)}</span></>

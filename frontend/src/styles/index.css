@@ -7,6 +7,7 @@
   --font-sans: "Host Grotesk Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Fragment Mono", ui-monospace, "SF Mono", Consolas, monospace;
 
+  /* Light is the base theme; [data-theme="dark"] below repoints the same roles. */
   --color-ink: #121316;
   --color-ink-soft: #2e3036;
   --color-muted: #5c5e66;
@@ -16,11 +17,17 @@
   --color-paper: #ffffff;
   --color-canvas: #f7f7f8;
   --color-hover: #f1f1f4;
+  --color-dot: #b9bac2;
 
   --color-yellow: #fee600;
-  --color-yellow-hover: #e5d119;
+  --color-yellow-hover: #f2db00;
   --color-yellow-soft: #fff5b3;
   --color-yellow-tint: #fffbe0;
+  --color-yellow-line: #f1dc5c;
+  --color-yellow-text: #7a6500;
+  /* text and icons that sit on a yellow fill, in both themes */
+  --color-on-yellow: #121316;
+  --color-on-yellow-muted: #4a4636;
 
   --color-danger: #c4321d;
   --color-danger-soft: #fdeeea;
@@ -31,11 +38,17 @@
   --color-warn: #a8500d;
   --color-warn-soft: #fdf1e6;
 
-  --color-night: #0f1012;
-  --color-night-2: #17181b;
-  --color-night-line: rgb(255 255 255 / 0.09);
-  --color-night-text: #ecedef;
-  --color-night-muted: #9b9da5;
+  /* The homepage surfaces. "night" is its dark look; in the light theme the same roles go bright. */
+  --color-night: #f7f7f5;
+  --color-night-2: #ffffff;
+  --color-night-3: #f0f0ed;
+  --color-night-line: rgb(18 19 22 / 0.09);
+  --color-night-text: #121316;
+  --color-night-muted: #5c5e66;
+  --color-glass: #121316;
+  --color-good: #127a47;
+  --color-bad: #c4321d;
+  --color-bad-solid: #e0442c;
 
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -45,6 +58,7 @@
   --shadow-card: 0 1px 2px rgb(18 19 22 / 0.04), 0 0 0 1px rgb(18 19 22 / 0.06);
   --shadow-raise: 0 1px 2px rgb(18 19 22 / 0.05), 0 6px 16px -8px rgb(18 19 22 / 0.12);
   --shadow-overlay: 0 24px 48px -16px rgb(18 19 22 / 0.24), 0 0 0 1px rgb(18 19 22 / 0.06);
+  --shadow-nav: 0 12px 40px -16px rgb(18 19 22 / 0.18);
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
@@ -54,6 +68,62 @@
 
   --animate-enter: enter 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-flash: flash 1.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Dark theme: same roles, new values. Set on <html> by the inline script in index.html and by the theme toggle. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-ink: #ecedef;
+  --color-ink-soft: #c9cbd1;
+  --color-muted: #9b9da5;
+  --color-subtle: #80828b;
+  --color-line: #232529;
+  --color-line-strong: #33353b;
+  --color-paper: #121315;
+  --color-canvas: #0d0e10;
+  --color-hover: #1b1c20;
+  --color-dot: #5b5d64;
+
+  --color-yellow-hover: #ffee3d;
+  --color-yellow-soft: #4a4310;
+  --color-yellow-tint: #211e0b;
+  --color-yellow-line: #5f560f;
+  --color-yellow-text: #fee600;
+
+  --color-danger: #ff7a66;
+  --color-danger-soft: #2c1613;
+  --color-danger-line: #5a2a22;
+  --color-ok: #5bd08a;
+  --color-ok-soft: #10261a;
+  --color-ok-line: #1f4a31;
+  --color-warn: #f0a35c;
+  --color-warn-soft: #2a1c0f;
+
+  --color-night: #0f1012;
+  --color-night-2: #131416;
+  --color-night-3: #18191c;
+  --color-night-line: rgb(255 255 255 / 0.09);
+  --color-night-text: #ecedef;
+  --color-night-muted: #9b9da5;
+  --color-glass: #ffffff;
+  --color-good: #7ee2a8;
+  --color-bad: #ff8a78;
+  --color-bad-solid: #ff6b55;
+
+  --shadow-card: 0 0 0 1px rgb(255 255 255 / 0.07);
+  --shadow-raise: 0 0 0 1px rgb(255 255 255 / 0.08), 0 8px 24px -10px rgb(0 0 0 / 0.6);
+  --shadow-overlay: 0 24px 48px -16px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.08);
+  --shadow-nav: 0 12px 40px -12px rgb(0 0 0 / 0.6);
+}
+:root[data-theme="light"] { color-scheme: light; }
+
+/* The theme switch: a circle grows from the toggle (View Transitions). Browsers without it just swap. */
+::view-transition-old(root),
+::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-new(root) { animation: theme-reveal 480ms var(--ease-out); }
+@keyframes theme-reveal {
+  from { clip-path: circle(0 at var(--theme-x, 50%) var(--theme-y, 0%)); }
+  to { clip-path: circle(var(--theme-r, 150%) at var(--theme-x, 50%) var(--theme-y, 0%)); }
 }
 
 @keyframes enter {
@@ -142,7 +212,7 @@
   .press { transition: transform 120ms var(--ease-out); }
   .press:active { transform: scale(0.97); }
   .draft-shimmer {
-    background: linear-gradient(90deg, transparent 0%, rgb(255 255 255 / 0.65) 50%, transparent 100%) var(--color-hover);
+    background: linear-gradient(90deg, transparent 0%, color-mix(in oklab, var(--color-paper) 65%, transparent) 50%, transparent 100%) var(--color-hover);
     background-size: 200% 100%;
     animation: shimmer 1.6s linear 2;
   }
@@ -156,4 +226,14 @@
     scroll-behavior: auto !important;
   }
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}
+
+/* A highlighted phrase: yellow ink on dark, a yellow marker stroke on light. */
+@layer utilities {
+  .hl {
+    background: linear-gradient(transparent 58%, var(--color-yellow) 58%, var(--color-yellow) 92%, transparent 92%);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+  :root[data-theme="dark"] .hl { background: none; color: var(--color-yellow); }
 }

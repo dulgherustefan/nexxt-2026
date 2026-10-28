@@ -19,6 +19,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { useApi, useResource, useRuntime } from "../api/runtime";
 import { cx, Dot } from "../ui/kit";
 import { Logo, LogoMark } from "../ui/Logo";
+import { ThemeToggle } from "../ui/ThemeToggle";
 import { PhoneDemoDialog } from "./PhoneDemo";
 
 interface NavItem {
@@ -81,16 +82,15 @@ function SystemStatus() {
   );
 }
 
-function NeedsYou() {
+function NeedsYou({ active }: { active: boolean }) {
   const api = useApi();
   const { zone } = useRuntime();
   const stats = useResource(zone === "client" ? () => api.stats() : null, [zone], { pollMs: 8000 });
   const n = stats.data?.awaiting_human ?? 0;
   if (!n) return null;
   return (
-    <span className="ml-auto inline-flex items-center gap-1.5 text-[0.8rem] font-medium text-ink-soft" title={`${n} waiting for approval`}>
-      <Dot tone="now" />
-      <span className="tnum">{n}</span>
+    <span className={cx("tnum ml-auto grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[0.75rem] font-semibold", active ? "bg-on-yellow text-yellow" : "bg-yellow text-on-yellow")} title={`${n} waiting for approval`}>
+      {n}
     </span>
   );
 }
@@ -117,14 +117,14 @@ function Sidebar({ onNavigate, onPhoneDemo }: { onNavigate?: () => void; onPhone
             end={it.end}
             onClick={onNavigate}
             className={({ isActive }) =>
-              cx(item, isActive ? "bg-paper font-medium text-ink shadow-[var(--shadow-card)]" : "text-muted hover:bg-hover hover:text-ink")
+              cx(item, isActive ? "bg-yellow font-medium text-on-yellow" : "text-muted hover:bg-hover hover:text-ink")
             }
           >
             {({ isActive }) => (
               <>
-                <it.icon size={17} weight={isActive ? "fill" : "regular"} className={isActive ? "text-ink" : "text-subtle"} />
+                <it.icon size={17} weight={isActive ? "fill" : "regular"} className={isActive ? "text-on-yellow" : "text-subtle"} />
                 {it.label}
-                {it.to === "/cases" && <NeedsYou />}
+                {it.to === "/cases" && <NeedsYou active={isActive} />}
               </>
             )}
           </NavLink>
@@ -149,7 +149,10 @@ function Sidebar({ onNavigate, onPhoneDemo }: { onNavigate?: () => void; onPhone
       )}
 
       <div className="mt-auto flex flex-col gap-1">
-        <SystemStatus />
+        <div className="flex items-start justify-between gap-1">
+          <SystemStatus />
+          <ThemeToggle className="mt-1 text-muted hover:bg-hover hover:text-ink" />
+        </div>
         <p className="px-3 text-[0.75rem] text-subtle">Synthetic data. Demo Bank is not a real bank.</p>
       </div>
     </div>
@@ -178,9 +181,12 @@ export function AppShell() {
       <div className="min-w-0 flex-1">
         <div className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-paper/90 px-4 backdrop-blur lg:hidden">
           <Link to="/" aria-label="VersoML home"><Logo /></Link>
-          <button type="button" aria-label="Open menu" onClick={() => setOpen(true)} className="grid size-9 place-items-center rounded-full hover:bg-hover">
-            <List size={20} />
-          </button>
+          <div className="flex items-center gap-1">
+            <ThemeToggle className="text-muted hover:bg-hover hover:text-ink" />
+            <button type="button" aria-label="Open menu" onClick={() => setOpen(true)} className="grid size-9 place-items-center rounded-full hover:bg-hover">
+              <List size={20} />
+            </button>
+          </div>
         </div>
         <main id="main" className="mx-auto w-full max-w-[1240px] px-5 py-7 sm:px-8 lg:px-10 lg:py-9">
           {/* a short fade when the page changes; keyed so every route enters the same way */}

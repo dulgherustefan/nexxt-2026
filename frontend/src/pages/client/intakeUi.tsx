@@ -59,7 +59,7 @@ function Option({ name, value, checked, onChange, disabled, children }: {
       className={cx(
         "flex gap-3 rounded-xl px-4 py-3 transition-colors",
         disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
-        checked ? "bg-canvas ring-1 ring-inset ring-ink" : "ring-1 ring-inset ring-line hover:bg-canvas",
+        checked ? "bg-yellow-tint ring-1 ring-inset ring-yellow-line" : "ring-1 ring-inset ring-line hover:bg-canvas",
       )}
     >
       <input type="radio" name={name} value={value} checked={checked} disabled={disabled} onChange={() => onChange(value)} className="mt-1 accent-ink" />

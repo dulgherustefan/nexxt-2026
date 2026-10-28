@@ -646,13 +646,13 @@ function ParamRow({ name, kind, original, draft, changed, error, rules, rulesLoa
           className={cx(
             "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-150",
             "disabled:cursor-not-allowed disabled:opacity-60",
-            on ? "bg-ink" : "bg-line-strong",
+            on ? "bg-yellow" : "bg-line-strong",
           )}
         >
           <span
             aria-hidden
             className={cx(
-              "size-4 rounded-full bg-paper shadow-[0_1px_2px_rgb(18_19_22/0.2)] transition-transform duration-150",
+              "size-4 rounded-full bg-white shadow-[0_1px_2px_rgb(18_19_22/0.2)] transition-transform duration-150",
               on ? "translate-x-[18px]" : "translate-x-0.5",
             )}
           />

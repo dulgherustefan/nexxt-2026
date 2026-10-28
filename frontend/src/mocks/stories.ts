@@ -158,7 +158,7 @@ const capHit = (amount: string, basis: string, inputs?: string[]): HitSeed => ({
   basis,
   confidence: "U",
   outcome: `${amount} is above the ${CAP} cap: a person approves`,
-  explanation: `The amount of ${amount} is above the automatic refund cap (${CAP}, [U] parameter). A person approves it, still within the refund deadline.`,
+  explanation: `The amount of ${amount} is above the automatic refund cap (${CAP}, a bank setting). A person approves it, still within the refund deadline.`,
   inputs,
   params: { plafon_aprobare_ron: 2000 },
 });
@@ -192,7 +192,7 @@ const letterFooter = (c: StoryCtx) =>
   `${ADR_TEXT} If you have questions, call us on +40 700 000 100 or reply to this email, quoting case ${c.caseId}.\n\n` +
   "Kind regards,\nDisputes team, Demo Bank";
 
-const RECALL_NOTE = "Draft recall. The RON procedure between banks is still to be confirmed with the mentors [U].";
+const RECALL_NOTE = "Draft recall. The RON procedure between banks is still to be confirmed.";
 
 // ================================================================== phishing (demo_t1, phishing_link, inel_carausi)
 
@@ -483,7 +483,7 @@ export function phishingStory(c: StoryCtx, scenario = "demo_t1"): Story {
         basis: "the SENT/Transfond procedure is not public (docs/05 §3)",
         confidence: "U",
         outcome: "recall drafted; the answer deadline is to be confirmed",
-        explanation: "The transfer went in RON to another bank in Romania, so the engine drafts a recall request. The procedure is not public, so the answer deadline is still to be confirmed [U].",
+        explanation: "The transfer went in RON to another bank in Romania, so the engine drafts a recall request. The procedure is not public, so the answer deadline is still to be confirmed.",
         inputs: ["tx"],
       },
       {
@@ -547,7 +547,7 @@ export function phishingStory(c: StoryCtx, scenario = "demo_t1"): Story {
       },
     ],
     refund: "approval",
-    approvalPrompt: `The amount of ${amount} is above the automatic refund cap (${CAP}, [U] parameter). Confirm the refund instruction by ${fmtDayTime(c.t1)}.`,
+    approvalPrompt: `The amount of ${amount} is above the automatic refund cap (${CAP}, a bank setting). Confirm the refund instruction by ${fmtDayTime(c.t1)}.`,
     debate: {
       prosecutor: [
         { text: "The customer approved an authentication in the app that they did not start.", cites: ["sca"] },
@@ -594,7 +594,7 @@ export function phishingStory(c: StoryCtx, scenario = "demo_t1"): Story {
 
 function recallXml(c: StoryCtx): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
-<!-- DRAFT, not sent. RON payment: the SENT/Transfond procedure is still to be confirmed [U]. -->
+<!-- DRAFT, not sent. RON payment: the SENT/Transfond procedure is still to be confirmed. -->
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.056.001.08">
   <FIToFIPmtCxlReq>
     <Assgnmt>

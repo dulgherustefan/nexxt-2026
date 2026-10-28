@@ -14,6 +14,12 @@ export function toMoney(v: number | Money | null | undefined, currency = "RON"):
 }
 
 /** 3200 → "RON 3,200.00"; with `{ decimals: 0 }` → "RON 3,200". The code goes first, as in EU style. */
+/** False while the payment hasn't been loaded yet (the API sends a zero amount until then). */
+export function hasAmount(v: number | Money | null | undefined): boolean {
+  const m = toMoney(v);
+  return Boolean(m && m.value > 0);
+}
+
 export function money(v: number | Money | null | undefined, opts: { decimals?: "auto" | 0 | 2 } = {}): string {
   const m = toMoney(v);
   if (!m) return "—";
@@ -216,9 +222,14 @@ const VERDICT: Record<Verdict, string> = {
   INCHIDE: "Close",
 };
 
-export function verdictLabel(v: string | null | undefined): string {
+// The engine reuses one code for both recovery questions; the words depend on who would repay.
+const VERDICT_BY_QUESTION: Record<string, Record<string, string>> = {
+  recuperare_escroc: { NU_RECOMANDAM_RECUPERARE: "No recovery to start" },
+};
+
+export function verdictLabel(v: string | null | undefined, question?: string): string {
   if (!v) return "No decision yet";
-  return VERDICT[v as Verdict] ?? v;
+  return (question && VERDICT_BY_QUESTION[question]?.[v]) ?? VERDICT[v as Verdict] ?? v;
 }
 
 export type Tone = "ink" | "yellow" | "alert" | "fog" | "outline" | "paper" | "pink";

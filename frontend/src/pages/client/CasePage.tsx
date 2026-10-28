@@ -11,7 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
-import { channelLabel, dateTime, money, questionLabel, shortHash, verdictLabel } from "../../api/format";
+import { channelLabel, dateTime, hasAmount, money, questionLabel, shortHash, verdictLabel } from "../../api/format";
 import { useApi, useResource } from "../../api/runtime";
 import { useEventStream } from "../../api/sse";
 import type { CaseDetail, CounterfactualResult, Decision, Fact, FilterResult, LedgerResponse, VerifyResult } from "../../api/types";
@@ -139,7 +139,7 @@ function CaseHeader({ d }: { d: CaseDetail }) {
             <span className="id-text text-[0.8667rem] text-subtle">{s.case_id}</span>
           </p>
           <h1 className="mt-1.5 text-[2.1rem] leading-tight font-semibold tracking-[-0.03em]">
-            {s.amount ? (
+            {hasAmount(s.amount) ? (
               <>{money(s.amount)} <span className="font-normal text-subtle">{channelLabel(s.channel).toLowerCase()}</span></>
             ) : (
               <>
@@ -300,7 +300,7 @@ function DecisionPanel({ d, onCite, onRules }: { d: CaseDetail; onCite: (id: str
           {others.map((o: Decision) => (
             <div key={o.question} className="border-line px-6 py-4 sm:border-r sm:last:border-r-0">
               <p className="text-[0.8rem] text-muted">{questionLabel(o.question)}</p>
-              <p className="mt-1 font-medium">{verdictLabel(o.decision)}</p>
+              <p className="mt-1 font-medium">{verdictLabel(o.decision, o.question)}</p>
               {o.rule_ids?.length ? <p className="id-text mt-1 text-[0.7667rem] text-subtle">{o.rule_ids.slice(0, 3).join(" · ")}</p> : null}
             </div>
           ))}
@@ -640,7 +640,7 @@ function RecoveryPanel({ d }: { d: CaseDetail }) {
       <div className="flex flex-col gap-4">
         {fraudster && (
           <p className="text-[0.9333rem]">
-            <span className="font-medium">{verdictLabel(fraudster.decision)}</span>
+            <span className="font-medium">{verdictLabel(fraudster.decision, fraudster.question)}</span>
             {fraudster.rule_ids?.length ? <span className="id-text ml-2 text-[0.7667rem] text-subtle">{fraudster.rule_ids.join(" · ")}</span> : null}
           </p>
         )}
@@ -712,8 +712,8 @@ function CounterfactualPanel({ d, caseId }: { d: CaseDetail; caseId: string }) {
                 <li key={a.question} className={cx("rounded-lg px-3 py-2", changed ? "bg-yellow-tint ring-1 ring-inset ring-[#f1dc5c]" : "bg-canvas")}>
                   <span className="text-muted">{questionLabel(a.question)} </span>
                   {changed
-                    ? <><s className="text-subtle">{verdictLabel(b?.decision)}</s> <span className="font-medium">{verdictLabel(a.decision)}</span></>
-                    : <span>{verdictLabel(a.decision)} <span className="text-subtle">· unchanged</span></span>}
+                    ? <><s className="text-subtle">{verdictLabel(b?.decision, a.question)}</s> <span className="font-medium">{verdictLabel(a.decision, a.question)}</span></>
+                    : <span>{verdictLabel(a.decision, a.question)} <span className="text-subtle">· unchanged</span></span>}
                 </li>
               );
             })}

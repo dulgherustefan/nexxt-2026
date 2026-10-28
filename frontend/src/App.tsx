@@ -26,6 +26,11 @@ const S = ({ children, label }: { children: ReactNode; label: string }) => (
   </SectionBoundary>
 );
 
+/** Old Romanian paths keep working, query string included (the QR codes printed for the jury use `?client=`). */
+function Moved({ to }: { to: string }) {
+  return <Navigate to={{ pathname: to, search: window.location.search }} replace />;
+}
+
 function LegacyCase() {
   const { id } = useParams();
   return <Navigate to={`/cases/${id ?? ""}`} replace />;
@@ -59,8 +64,8 @@ function ZoneRoutes() {
         <Route path="*" element={<NotFound />} />
       </Route>
       {/* old Romanian paths, kept so printed QR codes and bookmarks still work */}
-      <Route path="banca" element={<Navigate to="/bank" replace />} />
-      <Route path="demo/livrare" element={<Navigate to="/demo/delivery" replace />} />
+      <Route path="banca" element={<Moved to="/bank" />} />
+      <Route path="demo/livrare" element={<Moved to="/demo/delivery" />} />
       <Route path="cazuri" element={<Navigate to="/cases" replace />} />
       <Route path="cazuri/:id" element={<LegacyCase />} />
       <Route path="reguli" element={<Navigate to="/rules" replace />} />

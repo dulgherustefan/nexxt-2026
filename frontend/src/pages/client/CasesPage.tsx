@@ -1,7 +1,7 @@
 import { DeviceMobile, Play, Plus } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { duration, money, verdictLabel } from "../../api/format";
+import { duration, hasAmount, money, verdictLabel } from "../../api/format";
 import { useApi, useResource } from "../../api/runtime";
 import type { CaseSummary, ScenarioInfo, Stats } from "../../api/types";
 import { Button, cx, DeadlineText, EmptyState, ErrorNote, PageHeader, Skeleton, Tabs } from "../../ui/kit";
@@ -189,7 +189,7 @@ function CaseList({ cases, onOpen }: { cases: CaseSummary[]; onOpen: (id: string
               <button
                 type="button"
                 onClick={() => onOpen(c.case_id)}
-                aria-label={`Open case ${c.case_id}, ${c.customer_alias}${c.amount ? `, ${money(c.amount)}` : ""}`}
+                aria-label={`Open case ${c.case_id}, ${c.customer_alias}${hasAmount(c.amount) ? `, ${money(c.amount)}` : ""}`}
                 onKeyDown={(e) => {
                   const li = e.currentTarget.parentElement;
                   if (e.key === "ArrowDown") (li?.nextElementSibling?.querySelector("button") as HTMLElement | null)?.focus();
@@ -214,14 +214,14 @@ function CaseList({ cases, onOpen }: { cases: CaseSummary[]; onOpen: (id: string
                     </span>
                   </span>
                 </span>
-                <span className="tnum text-right font-medium md:hidden">{c.amount ? money(c.amount) : "—"}</span>
+                <span className="tnum text-right font-medium md:hidden">{hasAmount(c.amount) ? money(c.amount) : "—"}</span>
                 <span className="text-[0.8667rem] md:text-[0.9333rem]" title={c.verdict ? verdictLabel(c.verdict) : undefined}>
                   <StatusLine status={String(c.status)} requiresHuman={c.requires_human} />
                 </span>
                 <span className="text-right text-[0.8667rem] md:text-left md:text-[0.9333rem]">
                   <DeadlineText deadline={c.deadline} done={isClosed(c)} />
                 </span>
-                <span className="tnum hidden text-right font-medium md:block">{c.amount ? money(c.amount) : "—"}</span>
+                <span className="tnum hidden text-right font-medium md:block">{hasAmount(c.amount) ? money(c.amount) : "—"}</span>
               </button>
             </li>
           );

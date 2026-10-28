@@ -1,54 +1,37 @@
+/**
+ * Pagina unei piste: antetul (contul, scorul, recomandarea), bara de decizie, graful banilor
+ * și, la cerere, tiparele, OSINT, ipotezele nevinovate, ciorna RTS, ceasurile și agenții.
+ */
 import { Play, RotateCw, TriangleAlert, Waypoints } from "lucide-react";
-import { lazy, Suspense, useCallback, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ApiError } from "../../api/client";
 import { dateTime, relative, verdictLabel } from "../../api/format";
-import { useApi, usePrefersReducedMotion } from "../../api/runtime";
-import { Badge, Button, Dot, EmptyState, ErrorNote, IdTag, SectionBoundary, Skeleton, useNowTick } from "../../ui/kit";
-import { maskAccount, roCount, tsOf } from "./aml";
+import { useApi } from "../../api/runtime";
+import { Badge, Breadcrumb, Button, Collapsible, Dot, EmptyState, ErrorNote, SectionBoundary, Skeleton, useNowTick } from "../../ui/kit";
+import { Gauge } from "../../ui/viz";
+import { maskAccount, roCount, tsOf, typologyLabel } from "./aml";
 import { DecisionArea } from "./DecisionPanel";
 import { describeFlow, subjectIdsOf } from "./flow";
 import { AchPanel, ScorePanel } from "./LeadPanels";
+import { OsintTab, ProbeTab, RtsTab } from "./LeadTabs";
 import { ClockBars, TypologyChips } from "./LeadVisuals";
-import { LeadTabs, type LeadTab } from "./LeadTabs";
 import { LeadStatusBadge, StaleNote } from "./ui";
 import { useLead } from "./useLead";
 
 const MoneyGraph = lazy(() => import("../../graph/MoneyGraph"));
 const AgentGraph = lazy(() => import("../../graph/AgentGraph"));
 
-function Breadcrumb({ id }: { id: string }) {
-  return (
-    <nav aria-label="Firul paginii" className="mb-3 flex items-center gap-1.5 text-[0.8667rem] text-muted">
-      <Link to="/aml" className="font-semibold text-ink-soft hover:underline">
-        Piste
-      </Link>
-      <span aria-hidden>/</span>
-      <span aria-current="page" className="font-mono text-ink">
-        {id || "—"}
-      </span>
-    </nav>
-  );
-}
+type SectionId = "tipare" | "osint" | "ipoteze" | "rts" | "ceasuri" | "agenti" | "probe";
 
 function LeadSkeleton({ id }: { id: string }) {
   return (
     <div role="status" aria-label="Se încarcă pista">
-      <Breadcrumb id={id} />
+      <Breadcrumb items={[{ label: "Piste", to: "/aml" }, { label: id || "—" }]} />
       <Skeleton className="h-9 w-80" />
       <Skeleton className="mt-3 h-5 w-full max-w-[60ch]" />
-      <Skeleton className="mt-2 h-4 w-64" />
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          <Skeleton className="h-[22rem] w-full rounded-lg" />
-          <Skeleton className="h-48 w-full rounded-lg" />
-        </div>
-        <div className="space-y-6">
-          <Skeleton className="h-44 w-full rounded-lg" />
-          <Skeleton className="h-56 w-full rounded-lg" />
-          <Skeleton className="h-64 w-full rounded-lg" />
-        </div>
-      </div>
+      <Skeleton className="mt-6 h-20 w-full rounded-lg" />
+      <Skeleton className="mt-6 h-[26rem] w-full rounded-lg" />
     </div>
   );
 }
@@ -64,24 +47,14 @@ export function LeadRoom({ leadId, compact = false }: { leadId: string; compact?
   const live = useLead(id);
   const { detail } = live;
   const now = useNowTick(30_000);
-  const reduced = usePrefersReducedMotion();
-
-  const [tab, setTab] = useState<LeadTab>("rts");
+  const [open, setOpen] = useState<Partial<Record<SectionId, boolean>>>({});
   const [highlight, setHighlight] = useState<{ id: string; n: number } | null>(null);
-  const tabsRef = useRef<HTMLDivElement>(null);
-  const onCite = useCallback(
-    (factId: string) => {
-      setTab("probe");
-      setHighlight((h) => ({ id: factId, n: (h?.n ?? 0) + 1 }));
-      window.requestAnimationFrame(() => {
-        const el = tabsRef.current;
-        if (!el) return;
-        const r = el.getBoundingClientRect();
-        if (r.top < 0 || r.top > window.innerHeight - 160) el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
-      });
-    },
-    [reduced],
-  );
+
+  const onCite = useCallback((factId: string) => {
+    setOpen((o) => ({ ...o, probe: true }));
+    setHighlight((h) => ({ id: factId, n: (h?.n ?? 0) + 1 }));
+    window.setTimeout(() => document.getElementById("lead-probe")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  }, []);
   const factMap = useMemo(() => new Map(live.facts.map((f) => [f.fact_id, f.summary])), [live.facts]);
   const factTitle = useCallback((fid: string) => factMap.get(fid) ?? undefined, [factMap]);
 
@@ -119,24 +92,17 @@ export function LeadRoom({ leadId, compact = false }: { leadId: string; compact?
       if (live.error instanceof ApiError && live.error.status === 404) {
         return (
           <div>
-            <Breadcrumb id={id} />
-            <EmptyState
-              icon={<Waypoints aria-hidden className="size-5" />}
-              title={`Pista ${id} nu există.`}
-              action={
-                <Link to="/aml" className="font-semibold underline">
-                  Înapoi la piste
-                </Link>
-              }
-            >
-              Poate a fost ștearsă la o resetare a demo-ului sau linkul e greșit.
+            {!compact && <Breadcrumb items={[{ label: "Piste", to: "/aml" }, { label: id || "—" }]} />}
+            <EmptyState icon={<Waypoints aria-hidden className="size-5" />} title={`Pista ${id} nu există.`}
+              action={<Link to="/aml" className="font-semibold underline">Înapoi la piste</Link>}>
+              Poate a dispărut la o resetare a demo-ului sau linkul e greșit.
             </EmptyState>
           </div>
         );
       }
       return (
         <div>
-          <Breadcrumb id={id} />
+          {!compact && <Breadcrumb items={[{ label: "Piste", to: "/aml" }, { label: id || "—" }]} />}
           <ErrorNote error={live.error} what="pista" onRetry={() => void live.reload()} />
         </div>
       );
@@ -154,66 +120,53 @@ export function LeadRoom({ leadId, compact = false }: { leadId: string; compact?
   const runningSteps = live.steps.filter((s) => s.status === "running").map((s) => s.label);
   const graphBuilding = live.steps.some((s) => s.id === "graf_ml" && s.status === "running");
   const pending = Boolean(live.interrupt?.pending);
+  const topScore = lead.accounts?.[0]?.score ?? null;
+  const typNames = (Array.isArray(detail.typologies_detail) && detail.typologies_detail.length
+    ? detail.typologies_detail.map((t) => String(t.typology ?? t.name ?? ""))
+    : lead.typologies ?? []).filter(Boolean);
+  const osint = Array.isArray(detail.osint) ? detail.osint.filter(Boolean) : [];
+  const innocent = Array.isArray(detail.innocent_detail) && detail.innocent_detail.length ? detail.innocent_detail.length : (Array.isArray(detail.innocent) ? detail.innocent.length : 0);
+  const done = live.steps.filter((s) => s.status === "done" || s.status === "skipped").length;
+  const toggle = (k: SectionId) => (v: boolean) => setOpen((o) => ({ ...o, [k]: v }));
 
   const fallbackSentence = graphBuilding
-    ? "Agenții construiesc graful banilor; rezumatul apare imediat după."
+    ? "Agenții construiesc graful banilor."
     : cases.length
-      ? `${roCount(cases.length, "O contestație e legată", "contestații sunt legate")} de această pistă; graful banilor nu are încă fluxuri.`
-      : "Pista nu are încă fapte primite prin diodă.";
+      ? `${roCount(cases.length, "O contestație e legată", "contestații sunt legate")} de pistă. Graful nu are încă fluxuri.`
+      : "Pista nu are încă fapte primite din zona client.";
 
   return (
-    <div>
-      {!compact && <Breadcrumb id={id} />}
+    <div className="mx-auto w-full max-w-[1100px]">
+      {!compact && <Breadcrumb items={[{ label: "Piste", to: "/aml" }, { label: id }]} />}
 
-      <header className="mb-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <h1 className="display text-[2rem] leading-tight font-black">
-                {account ? (
-                  <span className="font-mono tracking-tight">{maskAccount(account)}</span>
-                ) : (
-                  <>
-                    Pista <span className="font-mono">{id}</span>
-                  </>
-                )}
-                {extraSubjects > 0 && <span className="ml-2 text-[1rem] font-semibold text-muted">+{roCount(extraSubjects, "un cont", "conturi")}</span>}
-              </h1>
-              <LeadStatusBadge status={live.status?.key ?? live.status?.label ?? null} />
-              {recommendation && <Badge tone="neutral">Recomandare: {verdictLabel(recommendation)}</Badge>}
-            </div>
-            <p className="mt-2 max-w-[90ch] text-[1.0667rem]">{sentence ?? fallbackSentence}</p>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-[0.8667rem] text-muted">
-              <span>{roCount(cases.length, "o contestație", "contestații")}</span>
-              {cases.slice(0, 4).map((c) => (
-                <IdTag key={c}>{c}</IdTag>
-              ))}
-              {cases.length > 4 && <span>+{cases.length - 4}</span>}
-              {lastTs !== null && <span title={dateTime(lastTs)}>ultima activitate {relative(lastTs, now)}</span>}
-              {runningSteps.length > 0 && (
-                <span className="inline-flex items-center gap-1.5 font-semibold text-ink">
-                  <Dot tone="now" live />
-                  Agenții lucrează: {runningSteps.join(", ")}
-                </span>
-              )}
-            </div>
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-[1.5rem] leading-tight font-semibold">
+              {account ? <span className="font-mono tracking-tight">{maskAccount(account)}</span> : <>Pista <span className="font-mono">{id}</span></>}
+              {extraSubjects > 0 && <span className="ml-2 text-[0.9333rem] font-normal text-muted">+{roCount(extraSubjects, "un cont", "conturi")}</span>}
+            </h1>
+            <LeadStatusBadge status={live.status?.key ?? live.status?.label ?? null} />
+            {recommendation && <Badge tone="neutral">Regulile recomandă: {verdictLabel(recommendation)}</Badge>}
           </div>
+          <p className="mt-2 max-w-[80ch] text-[0.9333rem] text-ink-soft">{sentence ?? fallbackSentence}</p>
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.8667rem] text-muted">
+            <span>{roCount(cases.length, "o contestație", "contestații")}{cases.length ? `: ${cases.slice(0, 3).join(", ")}${cases.length > 3 ? ` +${cases.length - 3}` : ""}` : ""}</span>
+            {lastTs !== null && <span title={dateTime(lastTs)}>· activ {relative(lastTs, now)}</span>}
+            {runningSteps.length > 0 && <span className="inline-flex items-center gap-1.5 font-medium text-ink"><Dot tone="now" live /> Agenții lucrează: {runningSteps.join(", ")}</span>}
+          </p>
+        </div>
+        <div className="flex items-start gap-4">
+          <Gauge value={topScore} size={96} label="scor cărăuș" />
           {!pending && live.status?.key !== "EROARE" && (
-            <div className="flex flex-col items-end gap-1">
-              <Button
-                size="sm"
-                icon={live.hasRun ? <RotateCw aria-hidden className="size-3.5" /> : <Play aria-hidden className="size-3.5" />}
-                busy={rerun.busy}
-                disabled={live.running}
-                onClick={() => void doRerun()}
-                title={live.running ? "Agenții lucrează deja pe această pistă" : undefined}
-              >
+            <div className="flex flex-col items-end gap-1 pt-1">
+              <Button size="sm" icon={live.hasRun ? <RotateCw aria-hidden className="size-3.5" /> : <Play aria-hidden className="size-3.5" />}
+                busy={rerun.busy} disabled={live.running} onClick={() => void doRerun()} title={live.running ? "Agenții lucrează deja pe această pistă" : undefined}>
                 {live.hasRun ? "Rulează din nou" : "Pornește investigația"}
               </Button>
               {rerun.error && (
-                <p role="alert" className="flex items-center gap-1 text-[0.8667rem] font-semibold text-danger">
-                  <TriangleAlert aria-hidden className="size-3.5" />
-                  Nu a pornit: {rerun.error}
+                <p role="alert" className="flex items-center gap-1 text-[0.8667rem] font-medium text-danger">
+                  <TriangleAlert aria-hidden className="size-3.5" /> {rerun.error}
                 </p>
               )}
             </div>
@@ -224,77 +177,53 @@ export function LeadRoom({ leadId, compact = false }: { leadId: string; compact?
       <StaleNote error={live.error} every="3 s" />
 
       <SectionBoundary label="Decizia ta">
-        <DecisionArea
-          leadId={id}
-          interrupt={live.interrupt}
-          status={live.status}
-          recommendation={recommendation}
-          decision={live.decision}
-          runError={live.runError}
-          onChanged={() => void live.reload()}
-          onRerun={() => void doRerun()}
-          rerunBusy={rerun.busy}
-        />
+        <DecisionArea leadId={id} interrupt={live.interrupt} status={live.status} recommendation={recommendation} decision={live.decision}
+          runError={live.runError} onChanged={() => void live.reload()} onRerun={() => void doRerun()} rerunBusy={rerun.busy} />
       </SectionBoundary>
 
-      <div className={compact ? "grid gap-6 2xl:grid-cols-[minmax(0,1fr)_22rem]" : "grid gap-6 xl:grid-cols-[minmax(0,1fr)_25rem]"}>
-        <div className="min-w-0 space-y-6">
-          <SectionBoundary label="Drumul banilor">
-            <Suspense fallback={<Skeleton className="h-[28rem] w-full rounded-xl" />}>
-              <MoneyGraph graph={detail.graph} lead={lead} building={graphBuilding} />
-            </Suspense>
-          </SectionBoundary>
-          <SectionBoundary label="Agenții Investigatorului">
-            <Suspense fallback={<Skeleton className="h-64 w-full rounded-xl" />}>
-              <AgentGraph
-                nodes={detail.pipeline?.nodes ?? []}
-                edges={detail.pipeline?.edges ?? []}
-                events={live.events}
-                direction="LR"
-                height={230}
-                rowLabels={false}
-                settled={!live.running && !pending && live.hasRun}
-                title="Agenții Investigatorului, live"
-              />
-            </Suspense>
-          </SectionBoundary>
-          <div ref={tabsRef} className="scroll-mt-4">
-            <SectionBoundary label="Ciornă RTS, OSINT și probe">
-              <LeadTabs
-                tab={tab}
-                onTab={setTab}
-                detail={detail}
-                facts={live.facts}
-                highlight={highlight}
-                onCite={onCite}
-                factTitle={factTitle}
-                running={live.running}
-              />
-            </SectionBoundary>
-          </div>
-        </div>
+      <SectionBoundary label="Drumul banilor">
+        <Suspense fallback={<Skeleton className="h-[28rem] w-full rounded-lg" />}>
+          <MoneyGraph graph={detail.graph} lead={lead} building={graphBuilding} />
+        </Suspense>
+      </SectionBoundary>
 
-        <div className="min-w-0 space-y-6">
-          <SectionBoundary label="Tipologii">
-            <TypologyChips detail={detail.typologies_detail} names={lead.typologies} />
-          </SectionBoundary>
-          <SectionBoundary label="Ceasuri">
-            <ClockBars clocks={detail.clocks} events={live.events} />
-          </SectionBoundary>
-          <SectionBoundary label="Scor M5">
-            <ScorePanel accounts={lead.accounts} />
-          </SectionBoundary>
-          <SectionBoundary label="Pentru și contra">
-            <AchPanel
-              innocentDetail={detail.innocent_detail}
+      <div className="mt-8 border-y border-line">
+        <Collapsible title="Tipare găsite" meta={typNames.length ? typNames.map(typologyLabel).join(", ") : "niciunul încă"} open={Boolean(open.tipare)} onToggle={toggle("tipare")}>
+          <div className="flex flex-col gap-6">
+            <SectionBoundary label="Tipologii"><TypologyChips detail={detail.typologies_detail} names={lead.typologies} /></SectionBoundary>
+            <div>
+              <p className="mb-2 text-[0.8667rem] font-semibold text-muted">De unde vine scorul</p>
+              <SectionBoundary label="Scor"><ScorePanel accounts={lead.accounts} /></SectionBoundary>
+            </div>
+          </div>
+        </Collapsible>
+        <Collapsible title="Verificări OSINT" meta={osint.length ? roCount(osint.length, "un rezultat", "rezultate") : "niciuna încă"} open={Boolean(open.osint)} onToggle={toggle("osint")}>
+          <SectionBoundary label="OSINT"><OsintTab findings={osint} summary={detail.osint_summary} onCite={onCite} factTitle={factTitle} running={live.running} /></SectionBoundary>
+        </Collapsible>
+        <Collapsible title="Ipoteze nevinovate" meta={innocent ? roCount(innocent, "o ipoteză", "ipoteze") : "nu a rulat"} open={Boolean(open.ipoteze)} onToggle={toggle("ipoteze")}>
+          <SectionBoundary label="Ipoteze">
+            <AchPanel showTypologies={false} innocentDetail={detail.innocent_detail}
               innocent={Array.isArray(detail.innocent) && detail.innocent.length ? detail.innocent : lead.innocent_hypotheses}
-              typologyDetail={detail.typologies_detail}
-              typologyNames={lead.typologies}
-              onCite={onCite}
-              factTitle={factTitle}
-            />
+              typologyDetail={detail.typologies_detail} typologyNames={lead.typologies} onCite={onCite} factTitle={factTitle} />
           </SectionBoundary>
-        </div>
+        </Collapsible>
+        <Collapsible title="Ciornă RTS" meta={detail.rts?.status ?? "nu există"} open={Boolean(open.rts)} onToggle={toggle("rts")}>
+          <SectionBoundary label="Ciornă RTS"><RtsTab rts={detail.rts} onCite={onCite} factTitle={factTitle} running={live.running} /></SectionBoundary>
+        </Collapsible>
+        <Collapsible title="Ceasuri legale" meta={detail.clocks?.length ? roCount(detail.clocks.length, "un ceas", "ceasuri") : "nepornite"} open={Boolean(open.ceasuri)} onToggle={toggle("ceasuri")}>
+          <SectionBoundary label="Ceasuri"><ClockBars clocks={detail.clocks} events={live.events} /></SectionBoundary>
+        </Collapsible>
+        <Collapsible title="Cum a lucrat Investigatorul" meta={live.steps.length ? `${done}/${live.steps.length} pași` : undefined} open={Boolean(open.agenti)} onToggle={toggle("agenti")}>
+          <SectionBoundary label="Agenții Investigatorului">
+            <Suspense fallback={<Skeleton className="h-64 w-full rounded-lg" />}>
+              <AgentGraph nodes={detail.pipeline?.nodes ?? []} edges={detail.pipeline?.edges ?? []} events={live.events} direction="LR" height={260}
+                rowLabels={false} settled={!live.running && !pending && live.hasRun} title="Agenții Investigatorului, live" />
+            </Suspense>
+          </SectionBoundary>
+        </Collapsible>
+        <Collapsible id="lead-probe" title="Probe" meta={roCount(live.facts.length, "o probă", "probe")} open={Boolean(open.probe)} onToggle={toggle("probe")}>
+          <SectionBoundary label="Probe"><ProbeTab facts={live.facts} highlight={highlight} ledger={detail.ledger} /></SectionBoundary>
+        </Collapsible>
       </div>
     </div>
   );

@@ -1,120 +1,32 @@
 /**
- * Piesele camerei de caz (semnătura, probe, reguli, scrisoarea și zidul, recuperarea, dosarul, reclamația).
- * Camera în sine e în CaseRoom.tsx.
+ * Piesele paginii de caz: citări, reguli, scrisoarea și zidul, recuperarea, registrul, reclamația.
+ * Pagina în sine e în CaseRoom.tsx. Piesele nu au chenar propriu: stau în secțiunile pliabile ale paginii.
  */
-import { AlertTriangle, Check, Hand, ShieldAlert, ShieldCheck, X } from "lucide-react";
+import { Check, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { shortHash, verdictLabel } from "../../api/format";
+import { normalizeRo, shortHash, verdictLabel } from "../../api/format";
 import { useApi } from "../../api/runtime";
-import type { CaseDetail, Fact, FilterResult, LedgerResponse, VerifyResult } from "../../api/types";
-import { Badge, Banner, Button, cx, DeadlineText, EmptyState, IdTag, KeyValues, Panel } from "../../ui/kit";
+import type { CaseDetail, FilterResult, LedgerResponse, VerifyResult } from "../../api/types";
+import { Badge, Button, cx, DeadlineText, EmptyState, IdTag, KeyValues } from "../../ui/kit";
 import { exactTime } from "./caseUi";
 
-// ---------------------------------------------------------------- semnătura
-
-const SIGN_COPY: Record<string, { yes: string; no: string; consequence: string }> = {
-  RAMBURSEAZA_CU_APROBARE: { yes: "Aprobă rambursarea", no: "Nu aprob", consequence: "La aprobare, motorul de reguli emite imediat instrucțiunea de rambursare." },
-  RESPINGE_TARDIV: { yes: "Confirm respingerea", no: "Nu confirm, rambursăm", consequence: "Clientul primește o scrisoare de respingere cu temeiul legal și căile de atac." },
-  EXCEPTIE_FRAUDA_CLIENT: { yes: "Confirm excepția", no: "Nu confirm, rambursăm", consequence: "Nu rambursăm acum. Folosește excepția doar dacă autoritatea a fost notificată." },
-};
-
-export function SignatureBanner({ d, caseId, onDone }: { d: CaseDetail; caseId: string; onDone: () => Promise<void> }) {
-  const api = useApi();
-  const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const it = d.interrupt!;
-  const copy = SIGN_COPY[String(it.verdict)] ?? { yes: "Aprobă", no: "Respinge", consequence: "Decizia se aplică imediat." };
-  const locked = Boolean(it.resuming) || busy !== null;
-  async function act(action: "approve" | "reject") {
-    setBusy(action);
-    setError(null);
-    try {
-      await api.approve(caseId, { action, approver: "OPERATOR-01" });
-      await onDone();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Semnătura nu a fost înregistrată.");
-    } finally {
-      setBusy(null);
-    }
-  }
-  return (
-    <Banner
-      tone="now"
-      icon={<Hand aria-hidden className="size-5" />}
-      title={it.prompt ?? "Decizia cere semnătura ta."}
-      actions={<>
-        <Button variant="primary" busy={busy === "approve"} disabled={locked} onClick={() => act("approve")}>{copy.yes}</Button>
-        <Button busy={busy === "reject"} disabled={locked} onClick={() => act("reject")}>{copy.no}</Button>
-      </>}
-    >
-      {it.resuming ? "Semnătura a fost primită; aplic decizia…" : copy.consequence}
-      {it.rule_ids?.length ? <span className="ml-1">Reguli: {it.rule_ids.join(", ")}.</span> : null}
-      {error && <span className="mt-1 block font-semibold text-danger">{error}</span>}
-    </Banner>
-  );
-}
-
-// ---------------------------------------------------------------- decizia
+// ---------------------------------------------------------------- citări
 
 export function Cites({ ids, onCite }: { ids?: string[]; onCite: (id: string) => void }) {
   if (!ids?.length) return null;
   return (
-    <span className="ml-1 inline-flex flex-wrap gap-1 align-middle">
+    <span className="ml-1.5 inline-flex flex-wrap gap-1 align-middle">
       {ids.map((c) => <IdTag key={c} onClick={() => onCite(c)} title={`Arată proba ${c}`}>{c}</IdTag>)}
     </span>
   );
 }
 
-export function Arguments({ title, model, lines, onCite }: { title: string; model?: string; lines?: Array<{ text: string; cites?: string[] }>; onCite: (id: string) => void }) {
+export function Arguments({ lines, onCite }: { lines?: Array<{ text: string; cites?: string[] }>; onCite: (id: string) => void }) {
+  if (!lines?.length) return <p className="text-[0.9333rem] text-muted">Fără argumente.</p>;
   return (
-    <div>
-      <p className="font-semibold">{title}{model && <span className="ml-2 text-[0.8rem] font-normal text-muted">{model.replace("anthropic.", "")}</span>}</p>
-      {lines?.length ? (
-        <ul className="mt-2 flex flex-col gap-2">
-          {lines.map((l, i) => <li key={i} className="text-ink-soft">{l.text}<Cites ids={l.cites} onCite={onCite} /></li>)}
-        </ul>
-      ) : <p className="mt-2 text-muted">Fără argumente.</p>}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- probe
-
-export function trustLabel(f: Fact): ReactNode {
-  return f.labels?.trust === "untrusted"
-    ? <span className="inline-flex items-center gap-1.5"><AlertTriangle className="size-3.5 text-danger" /> neîncrezut</span>
-    : <span className="inline-flex items-center gap-1.5"><ShieldCheck className="size-3.5 text-ok" /> sistemele băncii</span>;
-}
-
-export function EvidenceTab({ facts, flash }: { facts: Fact[]; flash: string | null }) {
-  if (!facts.length) return <EmptyState title="Nicio probă încă.">Colectorii scriu probele aici pe măsură ce le găsesc, fiecare cu sursă, oră și hash.</EmptyState>;
-  return (
-    <div className="overflow-x-auto rounded-lg border border-line">
-      <table className="w-full table-fixed border-collapse text-left sm:min-w-[36rem]">
-        <thead>
-          <tr className="border-b border-line bg-canvas text-[0.8667rem] text-muted">
-            <th scope="col" className="w-24 px-3 py-2.5 font-semibold">ID</th>
-            <th scope="col" className="px-3 py-2.5 font-semibold">Ce arată și de unde vine</th>
-            <th scope="col" className="hidden w-40 px-3 py-2.5 font-semibold sm:table-cell">Încredere</th>
-            <th scope="col" className="hidden w-28 px-3 py-2.5 font-semibold sm:table-cell">Hash</th>
-          </tr>
-        </thead>
-        <tbody>
-          {facts.map((f) => (
-            <tr key={f.fact_id} id={`fact-${f.fact_id}`} className={cx("border-b border-line align-top last:border-b-0", flash === f.fact_id && "animate-flash")}>
-              <td className="px-3 py-2.5"><IdTag>{f.fact_id}</IdTag></td>
-              <td className="px-3 py-2.5">
-                <p>{f.summary || f.kind}</p>
-                <p className="mt-0.5 truncate font-mono text-[0.8rem] text-muted" title={f.source_tool}>{f.source_tool}</p>
-                <p className="mt-1 text-[0.8667rem] sm:hidden">{trustLabel(f)}</p>
-              </td>
-              <td className="hidden px-3 py-2.5 text-[0.8667rem] whitespace-nowrap sm:table-cell">{trustLabel(f)}</td>
-              <td className="hidden px-3 py-2.5 font-mono text-[0.8rem] text-muted sm:table-cell" title={f.sha256}>{shortHash(f.sha256, 8)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <ul className="flex flex-col gap-2.5">
+      {lines.map((l, i) => <li key={i} className="text-[0.9333rem] text-ink-soft">{l.text}<Cites ids={l.cites} onCite={onCite} /></li>)}
+    </ul>
   );
 }
 
@@ -122,51 +34,43 @@ export function EvidenceTab({ facts, flash }: { facts: Fact[]; flash: string | n
 
 export const CONFIDENCE: Record<string, string> = { P: "text oficial", S: "sursă secundară", U: "parametru neverificat", V: "verificat" };
 
-export function RulesTab({ d }: { d: CaseDetail }) {
+export function RulesList({ d }: { d: CaseDetail }) {
   const hits = d.rules?.hits ?? [];
   const deadlines = d.rules?.deadlines ?? [];
-  if (!hits.length && !deadlines.length) return <EmptyState title="Regulile nu au rulat încă.">Motorul de reguli pornește după ce colectorii termină.</EmptyState>;
+  if (!hits.length && !deadlines.length) return <p className="text-[0.9333rem] text-muted">Regulile nu au rulat încă.</p>;
   return (
     <div className="flex flex-col gap-5">
+      <ul className="divide-y divide-line rounded-md border border-line">
+        {hits.map((h, i) => (
+          <li key={`${h.rule_id}-${i}`} className="grid gap-x-4 gap-y-1 px-3 py-2.5 sm:grid-cols-[5.5rem_minmax(0,1fr)_auto]">
+            <span><IdTag>{h.rule_id}</IdTag></span>
+            <div className="min-w-0">
+              <p className="text-[0.9333rem] font-medium">{h.title}</p>
+              {h.explanation && <p className="mt-0.5 text-[0.8667rem] text-muted">{h.explanation}</p>}
+              <p className="mt-0.5 text-[0.8rem] text-subtle">{h.basis}</p>
+            </div>
+            <span className="text-[0.8rem] whitespace-nowrap text-muted">{CONFIDENCE[String(h.confidence)] ?? h.confidence ?? ""}</span>
+          </li>
+        ))}
+      </ul>
       {deadlines.length > 0 && (
-        <Panel title="Termene legale" bodyClassName="p-0">
-          <ul>
+        <div>
+          <p className="mb-2 text-[0.8667rem] font-semibold text-muted">Termene legale</p>
+          <ul className="divide-y divide-line rounded-md border border-line">
             {deadlines.map((dl, i) => (
-              <li key={i} className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-2.5 last:border-b-0">
-                <span className="min-w-0"><span className="font-medium">{dl.name}</span> <span className="text-[0.8667rem] text-muted">· {dl.basis}</span></span>
-                <span className="flex items-center gap-3 text-[0.9333rem]"><span className="tabular-nums text-muted">{exactTime(dl.due_at)}</span><DeadlineText deadline={dl.due_at} /></span>
+              <li key={i} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 text-[0.9333rem]">
+                <span className="min-w-0">{dl.name} <span className="font-mono text-[0.75rem] text-muted">{dl.rule_id}</span></span>
+                <span className="flex items-center gap-3"><span className="tabular-nums text-muted">{exactTime(dl.due_at)}</span><DeadlineText deadline={dl.due_at} /></span>
               </li>
             ))}
           </ul>
-        </Panel>
+        </div>
       )}
-      <div className="overflow-x-auto rounded-lg border border-line">
-        <table className="w-full min-w-[44rem] border-collapse text-left">
-          <thead>
-            <tr className="border-b border-line bg-canvas text-[0.8667rem] text-muted">
-              <th scope="col" className="px-3 py-2.5 font-semibold">Regula</th>
-              <th scope="col" className="px-3 py-2.5 font-semibold">Ce a stabilit</th>
-              <th scope="col" className="px-3 py-2.5 font-semibold">Temei</th>
-              <th scope="col" className="px-3 py-2.5 font-semibold">Încredere</th>
-            </tr>
-          </thead>
-          <tbody>
-            {hits.map((h, i) => (
-              <tr key={`${h.rule_id}-${i}`} className="border-b border-line align-top last:border-b-0">
-                <td className="px-3 py-2.5"><IdTag>{h.rule_id}</IdTag></td>
-                <td className="px-3 py-2.5"><p className="font-medium">{h.title}</p>{h.explanation && <p className="mt-0.5 text-[0.9333rem] text-ink-soft">{h.explanation}</p>}</td>
-                <td className="px-3 py-2.5 text-[0.9333rem] text-muted">{h.basis}</td>
-                <td className="px-3 py-2.5 text-[0.9333rem] whitespace-nowrap">{CONFIDENCE[String(h.confidence)] ?? h.confidence ?? "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------- scrisoarea + încercarea de a sparge zidul
+// ---------------------------------------------------------------- scrisoarea + verificarea prin zid
 
 export const ATTACK_TEXT = "Vă informăm că am raportat contul beneficiarului la ONPCSB pentru spălare de bani.";
 
@@ -200,14 +104,29 @@ export function Highlighted({ text, spans }: { text: string; spans?: FilterResul
     const start = Math.max(s.start, at);
     if (s.end <= start) return;
     if (start > at) parts.push(text.slice(at, start));
-    parts.push(<mark key={i} className="rounded-sm bg-danger-soft px-0.5 text-danger underline decoration-2" title={s.label}>{text.slice(start, s.end)}</mark>);
+    parts.push(<mark key={i} className="rounded-sm bg-danger-soft px-0.5 text-danger underline decoration-danger-line decoration-2 underline-offset-2" title={s.label}>{text.slice(start, s.end)}</mark>);
     at = s.end;
   });
   parts.push(text.slice(at));
   return <>{parts}</>;
 }
 
-export function LetterTab({ d, caseId, onCite }: { d: CaseDetail; caseId: string; onCite: (id: string) => void }) {
+/** Rezultatul verificării unui text prin filtrul zidului. */
+export function FilterVerdict({ result, text }: { result: FilterResult; text: string }) {
+  return (
+    <div className={cx("rounded-md border px-4 py-3", result.passed ? "border-ok-line bg-ok-soft" : "border-danger-line bg-danger-soft")} role="status">
+      <p className="flex items-center gap-2 text-[0.9333rem] font-semibold">
+        {result.passed
+          ? <><ShieldCheck className="size-4 text-ok" /> Textul poate pleca.</>
+          : <><ShieldAlert className="size-4 text-danger" /> Zidul oprește textul. Îl citește un om.</>}
+      </p>
+      {!result.passed && <p className="mt-2 text-[0.9333rem] leading-relaxed"><Highlighted text={text} spans={result.term_spans?.length ? result.term_spans : spansFromTerms(text, result.blocked_terms)} /></p>}
+      {result.reasons?.length ? <ul className="mt-2 list-disc pl-5 text-[0.8667rem] text-ink-soft">{result.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul> : null}
+    </div>
+  );
+}
+
+export function LetterSection({ d, caseId, onCite }: { d: CaseDetail; caseId: string; onCite: (id: string) => void }) {
   const api = useApi();
   const letter = d.letter;
   const [draft, setDraft] = useState(ATTACK_TEXT);
@@ -224,7 +143,7 @@ export function LetterTab({ d, caseId, onCite }: { d: CaseDetail; caseId: string
     setDraft(letter.body);
     setResult(null);
     window.setTimeout(() => {
-      const box = document.getElementById("attack") as HTMLTextAreaElement | null;
+      const box = document.getElementById("wall-test") as HTMLTextAreaElement | null;
       box?.scrollIntoView({ behavior: "smooth", block: "center" });
       box?.focus({ preventScroll: true });
     }, 60);
@@ -233,8 +152,9 @@ export function LetterTab({ d, caseId, onCite }: { d: CaseDetail; caseId: string
     setBusy(true);
     setError(null);
     try {
-      setResult(await api.letterCheck(caseId, { body: draft }));
-      setChecked(draft);
+      const text = normalizeRo(draft);
+      setResult(await api.letterCheck(caseId, { body: text }));
+      setChecked(text);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Verificarea nu a răspuns.");
     } finally {
@@ -242,117 +162,115 @@ export function LetterTab({ d, caseId, onCite }: { d: CaseDetail; caseId: string
     }
   }
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       {!letter ? (
-        <EmptyState title="Scrisoarea nu e gata.">Redactorul o scrie după decizie și după recuperare, apoi o trece prin filtrul zidului.</EmptyState>
+        <p className="text-[0.9333rem] text-muted">Scrisoarea apare după decizie. Înainte să plece, trece prin filtrul zidului.</p>
       ) : (
-        <Panel
-          title={letter.subject}
-          actions={blocked
-            ? <Badge tone="danger" icon={<ShieldAlert className="size-3.5" />}>Blocată de zid</Badge>
-            : <Badge tone="ok" icon={<ShieldCheck className="size-3.5" />}>A trecut filtrul zidului</Badge>}
-        >
+        <div>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {blocked
+              ? <Badge tone="danger" icon={<ShieldAlert className="size-3.5" />}>Oprită de zid</Badge>
+              : <Badge tone="ok" icon={<ShieldCheck className="size-3.5" />}>A trecut de zid</Badge>}
+            {(letter.cmp_checks ?? []).map((c) => {
+              const bad = /missing|unanswered/i.test(c.outcome);
+              return (
+                <span key={c.rule_id} className="inline-flex items-center gap-1 text-[0.8667rem] text-muted" title={c.explanation}>
+                  {bad ? <X className="size-3.5 text-danger" /> : <Check className="size-3.5 text-ok" />}
+                  {c.rule_id === "CMP-01" ? "răspunde la fiecare punct" : c.rule_id === "CMP-03" ? "include ANPC, ANAF, BNR, CSALB" : c.rule_id === "CMP-02" ? "termen de răspuns" : c.outcome}
+                  <span className="font-mono text-[0.75rem]">{c.rule_id}</span>
+                </span>
+              );
+            })}
+          </div>
           {blocked && (
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-md border border-danger-line bg-danger-soft px-4 py-3">
-              <div className="min-w-[16rem] flex-1">
-                <p className="font-semibold">Scrisoarea nu pleacă: fraza marcată mai jos e interzisă.</p>
-                {letter.filter?.reasons?.[0] && <p className="mt-1 text-[0.9333rem] text-ink-soft">{letter.filter.reasons[0]}</p>}
-              </div>
-              <Button onClick={editLetter}>Corectează și verifică din nou</Button>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-danger-line bg-danger-soft px-4 py-3">
+              <p className="min-w-[14rem] flex-1 text-[0.9333rem]">
+                <span className="font-semibold">Scrisoarea nu pleacă.</span> {letter.filter?.reasons?.[0] ?? "Fraza marcată e interzisă."}
+              </p>
+              <Button size="sm" onClick={editLetter}>Corectează</Button>
             </div>
           )}
-          <div className="max-w-[72ch] whitespace-pre-wrap leading-relaxed"><Highlighted text={letter.body} spans={letterSpans} /></div>
-          <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-line pt-3 text-[0.9333rem]">
-            {(letter.cmp_checks ?? []).map((c) => (
-              <span key={c.rule_id} className="inline-flex items-center gap-1.5">
-                {c.outcome.toLowerCase().includes("missing") || c.outcome.toLowerCase().includes("unanswered")
-                  ? <X className="size-4 text-danger" /> : <Check className="size-4 text-ok" />}
-                <IdTag>{c.rule_id}</IdTag>
-                {c.rule_id === "CMP-01" ? "răspunde la fiecare punct" : c.rule_id === "CMP-03" ? "include ANPC, ANAF, BNR și CSALB" : c.outcome}
-              </span>
-            ))}
-            {letter.cites?.length ? <span className="inline-flex items-center gap-1.5 text-muted">Se sprijină pe <Cites ids={letter.cites.slice(0, 6)} onCite={onCite} /></span> : null}
-          </div>
-        </Panel>
+          <article className="rounded-md border border-line bg-canvas px-5 py-4">
+            <p className="font-semibold">{letter.subject}</p>
+            <div className="mt-3 max-w-[70ch] text-[0.9333rem] leading-relaxed whitespace-pre-wrap text-ink-soft"><Highlighted text={letter.body} spans={letterSpans} /></div>
+          </article>
+          {letter.cites?.length ? <p className="mt-2 text-[0.8667rem] text-muted">Probe citate: <Cites ids={letter.cites.slice(0, 8)} onCite={onCite} /></p> : null}
+        </div>
       )}
 
-      <Panel title="Verifică un text prin zid">
-        <p className="text-ink-soft">Corectează scrisoarea aici sau încearcă să strecori o referire la o investigație AML. Filtrul verifică termenii interziși, tokenurile canary și datele personale.</p>
-        <label htmlFor="attack" className="sr-only">Textul de verificat</label>
-        <textarea id="attack" value={draft} onChange={(e) => setDraft(e.target.value)} rows={Math.min(16, Math.max(3, Math.ceil(draft.length / 90) + draft.split("\n").length - 1))}
-          className="mt-3 w-full rounded-md border border-line-strong bg-paper px-3 py-2 focus:border-ink" />
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <Button variant="primary" busy={busy} onClick={check} disabled={!draft.trim()}>Verifică textul</Button>
-          {error && <span className="text-danger">{error}</span>}
+      <div>
+        <p className="font-semibold">Testează zidul</p>
+        <p className="mt-0.5 text-[0.9333rem] text-muted">Scrie o frază care pomenește investigația AML și vezi dacă trece.</p>
+        <label htmlFor="wall-test" className="sr-only">Textul de verificat</label>
+        <textarea id="wall-test" value={draft} onChange={(e) => setDraft(e.target.value)} rows={Math.min(14, Math.max(3, Math.ceil(draft.length / 90) + draft.split("\n").length - 1))}
+          className="mt-3 w-full rounded-md border border-line-strong bg-paper px-3 py-2 text-[0.9333rem] focus:border-ink" />
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <Button size="sm" busy={busy} onClick={check} disabled={!draft.trim()}>Verifică textul</Button>
+          {error && <span className="text-[0.9333rem] text-danger">{error}</span>}
         </div>
-        {result && (
-          <div className={cx("mt-4 rounded-md border px-4 py-3", result.passed ? "border-ok-line bg-ok-soft" : "border-danger-line bg-danger-soft")} role="status">
-            <p className="flex items-center gap-2 font-semibold">
-              {result.passed ? <><ShieldCheck className="size-4 text-ok" /> Textul poate pleca: nimic interzis.</> : <><ShieldAlert className="size-4 text-danger" /> Blocat: textul nu pleacă, merge la un om.</>}
-            </p>
-            {!result.passed && <p className="mt-2 leading-relaxed"><Highlighted text={checked} spans={result.term_spans?.length ? result.term_spans : spansFromTerms(checked, result.blocked_terms)} /></p>}
-            {result.reasons?.length ? <ul className="mt-2 list-disc pl-5 text-[0.9333rem]">{result.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul> : null}
-          </div>
-        )}
-      </Panel>
+        {result && <div className="mt-3"><FilterVerdict result={result} text={checked} /></div>}
+      </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------- coloana din dreapta
+// ---------------------------------------------------------------- recuperarea
 
 export const RECALL_KIND: Record<string, string> = {
-  interna: "Rechemare internă (beneficiarul are cont la Banca Demo)",
+  interna: "Rechemare internă: beneficiarul are cont la Banca Demo",
   "camt.056": "Rechemare SEPA camt.056, motiv FRAD",
   rechemare_ron: "Rechemare către banca beneficiarului (RON)",
 };
 
-export function RecoveryPanel({ d }: { d: CaseDetail }) {
+export function RecoverySection({ d }: { d: CaseDetail }) {
   const r = d.recovery;
   const escroc = d.decisions?.find((x) => x.question === "recuperare_escroc");
-  if (!escroc && !r?.chargeback && !r?.recall && !r?.dnsc_report && !d.aml_referral?.status) return null;
+  const client = d.decisions?.find((x) => x.question === "recuperare_client");
+  if (!escroc && !r?.chargeback && !r?.recall && !r?.dnsc_report && !d.aml_referral?.status) {
+    return <p className="text-[0.9333rem] text-muted">Recuperarea pornește după rambursare.</p>;
+  }
+  const cb = r?.chargeback;
   return (
-    <Panel title="Recuperarea banilor">
-      <div className="flex flex-col gap-3">
-        {escroc && <p><span className="font-semibold">{verdictLabel(escroc.decision)}</span> <span className="font-mono text-[0.8rem] text-muted">{escroc.rule_ids?.join(" · ")}</span></p>}
-        {r?.chargeback && (
-          <p className="text-[0.9333rem]">
-            <span className="font-medium">Chargeback: </span>
-            {r.chargeback.eligible ? `posibil, cod ${r.chargeback.reason_code ?? "—"}` : "nu e posibil"}
-            {r.chargeback.explanation && <span className="block text-muted">{r.chargeback.explanation}</span>}
-          </p>
-        )}
-        {r?.recall && (
-          <div className="text-[0.9333rem]">
-            <p className="font-medium">{RECALL_KIND[String(r.recall.kind)] ?? r.recall.kind}</p>
-            {r.recall.note && <p className="text-muted">{r.recall.note}</p>}
-            {r.recall.xml && (
-              <details className="mt-1.5">
-                <summary className="cursor-pointer font-medium underline">Mesajul camt.056 (ciornă)</summary>
-                <pre className="mt-2 max-h-56 overflow-auto rounded-md bg-canvas p-3 text-[0.75rem] leading-snug">{r.recall.xml}</pre>
-              </details>
-            )}
-          </div>
-        )}
-        {r?.dnsc_report && (
-          <details className="text-[0.9333rem]">
-            <summary className="cursor-pointer font-medium underline">Raport de phishing pentru DNSC (ciornă)</summary>
-            <p className="mt-2 font-semibold">{r.dnsc_report.title}</p>
-            <p className="mt-1 whitespace-pre-wrap text-ink-soft">{r.dnsc_report.text}</p>
+    <div className="flex flex-col gap-4">
+      <KeyValues rows={[
+        escroc ? ["De la escroc", <span>{verdictLabel(escroc.decision)} <span className="font-mono text-[0.75rem] text-muted">{escroc.rule_ids?.join(" · ")}</span></span>] : null,
+        client ? ["De la client", <span>{verdictLabel(client.decision)} <span className="font-mono text-[0.75rem] text-muted">{client.rule_ids?.join(" · ")}</span></span>] : null,
+        ["Chargeback", cb ? (cb.eligible ? `posibil, cod ${cb.reason_code ?? "—"}` : "nu se aplică") : "nu se aplică"],
+        r?.recall ? ["Rechemare", RECALL_KIND[String(r.recall.kind)] ?? String(r.recall.kind)] : null,
+        r?.dnsc_report ? ["Raport DNSC", r.dnsc_report.status ?? "ciornă"] : null,
+      ]} />
+      {cb?.explanation && <p className="text-[0.8667rem] text-muted">{cb.explanation}</p>}
+      {r?.recall?.note && <p className="text-[0.8667rem] text-muted">{r.recall.note}</p>}
+      <div className="flex flex-col gap-2">
+        {r?.recall?.xml && (
+          <details className="rounded-md border border-line">
+            <summary className="cursor-pointer px-3 py-2 text-[0.9333rem] font-medium">Mesajul camt.056 (ciornă)</summary>
+            <pre className="max-h-56 overflow-auto border-t border-line bg-canvas p-3 text-[0.75rem] leading-snug">{r.recall.xml}</pre>
           </details>
         )}
-        {d.aml_referral?.status && (
-          <p className="border-t border-line pt-3 text-[0.9333rem] text-muted">
-            Faptele despre atac au plecat spre zona AML, într-un singur sens ({d.aml_referral.status}). Victima apare acolo doar ca <span className="font-mono">{d.aml_referral.victim_ref}</span>.
-          </p>
+        {r?.dnsc_report && (
+          <details className="rounded-md border border-line">
+            <summary className="cursor-pointer px-3 py-2 text-[0.9333rem] font-medium">Raportul de phishing pentru DNSC (ciornă)</summary>
+            <div className="border-t border-line px-3 py-3">
+              <p className="font-semibold">{r.dnsc_report.title}</p>
+              <p className="mt-1 text-[0.9333rem] whitespace-pre-wrap text-ink-soft">{r.dnsc_report.text}</p>
+            </div>
+          </details>
         )}
-        <p className="text-[0.8667rem] text-muted">Toate sunt ciorne: le trimite un om.</p>
       </div>
-    </Panel>
+      {d.aml_referral?.status && (
+        <p className="text-[0.8667rem] text-muted">
+          Faptele despre beneficiar au plecat spre zona AML ({d.aml_referral.status}). Victima apare acolo doar ca <span className="font-mono">{d.aml_referral.victim_ref}</span>.
+        </p>
+      )}
+      <p className="text-[0.8667rem] text-muted">Toate sunt ciorne. Le trimite un om.</p>
+    </div>
   );
 }
 
-export function LedgerPanel({ caseId, sealed, count }: { caseId: string; sealed: boolean; count: number }) {
+// ---------------------------------------------------------------- registrul
+
+export function LedgerSection({ caseId, sealed, count, root }: { caseId: string; sealed: boolean; count: number; root?: string | null }) {
   const api = useApi();
   const [ledger, setLedger] = useState<LedgerResponse | null>(null);
   const [verify, setVerify] = useState<VerifyResult | null>(null);
@@ -372,62 +290,65 @@ export function LedgerPanel({ caseId, sealed, count }: { caseId: string; sealed:
     }
   }
   const qr = ledger?.seal?.qr_svg;
+  const shownRoot = ledger?.seal?.root ?? root;
   return (
-    <Panel title="Dosarul de probe">
-      <KeyValues rows={[
-        ["Probe", <span className="tabular-nums">{count}</span>],
-        ["Sigilat", sealed ? "da, Merkle + Ed25519" : "încă nu (la final)"],
-        ledger?.seal ? ["Rădăcina", <span className="font-mono text-[0.8rem]" title={ledger.seal.root}>{shortHash(ledger.seal.root, 12)}</span>] : null,
-      ]} />
-      <Button className="mt-3" size="sm" busy={busy} onClick={check}>Verifică integritatea</Button>
-      {error && <p className="mt-2 text-[0.9333rem] text-danger">{error}</p>}
-      {verify && (
-        <div className="mt-3">
-          <p className={cx("flex items-center gap-2 font-semibold", verify.valid ? "text-ok" : "text-danger")}>
-            {verify.valid ? <><ShieldCheck className="size-4" /> Dosar intact</> : <><ShieldAlert className="size-4" /> {sealed ? "Nu se verifică" : "Nesigilat încă"}</>}
-          </p>
-          <ul className="mt-1.5 flex flex-col gap-1 text-[0.8667rem]">
-            {verify.checks.map((c, i) => (
-              <li key={i} className="flex items-start gap-1.5">{c.ok ? <Check className="mt-0.5 size-3.5 shrink-0 text-ok" /> : <X className="mt-0.5 size-3.5 shrink-0 text-danger" />}<span>{c.name}</span></li>
-            ))}
-          </ul>
-          {qr && <img className="mt-3 size-28" alt="Cod QR cu rădăcina semnată a dosarului" src={`data:image/svg+xml;utf8,${encodeURIComponent(qr)}`} />}
-        </div>
-      )}
-    </Panel>
+    <div className="flex flex-wrap items-start gap-6">
+      <div className="min-w-[16rem] flex-1">
+        <KeyValues rows={[
+          ["Probe", <span className="tabular-nums">{count}</span>],
+          ["Sigilat", sealed ? "da (Merkle + Ed25519)" : "încă nu; se sigilează la final"],
+          shownRoot ? ["Rădăcina", <span className="font-mono text-[0.8rem]" title={shownRoot}>{shortHash(shownRoot, 16)}</span>] : null,
+        ]} />
+        <Button className="mt-4" size="sm" busy={busy} onClick={check}>Verifică dosarul</Button>
+        {error && <p className="mt-2 text-[0.9333rem] text-danger">{error}</p>}
+        {verify && (
+          <div className="mt-4">
+            <p className={cx("flex items-center gap-2 font-semibold", verify.valid ? "text-ok" : "text-danger")}>
+              {verify.valid ? <><ShieldCheck className="size-4" /> Dosarul e intact.</> : <><ShieldAlert className="size-4" /> {sealed ? "Dosarul nu se verifică." : "Dosarul nu e sigilat încă."}</>}
+            </p>
+            <ul className="mt-2 flex flex-col gap-1 text-[0.8667rem] text-ink-soft">
+              {verify.checks.map((c, i) => (
+                <li key={i} className="flex items-start gap-1.5">{c.ok ? <Check className="mt-0.5 size-3.5 shrink-0 text-ok" /> : <X className="mt-0.5 size-3.5 shrink-0 text-danger" />}<span>{c.name}</span></li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+      {qr && <img className="size-32 rounded-md border border-line p-2" alt="Cod QR cu rădăcina semnată a dosarului" src={`data:image/svg+xml;utf8,${encodeURIComponent(qr)}`} />}
+    </div>
   );
 }
 
-export function ComplaintPanel({ d }: { d: CaseDetail }) {
+// ---------------------------------------------------------------- reclamația
+
+export function ComplaintBlock({ d }: { d: CaseDetail }) {
   const c = d.complaint;
   if (!c) return null;
   const injection = d.extracted?.injection_suspected;
   return (
-    <Panel title="Reclamația clientului">
+    <div className="flex flex-col gap-3">
       {injection && (
-        <p className="mb-3 flex items-start gap-2 rounded-md bg-danger-soft px-3 py-2 text-[0.9333rem] text-danger">
-          <ShieldAlert className="mt-0.5 size-4 shrink-0" /> Conține instrucțiuni către sistem. Au fost tratate ca date și ignorate.
+        <p className="flex items-start gap-2 rounded-md bg-danger-soft px-3 py-2 text-[0.9333rem] text-danger">
+          <ShieldAlert className="mt-0.5 size-4 shrink-0" /> Reclamația conține instrucțiuni către sistem. Agenții le-au tratat ca text și le-au ignorat.
         </p>
       )}
-      <details>
-        <summary className="cursor-pointer list-none">
-          <p className="line-clamp-3 text-ink-soft">{c.text}</p>
-          <span className="mt-1 inline-block text-[0.8667rem] font-medium underline">Arată tot</span>
-        </summary>
-        <p className="mt-2 whitespace-pre-wrap text-ink-soft">{c.text}</p>
-        {c.attachments?.map((a, i) => (
-          <div key={i} className="mt-3 rounded-md bg-canvas px-3 py-2 text-[0.9333rem]">
-            <p className="text-[0.8rem] font-semibold text-muted">{a.kind === "sms" ? "SMS primit" : a.kind}</p>
-            <p className="whitespace-pre-wrap">{a.content}</p>
-          </div>
-        ))}
-      </details>
+      <blockquote className="border-l border-line-strong pl-4 text-[0.9333rem] whitespace-pre-wrap text-ink-soft">{c.text || <span className="text-muted">Fără text.</span>}</blockquote>
+      {c.attachments?.map((a, i) => (
+        <div key={i} className="rounded-md bg-canvas px-3 py-2 text-[0.9333rem]">
+          <p className="text-[0.8rem] text-muted">{a.kind === "sms" ? "SMS primit" : a.kind}</p>
+          <p className="whitespace-pre-wrap">{a.content}</p>
+        </div>
+      ))}
       {d.extracted?.points?.length ? (
-        <div className="mt-3 border-t border-line pt-3">
-          <p className="text-[0.8667rem] font-semibold text-muted">Ce cere clientul</p>
+        <div>
+          <p className="text-[0.8667rem] text-muted">Ce întreabă clientul</p>
           <ul className="mt-1 list-disc pl-5 text-[0.9333rem]">{d.extracted.points.map((p, i) => <li key={i}>{p.text}</li>)}</ul>
         </div>
       ) : null}
-    </Panel>
+    </div>
   );
+}
+
+export function NoData({ children }: { children: ReactNode }) {
+  return <EmptyState title={children} />;
 }

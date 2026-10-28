@@ -1,80 +1,57 @@
-import { Search, Waypoints } from "lucide-react";
+import { ChevronRight, Search, Waypoints } from "lucide-react";
 import { lazy, Suspense, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { dateTime, money, relative, scenarioLabel, toMoney, verdictLabel } from "../../api/format";
 import { useApi, useResource, type Resource } from "../../api/runtime";
 import type { LeadSummary, Referral } from "../../api/types";
-import { Button, EmptyState, ErrorNote, IdTag, PageHeader, SectionBoundary, Skeleton, Tabs, useNowTick } from "../../ui/kit";
-import { Bar, BigStat } from "../../ui/viz";
-import { GROUP_ORDER, leadStatus, maskAccount, typologyLabel, type LeadGroup } from "./aml";
-import { Account, LeadStatusText, rowClick, ScoreText, SkeletonRows, StaleNote, TableFrame, TD, TH } from "./ui";
+import { Button, Collapsible, EmptyState, ErrorNote, IdTag, SectionBoundary, Skeleton, StatStrip, Tabs, useNowTick } from "../../ui/kit";
+import { Bar } from "../../ui/viz";
+import { GROUP_ORDER, leadStatus, maskAccount, type LeadGroup } from "./aml";
+import { Account, LeadStatusBadge, rowClick, ScoreText, SkeletonRows, StaleNote, TableFrame, TD, TH } from "./ui";
 
 const MoneyGraph = lazy(() => import("../../graph/MoneyGraph"));
 
-/** Imaginea de ansamblu a zonei AML: cifrele, campaniile și rețeaua conturilor semnalate. */
-function AmlOverview() {
+/** Campaniile și rețeaua conturilor semnalate: la cerere, sub tabel. */
+function AmlNetwork() {
   const api = useApi();
-  const stats = useResource(() => api.amlStats(), [api], { pollMs: 5000 });
   const campaigns = useResource(() => api.amlCampaigns(), [api], { pollMs: 8000 });
   const network = useResource(() => api.amlGraph(), [api], { pollMs: 10000 });
-  const s = stats.data;
   const list = Array.isArray(campaigns.data) ? campaigns.data : [];
   const max = Math.max(1, ...list.map((c) => toMoney(c.amount_total)?.value ?? 0));
   return (
-    <div className="mb-6 flex flex-col gap-6">
-      <section aria-label="Cifrele zonei AML" className="grid gap-px overflow-hidden rounded-xl border-2 border-ink bg-ink sm:grid-cols-3 xl:grid-cols-6">
-        {[
-          ["Contestații primite", s?.referrals, "prin diodă, fără identitatea victimei"],
-          ["Piste", s?.leads, "conturi legate între ele"],
-          ["Conturi semnalate", s?.accounts_flagged, "scor M5 ≥ 0,70"],
-          ["Bani în risc", s ? money(s.amount_at_risk) : undefined, "suma contestată"],
-          ["Ciorne RTS", s?.rts_drafts, "le depune doar analistul"],
-          ["Comunități", s?.communities, "Louvain pe graful banilor"],
-        ].map(([label, value, sub]) => (
-          <div key={String(label)} className="bg-paper px-4 py-3.5">
-            {s ? <BigStat label={label} value={value ?? "—"} sub={sub} /> : <Skeleton className="h-16" />}
-          </div>
-        ))}
+    <div className="grid items-start gap-6 xl:grid-cols-[20rem_minmax(0,1fr)]">
+      <section aria-label="Campanii">
+        <p className="mb-2 text-[0.8667rem] text-muted">Victime legate prin același domeniu, IBAN sau telefon.</p>
+        {list.length === 0 ? (
+          <p className="text-[0.9333rem] text-muted">Nicio campanie încă.</p>
+        ) : (
+          <ul className="flex flex-col gap-4">
+            {list.map((c) => {
+              const amount = toMoney(c.amount_total)?.value ?? 0;
+              const n = Array.isArray(c.cases) ? c.cases.length : Number(c.cases);
+              return (
+                <li key={c.campaign_id}>
+                  <div className="flex items-baseline justify-between gap-2 text-[0.9333rem]">
+                    <span className="font-mono text-[0.8rem] text-muted">{c.campaign_id}</span>
+                    <span className="font-semibold tabular-nums">{money(amount)}</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2"><Bar value={amount / max} tone="ink" /><span className="shrink-0 text-[0.8rem] text-muted">{n === 1 ? "o victimă" : n + " victime"}</span></div>
+                  <p className="mt-1 truncate font-mono text-[0.75rem] text-muted">{[...(c.shared.domains ?? []), ...(c.shared.ibans ?? []), ...(c.shared.phones ?? [])].join(" · ")}</p>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
-      <div className="grid items-start gap-6 xl:grid-cols-[22rem_minmax(0,1fr)]">
-        <section aria-label="Campanii" className="rounded-xl border border-line bg-paper p-4">
-          <h2 className="font-bold">Campanii</h2>
-          <p className="text-[0.8667rem] text-muted">Victime legate prin același domeniu, IBAN sau telefon.</p>
-          {list.length === 0 ? (
-            <p className="mt-3 text-[0.9333rem] text-muted">Nicio campanie încă.</p>
+      <SectionBoundary label="Rețeaua">
+        <Suspense fallback={<Skeleton className="h-80 rounded-lg" />}>
+          {network.data && (network.data.edges?.length ?? 0) > 0 ? (
+            <MoneyGraph graph={network.data} title="Rețeaua conturilor semnalate" height={380} />
           ) : (
-            <ul className="mt-3 flex flex-col gap-3">
-              {list.map((c) => {
-                const amount = toMoney(c.amount_total)?.value ?? 0;
-                const n = Array.isArray(c.cases) ? c.cases.length : Number(c.cases);
-                return (
-                  <li key={c.campaign_id}>
-                    <div className="flex items-baseline justify-between gap-2">
-                      <IdTag>{c.campaign_id}</IdTag>
-                      <span className="font-black tabular-nums">{money(amount)}</span>
-                    </div>
-                    <div className="mt-1 flex items-center gap-2"><Bar value={amount / max} tone="danger" height={10} /><span className="shrink-0 text-[0.8rem] text-muted">{n === 1 ? "o victimă" : `${n} victime`}</span></div>
-                    <p className="mt-1 flex flex-wrap gap-1.5 text-[0.75rem]">
-                      {(c.shared.domains ?? []).map((d) => <span key={d} className="rounded-sm bg-danger-soft px-1.5 py-0.5 font-mono text-danger">{d}</span>)}
-                      {(c.shared.ibans ?? []).map((d) => <span key={d} className="rounded-sm bg-canvas px-1.5 py-0.5 font-mono">{d}</span>)}
-                      {(c.shared.phones ?? []).map((d) => <span key={d} className="rounded-sm bg-canvas px-1.5 py-0.5 font-mono">{d}</span>)}
-                    </p>
-                  </li>
-                );
-              })}
-            </ul>
+            <EmptyState title="Rețeaua apare după prima pistă." />
           )}
-        </section>
-        <SectionBoundary label="Rețeaua">
-          <Suspense fallback={<Skeleton className="h-80 rounded-xl" />}>
-            {network.data && (network.data.edges?.length ?? 0) > 0 ? (
-              <MoneyGraph graph={network.data} title="Rețeaua conturilor semnalate" height={380} />
-            ) : (
-              <EmptyState title="Rețeaua apare după prima pistă.">Graful unește toate pistele: victime, conturile urmărite și ieșirile spre cripto sau numerar.</EmptyState>
-            )}
-          </Suspense>
-        </SectionBoundary>
-      </div>
+        </Suspense>
+      </SectionBoundary>
     </div>
   );
 }
@@ -126,19 +103,6 @@ function enrich(leads: LeadSummary[], refs: Referral[]): LeadRow[] {
     .sort((a, b) => GROUP_ORDER[a.group] - GROUP_ORDER[b.group] || (b.lead.top_score ?? 0) - (a.lead.top_score ?? 0) || b.updated - a.updated);
 }
 
-function Typologies({ items }: { items: string[] | null | undefined }) {
-  const list = (Array.isArray(items) ? items : []).filter(Boolean).map((t) => typologyLabel(t));
-  if (!list.length) return <span className="text-muted">—</span>;
-  const shown = list.slice(0, 2);
-  const rest = list.length - shown.length;
-  return (
-    <span title={list.join(", ")} className="whitespace-nowrap">
-      {shown.join(", ")}
-      {rest > 0 && <span className="ml-1 text-muted">+{rest}</span>}
-    </span>
-  );
-}
-
 function OsintSearch() {
   const navigate = useNavigate();
   const [q, setQ] = useState("");
@@ -165,56 +129,42 @@ function OsintSearch() {
   );
 }
 
-function LeadsTable({ rows, loading, now }: { rows: LeadRow[]; loading: boolean; now: number }) {
+function LeadsTable({ rows, loading }: { rows: LeadRow[]; loading: boolean }) {
   const navigate = useNavigate();
   return (
-    <TableFrame label="Piste AML" minWidth={980}>
+    <TableFrame label="Piste AML" minWidth={860}>
       <thead>
         <tr>
-          <th scope="col" className={TH}>Pistă</th>
-          <th scope="col" className={TH}>Cont principal</th>
-          <th scope="col" className={TH}>Contestații</th>
-          <th scope="col" className={TH}>Scor M5</th>
-          <th scope="col" className={TH}>Tipologii</th>
+          <th scope="col" className={TH}>Cont</th>
+          <th scope="col" className={TH}>Victime</th>
+          <th scope="col" className={TH + " text-right"}>Sumă</th>
+          <th scope="col" className={TH}>Scor</th>
           <th scope="col" className={TH}>Recomandare</th>
           <th scope="col" className={TH}>Stare</th>
-          <th scope="col" className={TH}>Actualizat</th>
+          <th scope="col" className={TH + " w-px"}><span className="sr-only">Acțiune</span></th>
         </tr>
       </thead>
       <tbody>
         {loading && !rows.length ? (
-          <SkeletonRows cols={8} />
+          <SkeletonRows cols={7} />
         ) : (
           rows.map((r) => {
             const s = leadStatus(r.lead.status);
             const notScored = !r.lead.top_score && (s?.key === "NOU" || s?.key === "IN_ANALIZA");
             return (
-              <tr key={r.lead.lead_id} onClick={rowClick(() => navigate(leadHref(r.lead.lead_id)))} className="cursor-pointer hover:bg-hover">
+              <tr key={r.lead.lead_id} onClick={rowClick(() => navigate(leadHref(r.lead.lead_id)))} className="cursor-pointer transition-colors hover:bg-canvas">
                 <td className={TD}>
-                  <Link to={leadHref(r.lead.lead_id)} aria-label={`Deschide pista ${r.lead.lead_id}`} className="rounded-sm">
-                    <IdTag tone={r.group === "waiting" ? "now" : "neutral"}>{r.lead.lead_id}</IdTag>
+                  <Link to={leadHref(r.lead.lead_id)} aria-label={"Deschide pista " + r.lead.lead_id} className="block rounded-sm">
+                    <Account value={r.account} className="text-[0.9333rem] text-ink" />
+                    <span className="block font-mono text-[0.75rem] text-muted">{r.lead.lead_id}</span>
                   </Link>
                 </td>
-                <td className={TD}>
-                  <Account value={r.account} />
-                </td>
-                <td className={TD}>
-                  <span className="tabular-nums">{r.cases || "—"}</span>
-                  {r.amount !== null && <span className="ml-2 text-[0.8667rem] tabular-nums text-muted">{money(r.amount)}</span>}
-                </td>
-                <td className={TD}>
-                  <ScoreText score={r.lead.top_score} unknown={notScored} />
-                </td>
-                <td className={TD}>
-                  <Typologies items={r.lead.typologies} />
-                </td>
-                <td className={TD}>{r.lead.recommendation ? verdictLabel(r.lead.recommendation) : <span className="text-muted">—</span>}</td>
-                <td className={TD}>
-                  <LeadStatusText status={r.lead.status} />
-                </td>
-                <td className={`${TD} whitespace-nowrap text-muted`} title={dateTime(r.lead.updated_at)}>
-                  {relative(r.lead.updated_at, now)}
-                </td>
+                <td className={TD + " tabular-nums"}>{r.cases || "—"}</td>
+                <td className={TD + " text-right font-semibold whitespace-nowrap tabular-nums"}>{r.amount !== null ? money(r.amount) : "—"}</td>
+                <td className={TD}><ScoreText score={r.lead.top_score} unknown={notScored} /></td>
+                <td className={TD + " text-[0.9333rem]"}>{r.lead.recommendation ? verdictLabel(r.lead.recommendation) : <span className="text-muted">—</span>}</td>
+                <td className={TD}><LeadStatusBadge status={r.lead.status} /></td>
+                <td className={TD + " text-right"}><ChevronRight aria-hidden className="size-4 text-muted" /></td>
               </tr>
             );
           })
@@ -308,8 +258,8 @@ export default function LeadsPage() {
   const [params, setParams] = useSearchParams();
   const now = useNowTick(30_000);
   const leads = useResource(() => api.amlLeads(), [api], { pollMs: 4000 });
-  // o singură sondare: tabelul de jos și, pentru fiecare pistă, contul principal și suma contestată
   const refs = useResource(() => api.amlReferrals(), [api], { pollMs: 4000 });
+  const stats = useResource(() => api.amlStats(), [api], { pollMs: 5000 });
 
   const rows = useMemo(() => enrich(Array.isArray(leads.data) ? leads.data : [], Array.isArray(refs.data) ? refs.data : []), [leads.data, refs.data]);
   const counts = useMemo(
@@ -329,68 +279,74 @@ export default function LeadsPage() {
     next.set("stare", id);
     setParams(next, { replace: true });
   };
+  const s = stats.data;
+  const refCount = Array.isArray(refs.data) ? refs.data.length : null;
 
   const empty: Record<TabId, { title: string; body: string }> = {
-    asteapta: { title: "Nicio pistă nu așteaptă decizia ta.", body: "Când agenții termină o pistă, o găsești aici, cu recomandarea regulilor." },
-    analiza: { title: "Nicio pistă în analiză acum.", body: "Pistele noi intră aici cât timp agenții strâng probele." },
-    inchise: { title: "Nicio pistă închisă încă.", body: "Aici ajung pistele după decizia ta: RTS depus, închisă sau HOLD emis." },
+    asteapta: { title: "Nicio pistă nu așteaptă decizia ta.", body: "Când agenții termină o pistă, apare aici, cu recomandarea regulilor." },
+    analiza: { title: "Nicio pistă în analiză acum.", body: "Pistele noi stau aici cât timp agenții strâng probele." },
+    inchise: { title: "Nicio pistă închisă încă.", body: "Aici ajung pistele după decizia ta." },
     toate: { title: "Nicio pistă încă.", body: "" },
   };
 
   return (
     <div>
-      <PageHeader
-        title="Piste AML"
-        description="Conturile care au primit bani din contestațiile de fraudă. Agenții strâng probele și propun; decizia e a ta."
-        actions={<OsintSearch />}
-      />
-      <SectionBoundary label="Imaginea de ansamblu"><AmlOverview /></SectionBoundary>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <h1 className="text-[1.4rem] leading-tight font-semibold">Piste</h1>
+        <OsintSearch />
+      </div>
+
+      {rows.length > 0 && (
+        <div className="mb-8">
+          <StatStrip items={[
+            { label: "Așteaptă decizia ta", value: counts.asteapta, tone: counts.asteapta ? "now" : "ink" },
+            { label: "Bani în risc", value: s ? money(s.amount_at_risk) : "—", sub: s ? (s.referrals === 1 ? "o contestație" : s.referrals + " contestații") : undefined },
+            { label: "Conturi semnalate", value: s?.accounts_flagged ?? "—", sub: "scor peste 0,70" },
+          ]} />
+        </div>
+      )}
 
       <SectionBoundary label="Piste">
         {leads.error && !leads.data ? (
           <ErrorNote error={leads.error} what="pistele" onRetry={() => void leads.reload()} />
         ) : !leads.loading && rows.length === 0 ? (
           <EmptyState icon={<Waypoints aria-hidden className="size-5" />} title="Nicio pistă încă.">
-            Pistele apar când zona client trimite prin diodă faptele unei contestații: contul beneficiar, suma și domeniul atacului. Victima
-            apare doar ca pseudonim.
+            O pistă apare când zona client trimite faptele unei contestații: contul beneficiar, suma și domeniul atacului.
           </EmptyState>
         ) : (
           <>
-            <div className="mb-4">
-              <Tabs<TabId>
-                label="Filtrează pistele după stare"
-                value={tab}
-                onChange={setTab}
-                tabs={[
-                  { id: "asteapta", label: "Te așteaptă", count: counts.asteapta },
-                  { id: "analiza", label: "În analiză", count: counts.analiza },
-                  { id: "inchise", label: "Închise", count: counts.inchise },
-                  { id: "toate", label: "Toate", count: counts.toate },
-                ]}
-              />
-            </div>
+            <Tabs<TabId>
+              className="mb-4"
+              label="Filtrează pistele după stare"
+              value={tab}
+              onChange={setTab}
+              tabs={[
+                { id: "asteapta", label: "Te așteaptă", count: counts.asteapta },
+                { id: "analiza", label: "În analiză", count: counts.analiza },
+                { id: "inchise", label: "Închise", count: counts.inchise },
+                { id: "toate", label: "Toate", count: counts.toate },
+              ]}
+            />
             <StaleNote error={leads.data ? leads.error : undefined} every="4 s" />
             {!leads.loading && visible.length === 0 ? (
-              <EmptyState
-                title={empty[tab].title}
-                action={
-                  <Button size="sm" variant="ghost" onClick={() => setTab("toate")}>
-                    Vezi toate pistele
-                  </Button>
-                }
-              >
+              <EmptyState title={empty[tab].title} action={<Button size="sm" onClick={() => setTab("toate")}>Vezi toate pistele</Button>}>
                 {empty[tab].body}
               </EmptyState>
             ) : (
-              <LeadsTable rows={visible} loading={leads.loading} now={now} />
+              <LeadsTable rows={visible} loading={leads.loading} />
             )}
           </>
         )}
       </SectionBoundary>
 
-      <SectionBoundary label="Contestații primite prin diodă">
-        <ReferralsSection refs={refs} now={now} />
-      </SectionBoundary>
+      <div className="mt-8 border-y border-line">
+        <Collapsible title="Contestații primite din zona client" meta={refCount !== null ? String(refCount) : undefined}>
+          <SectionBoundary label="Contestații primite prin diodă"><ReferralsSection refs={refs} now={now} /></SectionBoundary>
+        </Collapsible>
+        <Collapsible title="Rețeaua și campaniile" meta={s ? s.communities + (s.communities === 1 ? " comunitate" : " comunități") : undefined}>
+          <SectionBoundary label="Rețeaua"><AmlNetwork /></SectionBoundary>
+        </Collapsible>
+      </div>
     </div>
   );
 }

@@ -12,7 +12,7 @@ export const TD = "border-b border-line px-4 py-3 align-middle";
 
 export function TableFrame({ label, minWidth = 720, children }: { label: string; minWidth?: number; children: ReactNode }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-line bg-paper">
+    <div className="relative overflow-x-auto rounded-lg border border-line bg-paper">
       <table aria-label={label} className="w-full border-collapse [&_tbody_tr:last-child>td]:border-b-0" style={{ minWidth }}>
         {children}
       </table>

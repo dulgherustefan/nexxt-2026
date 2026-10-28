@@ -2,72 +2,77 @@
 @import "@fontsource-variable/archivo/wdth.css";
 @import "@fontsource-variable/jetbrains-mono/wght.css";
 
-/* VersoML: standardul categoriei (reper Stripe + Linear), paleta impusă galben / alb / negru.
-   Galbenul e marker, nu fundal: acțiunea principală, „acum” și elementul selectat. */
+/* VersoML: unealtă internă de back-office (reper: Linear, Stripe Dashboard).
+   Suprafețe albe și neutre, text aproape negru, un singur accent: galbenul.
+   Galbenul apare doar pe butonul principal, pe selecție și pe un singur lucru important pe ecran.
+   Roșu și verde doar pentru stare. */
 @theme {
   --font-sans: "Archivo Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, "Cascadia Mono", Consolas, monospace;
 
   --color-yellow: #ffe500;
   --color-yellow-hover: #f2d900;
-  --color-yellow-soft: #fff4a8;
-  --color-yellow-tint: #fffbe0;
-  --color-ink: #0b0b0b;
-  --color-ink-soft: #2a2a26;
-  --color-muted: #5b5b52;
-  --color-subtle: #74746a;
-  --color-line: #d8d8ce;
-  --color-line-strong: #b4b4a8;
+  --color-yellow-soft: #fff5b8;
+  --color-yellow-tint: #fffbe5;
+  --color-yellow-line: #e8d23a;
+
+  --color-ink: #141413;
+  --color-ink-soft: #3d3d39;
+  --color-muted: #66665f;
+  --color-subtle: #74746c;
+  --color-line: #e6e6e1;
+  --color-line-strong: #cfcfc8;
   --color-paper: #ffffff;
-  --color-canvas: #f6f6f1;
-  --color-hover: #efefe8;
+  --color-canvas: #f7f7f5;
+  --color-hover: #f0f0ec;
 
   --color-danger: #c4311a;
-  --color-danger-soft: #fde8e2;
-  --color-danger-line: #efb1a3;
+  --color-danger-soft: #fdeee9;
+  --color-danger-line: #f1bcae;
   --color-ok: #15793b;
-  --color-ok-soft: #e0f3e6;
-  --color-ok-line: #a9dbb9;
-  --color-warn: #a15c00;
-  --color-warn-soft: #fff1d6;
-  --color-warn-line: #f0c27a;
+  --color-ok-soft: #e8f5ec;
+  --color-ok-line: #b2dcbf;
+  --color-warn: #9a5a00;
+  --color-warn-soft: #fdf3df;
+  --color-warn-line: #ecc98a;
 
   --radius-sm: 6px;
   --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-lg: 10px;
 
-  --shadow-overlay: 0 16px 40px -12px rgb(11 11 11 / 0.28), 0 2px 8px rgb(11 11 11 / 0.08);
-  --shadow-raise: 0 1px 2px rgb(11 11 11 / 0.06), 0 4px 12px -6px rgb(11 11 11 / 0.12);
+  --shadow-overlay: 0 24px 48px -16px rgb(20 20 19 / 0.22), 0 4px 12px rgb(20 20 19 / 0.06);
+  --shadow-raise: 0 1px 2px rgb(20 20 19 / 0.05);
 
-  --animate-pulse-dot: pulse-dot 1.4s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  --animate-pulse-dot: pulse-dot 1.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
   --animate-flash: flash 1.6s cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-enter: enter 280ms cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-ticker-in: ticker-in 900ms cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-glow: glow 1.6s ease-in-out infinite;
+  --animate-enter: enter 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-drawer: drawer 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-ticker-in: enter 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-glow: glow 1.8s ease-in-out infinite;
 }
 
 @keyframes pulse-dot {
-  0% { box-shadow: 0 0 0 0 rgb(255 229 0 / 0.9); }
-  70% { box-shadow: 0 0 0 7px rgb(255 229 0 / 0); }
-  100% { box-shadow: 0 0 0 0 rgb(255 229 0 / 0); }
+  0% { box-shadow: 0 0 0 0 rgb(232 210 58 / 0.7); }
+  70% { box-shadow: 0 0 0 6px rgb(232 210 58 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(232 210 58 / 0); }
 }
 @keyframes flash {
-  0% { background-color: var(--color-yellow); }
+  0% { background-color: var(--color-yellow-soft); }
   100% { background-color: transparent; }
 }
-@keyframes ticker-in {
-  from { opacity: 0; transform: translateX(-10px); background-color: var(--color-yellow-soft); }
-  to { opacity: 1; transform: none; background-color: transparent; }
-}
 @keyframes glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgb(255 229 0 / 0.0), 0 0 0 0 rgb(11 11 11 / 0); }
-  50% { box-shadow: 0 0 0 6px rgb(255 229 0 / 0.55), 0 0 0 7px rgb(11 11 11 / 0.15); }
+  0%, 100% { box-shadow: 0 0 0 0 rgb(255 229 0 / 0); }
+  50% { box-shadow: 0 0 0 4px rgb(255 229 0 / 0.45); }
 }
 @keyframes dash-flow {
   to { stroke-dashoffset: -24; }
 }
 @keyframes enter {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes drawer {
+  from { opacity: 0.6; transform: translateX(24px); }
   to { opacity: 1; transform: none; }
 }
 
@@ -84,6 +89,7 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     caret-color: var(--color-ink);
+    font-feature-settings: "tnum" 0;
   }
   h1, h2, h3, h4 {
     text-wrap: balance;
@@ -95,25 +101,29 @@
   :focus-visible {
     outline: 2px solid var(--color-ink);
     outline-offset: 2px;
+    border-radius: 4px;
   }
   input, textarea, select, button { font: inherit; color: inherit; }
   input::placeholder, textarea::placeholder { color: var(--color-subtle); }
+  input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offset: 0; }
   * { scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; }
   *::-webkit-scrollbar { width: 10px; height: 10px; }
   *::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
   code, kbd, samp, pre { font-family: var(--font-mono); }
+  summary::-webkit-details-marker { display: none; }
 }
 
 @layer utilities {
   .tnum { font-variant-numeric: tabular-nums; }
-  /* Benzile de avertizare: doar pentru zid și zona AML. */
+  /* Banda de avertizare: doar o fâșie subțire, în zona AML. */
   .hazard {
-    background-image: repeating-linear-gradient(-45deg, var(--color-yellow) 0 14px, var(--color-ink) 14px 28px);
+    background-image: repeating-linear-gradient(-45deg, var(--color-yellow) 0 8px, var(--color-ink) 8px 16px);
   }
   .hazard-thin {
-    background-image: repeating-linear-gradient(-45deg, var(--color-yellow) 0 6px, var(--color-ink) 6px 12px);
+    background-image: repeating-linear-gradient(-45deg, var(--color-yellow) 0 5px, var(--color-ink) 5px 10px);
   }
-  .display { font-stretch: 112%; letter-spacing: -0.025em; }
+  /* Rămas din versiunea veche: titlurile nu mai sunt late. */
+  .display { letter-spacing: -0.015em; }
   .flow-dash { stroke-dasharray: 6 6; animation: dash-flow 0.6s linear infinite; }
   .text-meta { font-size: 0.8667rem; line-height: 1.35rem; color: var(--color-muted); }
 }

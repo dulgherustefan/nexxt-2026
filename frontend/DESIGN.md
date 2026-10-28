@@ -1,57 +1,44 @@
 # VersoML · design
 
-Consolă de operare, la standardul categoriei (reper: Stripe Dashboard + Linear). Operatorul vede întâi decizia, termenul și ce așteaptă semnătura lui. Tokenurile sunt în `src/styles/index.css` (`@theme`), primitivele în `src/ui/kit.tsx`.
+Unealtă internă de back-office, la standardul Linear / Stripe Dashboard. Un singur lucru principal pe ecran; prima privire spune ce ai de făcut; detaliile se deschid la cerere. Tokenurile sunt în `src/styles/index.css` (`@theme`), primitivele în `src/ui/kit.tsx`.
+
+## Arhitectura informației
+
+- Bara de sus: marca „V” + VersoML, comutatorul de rol (Operator / Analist AML), punctul de stare (Live / Replay / Offline / Date demo), butonul „Demo”.
+- Navigarea din stânga: Operator → Contestații, Sistem. AML → Piste, Verificare OSINT, Sistem.
+- **Contestații** (`/`): trei cifre (De rezolvat azi · Așteaptă semnătura ta · Rambursat azi), filele De făcut / Așteaptă semnătura / Rezolvate, un tabel, butonul „Caz nou” (dialog cu scenariile).
+- **Caz** (`/cazuri/:id`): o coloană de maximum 960 px. Antet (sumă, client, ce s-a întâmplat, termen, stare) → cutia deciziei (o propoziție, cine a decis, semnătura, trei motive, „Vezi regulile”) → „Ce s-a întâmplat” → secțiuni pliabile (Probe, Scrisoarea, Recuperare, Procuror ↔ Avocat, Dacă schimb un fapt, Registru). Graful agenților stă în sertarul „Cum a decis VersoML”.
+- **Piste** (`/aml`) și **Pistă** (`/aml/piste/:id`): același tipar; graful banilor e vizualul principal, restul pliabil.
+- **Sistem** (`/sistem/:tab`, `/aml/sistem/:tab`): file Zidul, Reguli, Evaluare, MCP, Coduri QR (+ Jurnal de acces pentru analist).
+- **Demo** (`/demo`): pașii sus, telefonul în stânga, ecranul operatorului în dreapta. `/banca` și `/demo/livrare` rămân pagini de telefon.
 
 ## Culoare
 
-Paleta e impusă: galben, alb, negru. Tot restul e neutru sau semantic.
-
 | Token | Valoare | Rol |
 |---|---|---|
-| `yellow` | `#ffe500` | doar: acțiunea principală, elementul activ din navigare, „acum” (pas care rulează, caz care te așteaptă), numărul filei active |
-| `yellow-soft` / `yellow-tint` | `#fff4a8` / `#fffbe0` | banner de semnătură; rânduri „te așteaptă”; hover pe rânduri |
-| `ink` | `#0b0b0b` | text, chenarul elementelor active, bara laterală AML |
-| `ink-soft` / `muted` / `subtle` | `#2a2a26` / `#5b5b52` / `#74746a` | text secundar, etichete, metadate |
-| `line` / `line-strong` | `#d8d8ce` / `#b4b4a8` | chenare de 1 px |
-| `paper` / `canvas` / `hover` | `#fff` / `#f6f6f1` / `#efefe8` | suprafețe |
-| `danger` (+ `-soft`, `-line`) | `#c4311a` | excepții, blocări, termen sub 6 h |
-| `ok` (+ `-soft`, `-line`) | `#15793b` | bani returnați, verificări trecute |
+| `yellow` | `#ffe500` | butonul principal, selecția (navigare, filă activă), cutia care cere semnătura |
+| `yellow-soft` / `yellow-tint` / `yellow-line` | `#fff5b8` / `#fffbe5` / `#e8d23a` | fundal selectat, rând evidențiat, chenarul galbenului |
+| `ink` / `ink-soft` / `muted` / `subtle` | `#141413` / `#3d3d39` / `#66665f` / `#74746c` | text, de la principal la metadate (toate ≥ 4,5:1 pe alb) |
+| `line` / `line-strong` | `#e6e6e1` / `#cfcfc8` | chenare de 1 px |
+| `paper` / `canvas` / `hover` | `#fff` / `#f7f7f5` / `#f0f0ec` | suprafețe; `canvas` = bara laterală |
+| `danger`, `ok`, `warn` (+ `-soft`, `-line`) | `#c4311a`, `#15793b`, `#9a5a00` | doar stare: excepții și termen sub 6 h; bani returnați; scor mediu |
 
-Reguli:
-- Galbenul apare mereu cu text negru și nu marchează niciodată un avertisment; urgența merge neutru → roșu.
-- Culoarea nu poartă singură sensul: orice stare are și cuvânt sau iconiță.
-- Zona AML are bara laterală neagră și banda de mediu neagră cu text galben; restul suprafeței rămâne alb.
+Galbenul apare mereu cu text negru și nu marchează avertismente. Benzile galben-negru apar doar ca fâșie de 3 px deasupra textului „Zona AML · date separate”.
 
-## Tipografie
+## Tipografie și spațiu
 
-- Archivo Variable (inclus în build), rădăcină 15 px (lizibil pe proiector), numerale tabulare pentru sume și termene.
-- JetBrains Mono doar pentru ID-uri, hash-uri și coduri de regulă (`IdTag`).
-- Ierarhie: titlu de pagină 1,75 rem bold, propoziția deciziei 1,45 rem bold, titlu de panou 1 rem semibold, corp 1 rem, metadate 0,8–0,87 rem.
-- Majuscule obișnuite (sentence case), fără supratitluri, fără text rotit, fără majuscule spațiate.
-
-## Formă și spațiu
-
-- Raze: 6 px (chip-uri), 8 px (butoane, câmpuri), 12 px (panouri). Chenare de 1 px, fără umbre decorative; umbra există doar la straturi (dialog, meniu mobil).
-- Marginea laterală pe telefon e 18 px; conținutul are maximum 1320 px.
+- Archivo Variable la lățime normală, rădăcină 15 px; corp 14 px (0,9333rem), metadate 12–13 px; JetBrains Mono doar pentru ID-uri, hash-uri și coduri de regulă, mic și secundar.
+- Titlu de pagină 21 px semibold; suma din antetul cazului 26 px; propoziția deciziei 20 px.
+- Grilă de 8 px; raze 6 / 8 / 10 px; chenare de 1 px; umbră doar pe straturi (dialog, sertar).
 
 ## Tipare
 
-- **Decizia întâi.** Cazul se deschide cu o propoziție despre bani și termen („Rambursarea de 3.200 lei a fost emisă.”), apoi motivele, fiecare cu probele citate (clic → proba clipește în tabel).
-- **Un singur buton principal pe ecran.**
-- **File cu numărătoare** pentru filtre (Toate, Te așteaptă, În lucru, Termen în 24 h, Închise).
-- **Lista de pași a agenților:** cascadă pe o axă de timp comună, grupată pe faze. Se strânge când rularea s-a încheiat și rămâne deschisă dacă un pas e oprit.
-- **Bannere:** galben pentru „semnătura ta”, roșu pentru „zidul a oprit scrisoarea”, fiecare cu o singură acțiune.
-- **Banda de mediu** permanentă: „Date sintetice”.
-- **Telefon:** tabelele devin liste de rânduri, cu starea, timpul rămas și suma la început.
-
-## Rezerve (fallback)
-
-Mod demonstrativ automat când serverul nu răspunde (sau `?mock=1`), interogare periodică în locul fluxului live, `SectionBoundary` pe fiecare secțiune, eroare cu „Încearcă din nou”, stări goale cu o acțiune, ultima stare păstrată când se pierde legătura.
-
-## Demo pe telefon
-
-„Coduri QR pentru jurați” (sau `?qr=1`) deschide două coduri mari pentru proiector: pagina falsă și Banca Demo, cu avertisment dacă consola e pe localhost.
+- **Decizia întâi**: o propoziție despre bani și termen, cine a decis, cel mult trei motive scrise din faptele folosite de reguli. ID-urile de regulă și citările EV stau sub „Vezi regulile”.
+- **Un singur buton galben pe ecran.**
+- **Secțiuni pliabile** închise implicit; „Probe” se deschide singură cât lucrează agenții.
+- **Sertarul** pentru graful agenților; în antet, cât rulează: „Agenții lucrează · 9/17 pași”.
+- **Telefon (390 px)**: tabelele devin liste; navigarea intră în meniul din stânga.
 
 ## Ce nu folosim
 
-Grafic decorativ (fiecare inel, bară sau graf arată o dată reală), gradient, galben pentru avertismente, text conturat sau rotit. Benzile cu dungi galben-negru apar doar la zid și în zona AML. Semaforul termenelor folosește verde / chihlimbar (`warn`) / roșu.
+Titluri-poster, ticker pe ecranele de lucru, mozaicuri de cifre, grafice decorative, gradient, text conturat, galben pentru avertismente.

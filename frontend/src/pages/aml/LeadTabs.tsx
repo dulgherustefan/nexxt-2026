@@ -45,7 +45,7 @@ function FieldValue({ k, v }: { k: string; v: unknown }) {
   return <>{s}</>;
 }
 
-function RtsTab({ rts, onCite, factTitle, running }: { rts: LeadDetail["rts"]; onCite: Cite; factTitle: FactTitle; running: boolean }) {
+export function RtsTab({ rts, onCite, factTitle, running }: { rts: LeadDetail["rts"]; onCite: Cite; factTitle: FactTitle; running: boolean }) {
   const narrative = Array.isArray(rts?.narrative) ? rts!.narrative.filter((l) => l && typeof l.text === "string") : [];
   const fields = rts?.fields && typeof rts.fields === "object" ? Object.entries(rts.fields) : [];
   if (!rts || (!narrative.length && !fields.length)) {
@@ -108,7 +108,7 @@ function RtsTab({ rts, onCite, factTitle, running }: { rts: LeadDetail["rts"]; o
 
 // ------------------------------------------------------------------ OSINT
 
-function OsintTab({ findings, summary, onCite, factTitle, running }: { findings: OsintFinding[]; summary?: string | null; onCite: Cite; factTitle: FactTitle; running: boolean }) {
+export function OsintTab({ findings, summary, onCite, factTitle, running }: { findings: OsintFinding[]; summary?: string | null; onCite: Cite; factTitle: FactTitle; running: boolean }) {
   if (!findings.length) {
     return (
       <EmptyState icon={<Search aria-hidden className="size-5" />} title={running ? "Pasul OSINT interoghează sursele." : "Nicio verificare OSINT încă."}>
@@ -132,7 +132,7 @@ function OsintTab({ findings, summary, onCite, factTitle, running }: { findings:
 
 // ------------------------------------------------------------------ probele
 
-function ProbeTab({ facts, highlight, ledger }: { facts: FactRow[]; highlight: { id: string; n: number } | null; ledger: LeadDetail["ledger"] }) {
+export function ProbeTab({ facts, highlight, ledger }: { facts: FactRow[]; highlight: { id: string; n: number } | null; ledger: LeadDetail["ledger"] }) {
   const listRef = useRef<HTMLUListElement>(null);
   useEffect(() => {
     if (!highlight) return;

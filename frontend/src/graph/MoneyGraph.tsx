@@ -25,7 +25,6 @@ import type { AmlLead, MoneyGraph as MoneyGraphData } from "../api/types";
 import { buildFlowModel, cleanGraph, type FlowNode, type FlowRole } from "../pages/aml/flow";
 import { compactAmount, M5_HIGH, M5_MID, tsOf } from "../pages/aml/aml";
 import { Button, cx, EmptyState } from "../ui/kit";
-import { Gauge } from "../ui/viz";
 
 // ------------------------------------------------------------------ nodurile
 
@@ -58,29 +57,29 @@ const AccountNode = memo(function AccountNode({ data }: NodeProps<Node<AccData>>
   );
   if (subject) {
     return (
-      <div className={cx("flex w-[236px] flex-col items-center rounded-2xl border-[3px] border-ink bg-yellow px-3 pt-2 pb-2.5 shadow-[var(--shadow-raise)]", pulse && "animate-glow")}>
+      <div className={cx("flex w-[220px] flex-col rounded-lg border border-yellow-line bg-yellow px-3 py-2.5", pulse && "animate-glow")}>
         {handles}
-        <p className="text-[0.7rem] font-black tracking-wide">CONTUL URMĂRIT</p>
-        <p className="mt-0.5 font-mono text-[0.9333rem] font-bold">{n.short}</p>
-        <div className="mt-1 rounded-xl bg-paper px-2 pt-1.5">
-          <Gauge value={n.score} size={132} label="scor M5 cărăuș" />
-        </div>
-        <p className="mt-1.5 text-[0.8rem] font-semibold tabular-nums">intrat {compactAmount(n.amountIn)} · ieșit {compactAmount(n.amountOut)} lei</p>
+        <p className="text-[0.75rem] font-medium">Contul urmărit</p>
+        <p className="mt-0.5 font-mono text-[0.9333rem] font-semibold">{n.short}</p>
+        <p className="mt-1.5 flex items-baseline justify-between gap-2 text-[0.8rem] tabular-nums">
+          <span>scor <span className="font-semibold">{n.score === null ? "—" : n.score.toFixed(2).replace(".", ",")}</span></span>
+          <span>{compactAmount(n.amountIn)} → {compactAmount(n.amountOut)} lei</span>
+        </p>
       </div>
     );
   }
   const victim = n.kind === "victima";
   return (
     <div title={`${n.label} · ${KIND_WORD[n.kind] ?? n.kind}`}
-      className={cx("flex w-[188px] items-center gap-2 rounded-xl border-2 px-2.5 py-1.5 transition-opacity duration-300",
+      className={cx("flex w-[188px] items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-opacity duration-300",
         victim ? "border-danger-line bg-paper" : n.kind === "exchange" || n.kind === "numerar" ? "border-ink bg-ink text-paper" : scoreCls(n.score),
         !lit && "opacity-35", pulse && "animate-glow")}>
       {handles}
-      <span className={cx("grid size-7 shrink-0 place-items-center rounded-full", victim ? "bg-danger-soft text-danger" : n.kind === "exchange" || n.kind === "numerar" ? "bg-yellow text-ink" : "bg-paper/80")}>
+      <span className={cx("grid size-7 shrink-0 place-items-center rounded-full", victim ? "bg-danger-soft text-danger" : n.kind === "exchange" || n.kind === "numerar" ? "bg-white/15 text-paper" : "bg-paper/80")}>
         <Icon className="size-4" />
       </span>
       <span className="min-w-0 leading-tight">
-        <span className={cx("block truncate text-[0.8rem] font-bold", n.mono && "font-mono")}>{n.short}</span>
+        <span className={cx("block truncate text-[0.8rem] font-semibold", n.mono && "font-mono")}>{n.short}</span>
         <span className={cx("block truncate text-[0.7rem]", n.kind === "exchange" || n.kind === "numerar" ? "text-white/70" : "text-muted")}>
           {KIND_WORD[n.kind] ?? n.kind}{n.score !== null ? ` · ${n.score.toFixed(2).replace(".", ",")}` : ""}
         </span>
@@ -131,7 +130,7 @@ const edgeTypes = { money: MoneyEdge };
 
 // ------------------------------------------------------------------ așezarea
 
-const COL_X: Record<FlowRole, number> = { victim: 0, sender: 0, subject: 330, exit: 700 };
+const COL_X: Record<FlowRole, number> = { victim: 0, sender: 0, subject: 320, exit: 660 };
 const ROW_H = 64;
 
 function FitOnResize({ boxRef, n }: { boxRef: RefObject<HTMLDivElement | null>; n: number }) {
@@ -214,7 +213,7 @@ function Inner({ graph, lead, building = false, title = "Drumul banilor", height
     for (const col of model.columns) for (const seg of col.segments) for (const n of seg.nodes) {
       (col.key === "sources" ? columns.left : col.key === "subject" ? columns.mid : columns.right).push(n);
     }
-    const SUBJ_H = 300;
+    const SUBJ_H = 120;
     const tallest = Math.max(columns.left.length * ROW_H, columns.right.length * ROW_H, columns.mid.length * SUBJ_H, ROW_H);
     const place = (list: FlowNode[], x: number, h: number, nodeH: number) => {
       const start = (tallest - list.length * h) / 2 + (h - nodeH) / 2;
@@ -230,7 +229,7 @@ function Inner({ graph, lead, building = false, title = "Drumul banilor", height
       });
     };
     place(columns.left, COL_X.victim, ROW_H, 48);
-    place(columns.mid, COL_X.subject, SUBJ_H, 270);
+    place(columns.mid, COL_X.subject, SUBJ_H, 84);
     place(columns.right, COL_X.exit, ROW_H, 48);
     return out;
   }, [model, litNodes, current, flowIdOf]);
@@ -258,25 +257,25 @@ function Inner({ graph, lead, building = false, title = "Drumul banilor", height
 
   if (!model.links.length) {
     return (
-      <section className="rounded-xl border border-line bg-paper p-4">
-        <h2 className="mb-2 font-bold">{title}</h2>
+      <section className="rounded-lg border border-line bg-paper p-4">
+        <h2 className="mb-3 font-semibold">{title}</h2>
         <EmptyState title={building ? "Agenții construiesc graful banilor…" : "Graful nu are încă fluxuri."}>
           Graful apare după ce Investigatorul citește faptele venite prin diodă și tranzacțiile contului.
         </EmptyState>
       </section>
     );
   }
-  const rows = Math.max(...model.columns.map((c) => c.segments.reduce((s, g) => s + g.nodes.length * (c.key === "subject" ? 4.5 : 1), 0)), 4.5);
-  const h = height ?? Math.min(640, Math.max(400, rows * ROW_H + 40));
+  const rows = Math.max(...model.columns.map((c) => c.segments.reduce((s, g) => s + g.nodes.length * (c.key === "subject" ? 2 : 1), 0)), 4);
+  const h = height ?? Math.min(560, Math.max(320, rows * ROW_H + 40));
   const total = steps.reduce((s, x) => s + x.e.amount, 0);
   const shown = replay.on ? steps.slice(0, replay.i + 1).reduce((s, x) => s + x.e.amount, 0) : total;
 
   return (
-    <section aria-label="Graful banilor" className="flex flex-col overflow-hidden rounded-xl border-2 border-ink bg-paper">
+    <section aria-label="Graful banilor" className="flex flex-col overflow-hidden rounded-lg border border-line bg-paper">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
         <div>
-          <h2 className="font-bold">{title}</h2>
-          <p className="text-[0.8667rem] text-muted">Grosimea = suma · culoarea = scorul M5 · {steps.length} transferuri</p>
+          <h2 className="font-semibold">{title}</h2>
+          <p className="text-[0.8667rem] text-muted">{steps.length} transferuri · linia mai groasă înseamnă mai mulți bani</p>
         </div>
         <div className="flex items-center gap-1.5">
           {replay.on && (
@@ -284,24 +283,24 @@ function Inner({ graph, lead, building = false, title = "Drumul banilor", height
               {replay.paused ? "Continuă" : "Pauză"}
             </Button>
           )}
-          <Button size="sm" variant={replay.on ? "secondary" : "primary"} disabled={steps.length < 2}
+          <Button size="sm" variant="secondary" disabled={steps.length < 2}
             onClick={() => setReplay(replay.on ? { on: false, i: 0, paused: false } : { on: true, i: 0, paused: false })} icon={<RotateCcw className="size-3.5" />}>
             {replay.on ? "Oprește" : "Rejoacă banii"}
           </Button>
         </div>
       </header>
       {replay.on && current && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-ink bg-yellow px-4 py-1.5 text-[0.9333rem]" aria-live="polite">
-          <span className="font-mono font-bold tabular-nums">{replay.i + 1}/{steps.length}</span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-yellow-tint px-4 py-1.5 text-[0.9333rem]" aria-live="polite">
+          <span className="font-mono font-semibold tabular-nums">{replay.i + 1}/{steps.length}</span>
           <span className="font-semibold">{dateTime(current.e.ts)}</span>
           <span>{money(current.e.amount)} · {model.nodes.get(flowIdOf.get(current.e.source) ?? "")?.short} → {model.nodes.get(flowIdOf.get(current.e.target) ?? "")?.short}</span>
           <span className="ml-auto font-semibold tabular-nums">cumulat {money(shown)}</span>
         </div>
       )}
-      <div className="grid grid-cols-3 border-b border-line bg-canvas px-4 py-1 text-[0.75rem] font-bold tracking-wide text-muted" aria-hidden>
-        <span>DE UNDE VIN BANII →</span><span className="text-center">CONTUL URMĂRIT</span><span className="text-right">→ UNDE PLEACĂ</span>
+      <div className="grid grid-cols-3 border-b border-line px-4 py-1.5 text-[0.8rem] text-muted" aria-hidden>
+        <span>Victime</span><span className="text-center">Contul urmărit</span><span className="text-right">Unde pleacă banii</span>
       </div>
-      <div ref={box} className="relative bg-[radial-gradient(var(--color-line)_1px,transparent_1px)] [background-size:18px_18px]" style={{ height: h }}>
+      <div ref={box} className="relative bg-canvas/40" style={{ height: h }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -321,12 +320,10 @@ function Inner({ graph, lead, building = false, title = "Drumul banilor", height
         </ReactFlow>
       </div>
       <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line px-4 py-2 text-[0.8rem] text-muted">
-        <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-sm border-2 border-danger bg-danger-soft" /> scor ≥ 0,70</span>
-        <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-sm border-2 border-warn bg-warn-soft" /> 0,30–0,70</span>
-        <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-sm border-2 border-ok bg-ok-soft" /> sub 0,30</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-1 w-5 rounded bg-danger" /> bani de la victime</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-1 w-5 rounded bg-ink" /> spre cripto / numerar</span>
-        <span className="ml-auto">Victimele apar doar ca pseudonim (VCT-…): identitatea lor rămâne în zona client.</span>
+        <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border border-danger bg-danger-soft" /> scor peste 0,70</span>
+        <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border border-warn bg-warn-soft" /> 0,30–0,70</span>
+        <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-sm border border-ok bg-ok-soft" /> sub 0,30</span>
+        <span className="ml-auto">Victimele apar ca pseudonim (VCT-…).</span>
       </footer>
     </section>
   );

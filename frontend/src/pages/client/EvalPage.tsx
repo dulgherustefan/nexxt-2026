@@ -17,8 +17,8 @@ import {
   type Obj,
   type Outcome,
 } from "./evalReport";
-import { CodeBlock, InlineCode, TABLE } from "./trustUi";
-import { EvalVisuals } from "./EvalVisuals";
+import { CodeBlock, InlineCode } from "./trustUi";
+import { Bar } from "../../ui/viz";
 
 const LLM_MODE: Record<string, string> = {
   live: "LLM live (Claude pe Bedrock)",
@@ -67,31 +67,31 @@ export default function EvalPage() {
       ) : (
         <>
           {res.error && <p className="mb-3 text-[0.8667rem] text-danger">Nu am putut reîncărca raportul; afișez ultima versiune primită.</p>}
-          <SectionBoundary label="Imaginea evaluării">
-            <EvalVisuals sections={model.sections} />
-          </SectionBoundary>
           <SectionBoundary label="Sinteza">
             <Summary rows={model.rows} />
           </SectionBoundary>
-          <div className="mt-6 grid gap-4 xl:grid-cols-2">
-            <SectionBoundary label="Reguli">
-              <RulesSection golden={model.sections.rules_golden} generated={model.sections.rules_generated} />
-            </SectionBoundary>
-            <SectionBoundary label="Zid și neinterferență">
-              <NonInterference data={model.sections.noninterference} />
-            </SectionBoundary>
-            <SectionBoundary label="Filtrul de scrisori">
-              <LetterFilter data={model.sections.letter_filter} />
-            </SectionBoundary>
-            <SectionBoundary label="Confidențialitate și injecții">
-              <PrivacyInjection privacy={model.sections.privacy} injection={model.sections.injection} />
-            </SectionBoundary>
-            <div className="xl:col-span-2">
-              <SectionBoundary label="Modele ML">
-                <MlSection data={model.sections.ml} />
+          <details className="mt-6 rounded-lg border border-line">
+            <summary className="cursor-pointer px-4 py-3 font-semibold">Detalii pe secțiuni</summary>
+            <div className="grid gap-4 border-t border-line p-4 xl:grid-cols-2">
+              <SectionBoundary label="Reguli">
+                <RulesSection golden={model.sections.rules_golden} generated={model.sections.rules_generated} />
               </SectionBoundary>
+              <SectionBoundary label="Zid și neinterferență">
+                <NonInterference data={model.sections.noninterference} />
+              </SectionBoundary>
+              <SectionBoundary label="Filtrul de scrisori">
+                <LetterFilter data={model.sections.letter_filter} />
+              </SectionBoundary>
+              <SectionBoundary label="Confidențialitate și injecții">
+                <PrivacyInjection privacy={model.sections.privacy} injection={model.sections.injection} />
+              </SectionBoundary>
+              <div className="xl:col-span-2">
+                <SectionBoundary label="Modele ML">
+                  <MlSection data={model.sections.ml} />
+                </SectionBoundary>
+              </div>
             </div>
-          </div>
+          </details>
           <details className="mt-6 rounded-lg border border-line bg-paper">
             <summary className="cursor-pointer px-4 py-3 font-semibold">Date brute</summary>
             <pre className="max-h-[32rem] overflow-auto border-t border-line bg-canvas px-4 py-3 font-mono text-[0.8667rem] leading-relaxed">
@@ -146,6 +146,11 @@ const OUTCOME: Record<Outcome, { word: string; icon: ReactNode; cls: string }> =
   na: { word: "n/a", icon: <CircleMinus aria-hidden className="size-4" />, cls: "text-muted" },
 };
 
+function asFraction(v: unknown, target: string | null): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  return /%$/.test(showValue(v, target)) ? Math.max(0, Math.min(1, v)) : null;
+}
+
 function Summary({ rows }: { rows: EvalRow[] }) {
   const results = rows.map((r) => outcome(r.value, r.target));
   const judged = results.filter((o) => o !== "na").length;
@@ -154,50 +159,37 @@ function Summary({ rows }: { rows: EvalRow[] }) {
   return (
     <section aria-labelledby="eval-summary">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="eval-summary" className="text-[1.0667rem] font-semibold">Sinteză</h2>
+        <h3 id="eval-summary" className="font-semibold">Ce am măsurat</h3>
         {judged > 0 && (
-          <p className={cx("font-semibold", met === judged ? "text-ok" : "text-danger")}>
+          <p className={cx("text-[0.9333rem] font-semibold", met === judged ? "text-ok" : "text-danger")}>
             {met} din {judged} ținte atinse
           </p>
         )}
       </div>
       {rows.length === 0 ? (
-        <EmptyState title="Raportul nu are rânduri de sinteză.">Secțiunile de mai jos și datele brute sunt totuși disponibile.</EmptyState>
+        <EmptyState title="Raportul nu are rânduri de sinteză.">Detaliile și datele brute sunt mai jos.</EmptyState>
       ) : (
-        <div className={TABLE.wrap}>
-          <table className={cx(TABLE.table, "min-w-[40rem]")}>
-            <thead>
-              <tr className={TABLE.headRow}>
-                <th scope="col" className={TABLE.th}>Metrică</th>
-                <th scope="col" className={cx(TABLE.th, "text-right")}>Valoare</th>
-                <th scope="col" className={cx(TABLE.th, "text-right")}>Țintă</th>
-                <th scope="col" className={TABLE.th}>Rezultat</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => {
-                const o = OUTCOME[results[i]];
-                return (
-                  <tr key={`${r.name}-${i}`} className={TABLE.row}>
-                    <td className={TABLE.td}>{r.name}</td>
-                    <td className={cx(TABLE.td, "text-right font-semibold whitespace-nowrap tabular-nums")}>{showValue(r.value, r.target)}</td>
-                    <td className={cx(TABLE.td, "text-right whitespace-nowrap text-ink-soft tabular-nums")}>{showTarget(r.target, r.value)}</td>
-                    <td className={cx(TABLE.td, "whitespace-nowrap")}>
-                      <span className={cx("inline-flex items-center gap-1.5 font-medium", o.cls)}>
-                        {o.icon}
-                        {o.word}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <ul className="divide-y divide-line rounded-lg border border-line">
+          {rows.map((r, i) => {
+            const o = OUTCOME[results[i]];
+            const frac = asFraction(r.value, r.target);
+            return (
+              <li key={`${r.name}-${i}`} className="grid items-center gap-x-4 gap-y-1 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_9rem_5.5rem_7rem]">
+                <span className="text-[0.9333rem]">{r.name}</span>
+                <span className="hidden sm:block">{frac !== null ? <Bar value={frac} tone={results[i] === "below" ? "danger" : "ink"} /> : null}</span>
+                <span className="text-[0.9333rem] font-semibold tabular-nums sm:text-right">{showValue(r.value, r.target)}</span>
+                <span className={cx("inline-flex items-center gap-1.5 text-[0.8667rem]", o.cls)} title={`Țintă: ${showTarget(r.target, r.value)}`}>
+                  {o.icon}
+                  {results[i] === "na" ? (r.target ?? "fără țintă") : `${o.word} · ${showTarget(r.target, r.value)}`}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       )}
       {hasApprox && (
         <p className="mt-2 text-[0.8667rem] text-muted">
-          Ținta „≈ 0” e considerată atinsă sub {pct(APPROX_TOLERANCE)}. „Comparație” marchează o linie de bază, fără țintă.
+          Ținta „≈ 0” e atinsă sub {pct(APPROX_TOLERANCE)}. „Comparație” e o linie de bază, fără țintă.
         </p>
       )}
     </section>

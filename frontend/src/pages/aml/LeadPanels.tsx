@@ -29,9 +29,7 @@ export function ScorePanel({ accounts }: { accounts: AccountScore[] | null | und
   const top = list[0];
   if (!top) {
     return (
-      <Panel title="Scor M5">
-        <p className="text-muted">Scorul apare după pasul „Graf + ML”.</p>
-      </Panel>
+      <p className="text-[0.9333rem] text-muted">Scorul apare după pasul „Graf + ML”.</p>
     );
   }
   const lvl = scoreLevel(top.score, top.label);
@@ -44,9 +42,9 @@ export function ScorePanel({ accounts }: { accounts: AccountScore[] | null | und
   const others = list.slice(1, 4);
   const high = lvl?.level === "high";
   return (
-    <Panel title="Scor M5">
+    <div>
       <div className="flex items-baseline gap-3">
-        <span className={cx("text-[2rem] leading-none font-bold tabular-nums", high && "text-danger")}>{fmtScore(top.score)}</span>
+        <span className={cx("text-[1.5rem] leading-none font-semibold tabular-nums", high && "text-danger")}>{fmtScore(top.score)}</span>
         {lvl && <span className={cx("font-semibold", high ? "text-danger" : "text-ink-soft")}>{lvl.word}</span>}
       </div>
       <p className="mt-1.5 text-[0.8667rem] text-muted">
@@ -91,7 +89,7 @@ export function ScorePanel({ accounts }: { accounts: AccountScore[] | null | und
         </div>
       )}
       <p className="mt-4 text-[0.8667rem] text-muted">Scorul ajută la prioritizare. Decid regulile și tu.</p>
-    </Panel>
+    </div>
   );
 }
 
@@ -144,7 +142,8 @@ function typologies(detail: TypologyHit[] | null | undefined, names: string[] | 
   return (Array.isArray(names) ? names : []).filter(Boolean).map((n) => ({ key: n, label: typologyLabel(n), explanation: null, ruleId: null, amount: null }));
 }
 
-export function AchPanel({ innocentDetail, innocent, typologyDetail, typologyNames, onCite, factTitle }: {
+export function AchPanel({ innocentDetail, innocent, typologyDetail, typologyNames, onCite, factTitle, showTypologies = true }: {
+  showTypologies?: boolean;
   innocentDetail?: InnocentHypothesis[] | null;
   innocent?: RationaleLine[] | null;
   typologyDetail?: TypologyHit[] | null;
@@ -155,11 +154,11 @@ export function AchPanel({ innocentDetail, innocent, typologyDetail, typologyNam
   const hyps = useMemo(() => hypotheses(innocentDetail, innocent), [innocentDetail, innocent]);
   const typs = useMemo(() => typologies(typologyDetail, typologyNames), [typologyDetail, typologyNames]);
   return (
-    <Panel title="Pentru și contra">
-      <p className="text-[0.8667rem] text-muted">Înainte de orice raport, agentul caută explicații nevinovate și le pune lângă tiparele găsite.</p>
+    <div className="max-w-[72ch]">
+      <p className="text-[0.8667rem] text-muted">Înainte de orice raport, agentul caută explicații nevinovate pentru tiparele găsite.</p>
 
-      <h3 className="mt-4 text-[0.9333rem] font-semibold">Tipare care susțin suspiciunea</h3>
-      {typs.length ? (
+      {showTypologies && <h3 className="mt-4 text-[0.9333rem] font-semibold">Tipare care susțin suspiciunea</h3>}
+      {!showTypologies ? null : typs.length ? (
         <ul className="mt-2 space-y-2">
           {typs.map((t) => (
             <li key={t.key} className="text-[0.9333rem]">
@@ -176,7 +175,7 @@ export function AchPanel({ innocentDetail, innocent, typologyDetail, typologyNam
         <p className="mt-1 text-muted">Niciun tipar detectat încă.</p>
       )}
 
-      <h3 className="mt-5 text-[0.9333rem] font-semibold">Explicații nevinovate verificate</h3>
+      {showTypologies && <h3 className="mt-5 text-[0.9333rem] font-semibold">Explicații nevinovate verificate</h3>}
       {hyps.length ? (
         <ol className="mt-2 space-y-3">
           {hyps.map((h, i) => (
@@ -218,7 +217,7 @@ export function AchPanel({ innocentDetail, innocent, typologyDetail, typologyNam
       ) : (
         <p className="mt-1 text-muted">Avocatul nevinovăției nu a rulat încă pe această pistă.</p>
       )}
-    </Panel>
+    </div>
   );
 }
 

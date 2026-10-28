@@ -61,14 +61,14 @@ const AgentNode = memo(function AgentNode({ data }: NodeProps<Node<AgentData>>) 
     <div
       title={[data.hint, data.summary].filter(Boolean).join("\n")}
       className={cx(
-        "relative flex flex-col justify-between rounded-[10px] border-2 px-2.5 py-1.5 transition-colors duration-300",
-        s === "running" && "animate-glow border-ink bg-yellow",
-        s === "waiting" && "animate-glow border-ink bg-yellow-soft",
-        s === "done" && "border-ink bg-paper",
+        "relative flex flex-col justify-between rounded-md border px-2.5 py-1.5 transition-colors duration-300",
+        s === "running" && "animate-glow border-yellow-line bg-yellow",
+        s === "waiting" && "animate-glow border-yellow-line bg-yellow-soft",
+        s === "done" && "border-line-strong bg-paper",
         (s === "blocked" || s === "error") && "border-danger bg-danger-soft",
         s === "skipped" && "border-dashed border-line bg-canvas opacity-60",
         s === "idle" && "border-dashed border-line-strong bg-paper/70",
-        data.selected && "ring-2 ring-ink ring-offset-2",
+        data.selected && "ring-2 ring-ink ring-offset-1",
       )}
       style={{ width: NODE_W, height: NODE_H }}
     >
@@ -79,13 +79,13 @@ const AgentNode = memo(function AgentNode({ data }: NodeProps<Node<AgentData>>) 
         </span>
       ))}
       <div className="flex items-center justify-between gap-1.5">
-        <span className={cx("truncate text-[0.8667rem] font-bold leading-tight", s === "idle" && "text-muted")}>{data.label}</span>
+        <span className={cx("truncate text-[0.8rem] font-semibold leading-tight", s === "idle" && "text-muted")}>{data.label}</span>
         <StatusGlyph status={s} />
       </div>
       <div className="flex items-center justify-between gap-1">
         <ModelBadge model={data.model} />
         {data.tools > 0 && (
-          <span className="inline-flex items-center gap-0.5 rounded-[4px] bg-ink px-1 text-[0.7rem] font-bold text-paper tabular-nums" title={`${data.tools} apeluri de tool`}>
+          <span className="inline-flex items-center gap-0.5 text-[0.7rem] text-muted tabular-nums" title={`${data.tools} apeluri de tool`}>
             <Wrench className="size-2.5" /> {data.tools}
           </span>
         )}
@@ -248,7 +248,7 @@ function Inner({ nodes, edges, events, title = "Agenții, live", height = 520, s
         .map((e) => {
           const kind = edgeState(states[e.source], states[e.target]);
           const h = handlesFor(pos[e.source], pos[e.target], mode);
-          const stroke = kind === "blocked" ? "var(--color-danger)" : kind === "idle" ? "var(--color-line-strong)" : "var(--color-ink)";
+          const stroke = kind === "blocked" ? "var(--color-danger)" : kind === "idle" ? "var(--color-line-strong)" : kind === "flow" ? "var(--color-ink)" : "var(--color-ink-soft)";
           return {
             id: `${e.source}->${e.target}`,
             source: e.source,
@@ -256,7 +256,7 @@ function Inner({ nodes, edges, events, title = "Agenții, live", height = 520, s
             ...h,
             type: "smoothstep",
             animated: kind === "flow",
-            style: { stroke, strokeWidth: kind === "flow" ? 3 : kind === "done" ? 2 : 1.5, strokeDasharray: kind === "idle" ? "4 5" : undefined },
+            style: { stroke, strokeWidth: kind === "flow" ? 2.5 : kind === "done" ? 1.5 : 1.25, strokeDasharray: kind === "idle" ? "4 5" : undefined },
           };
         }),
     [edges, states, pos, mode],
@@ -271,13 +271,13 @@ function Inner({ nodes, edges, events, title = "Agenții, live", height = 520, s
   const selState = selected ? states[selected] : undefined;
 
   return (
-    <section aria-label="Graful agenților" className="flex flex-col overflow-hidden rounded-xl border border-line bg-paper">
+    <section aria-label="Graful agenților" className="flex flex-col overflow-hidden rounded-lg border border-line bg-paper">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
         <div className="flex items-center gap-2.5">
-          <h2 className="font-bold">{title}</h2>
+          <h2 className="font-semibold">{title}</h2>
           <span className="text-[0.8667rem] tabular-nums text-muted">{done}/{nodes.length} pași</span>
           {waiting ? (
-            <span className="inline-flex items-center gap-1.5 rounded-sm bg-yellow px-1.5 text-[0.8rem] font-bold"><Hand className="size-3" /> așteaptă un om</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-yellow-soft px-2 text-[0.8rem] font-medium"><Hand className="size-3" /> așteaptă un om</span>
           ) : running.length ? (
             <span className="inline-flex items-center gap-1.5 text-[0.8667rem] font-semibold"><Dot tone="now" live /> {running.length === 1 ? "un agent lucrează" : `${running.length} agenți lucrează`}</span>
           ) : null}
@@ -290,7 +290,7 @@ function Inner({ nodes, edges, events, title = "Agenții, live", height = 520, s
           )}
           <Button
             size="sm"
-            variant={replay.active ? "secondary" : "primary"}
+            variant="secondary"
             disabled={!replay.canReplay}
             onClick={replay.active ? replay.stop : replay.start}
             icon={<RotateCcw className="size-3.5" />}
@@ -305,7 +305,7 @@ function Inner({ nodes, edges, events, title = "Agenții, live", height = 520, s
           <div className="h-1 bg-ink transition-[width] duration-100" style={{ width: `${replay.progress * 100}%` }} />
         </div>
       )}
-      <div ref={box} className="relative bg-[radial-gradient(var(--color-line)_1px,transparent_1px)] [background-size:18px_18px]" style={{ height }}>
+      <div ref={box} className="relative bg-canvas/40" style={{ height }}>
         {rowLabels && rows.length > 0 && (
           <div className="pointer-events-none absolute top-2 left-3 z-10 hidden flex-col gap-1 text-[0.75rem] font-semibold text-subtle 2xl:flex">
             {rows.map((r) => <span key={r.row}>{r.row + 1}. {r.label}</span>)}

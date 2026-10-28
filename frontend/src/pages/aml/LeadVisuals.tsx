@@ -1,5 +1,4 @@
 /** Piesele vizuale ale camerei de pistă: tipologiile ca jetoane cu explicație și ceasurile AML ca bare. */
-import { Timer } from "lucide-react";
 import { useState } from "react";
 import { money } from "../../api/format";
 import type { AgentEvent, Deadline, TypologyHit } from "../../api/types";
@@ -22,14 +21,13 @@ export function TypologyChips({ detail, names }: { detail?: TypologyHit[] | null
   if (!list.length) return null;
   const cur = list.find((t) => (t.typology ?? t.name) === open) ?? null;
   return (
-    <section aria-label="Tipologii" className="rounded-xl border border-line bg-paper p-4">
-      <h2 className="font-bold">Tipare de spălare găsite</h2>
-      <div className="mt-2 flex flex-wrap gap-1.5">
+    <section aria-label="Tipologii">
+      <div className="flex flex-wrap gap-1.5">
         {list.map((t) => {
           const k = String(t.typology ?? t.name ?? "");
           return (
             <button key={k} type="button" onClick={() => setOpen(k)} aria-pressed={open === k}
-              className={cx("inline-flex h-8 items-center gap-1.5 rounded-full border-2 px-3 text-[0.8667rem] font-bold", open === k ? "border-ink bg-ink text-yellow" : "border-ink bg-paper hover:bg-yellow-soft")}>
+              className={cx("inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[0.8667rem] font-medium transition-colors", open === k ? "border-ink bg-ink text-paper" : "border-line-strong bg-paper hover:bg-hover")}>
               {typologyLabel(k)}
               {t.rule_id && <span className="font-mono text-[0.7rem] opacity-70">{t.rule_id}</span>}
             </button>
@@ -37,7 +35,7 @@ export function TypologyChips({ detail, names }: { detail?: TypologyHit[] | null
         })}
       </div>
       {cur && (
-        <div className="mt-3 rounded-lg bg-canvas px-3 py-2.5 text-[0.9333rem] animate-enter">
+        <div className="mt-3 max-w-[72ch] rounded-md bg-canvas px-4 py-3 text-[0.9333rem] animate-enter">
           <p className="font-semibold">{TYPOLOGY_PLAIN[String(cur.typology ?? cur.name)] ?? typologyLabel(String(cur.typology ?? cur.name))}</p>
           {cur.explanation && <p className="mt-1 text-ink-soft">{cur.explanation}</p>}
           <p className="mt-1.5 flex flex-wrap items-center gap-2 text-[0.8rem] text-muted">
@@ -62,12 +60,11 @@ export function ClockBars({ clocks, events }: { clocks: Deadline[] | null | unde
   const list = (Array.isArray(clocks) ? clocks : []).filter((c) => c?.due_at).slice().sort((a, b) => Date.parse(a.due_at) - Date.parse(b.due_at));
   const startTs = events.map((e) => Date.parse(e.ts)).filter(Number.isFinite).sort((a, b) => a - b)[0];
   return (
-    <section aria-label="Ceasurile AML" className="rounded-xl border border-line bg-paper p-4">
-      <h2 className="flex items-center gap-2 font-bold"><Timer className="size-4" /> Ceasurile legale AML</h2>
+    <section aria-label="Ceasurile AML" className="max-w-[40rem]">
       {!list.length ? (
-        <p className="mt-2 text-[0.9333rem] text-muted">Pornesc când regulile AML propun un raport (RTS).</p>
+        <p className="text-[0.9333rem] text-muted">Pornesc când regulile AML propun un raport (RTS).</p>
       ) : (
-        <ul className="mt-3 flex flex-col gap-3">
+        <ul className="flex flex-col gap-4">
           {list.map((c, i) => {
             const end = Date.parse(c.due_at);
             const begin = Number.isFinite(startTs) && startTs < end ? startTs : end - (hoursOf(c.name) ?? 24) * 3_600_000;
@@ -80,11 +77,11 @@ export function ClockBars({ clocks, events }: { clocks: Deadline[] | null | unde
               <li key={`${c.rule_id}-${i}`}>
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="min-w-0 text-[0.9333rem] font-semibold">{c.name}</span>
-                  <span className="display shrink-0 text-[1.15rem] font-black tabular-nums" style={{ color: TONE_STROKE[tone] }}>
+                  <span className="shrink-0 text-[0.9333rem] font-semibold tabular-nums" style={{ color: TONE_STROKE[tone] }}>
                     {left <= 0 ? "expirat" : h >= 48 ? `${Math.floor(h / 24)} z ${h % 24} h` : `${h} h ${String(m).padStart(2, "0")}`}
                   </span>
                 </div>
-                <Bar value={frac} tone={tone} height={9} className="mt-1" />
+                <Bar value={frac} tone={tone} height={6} className="mt-1.5" />
                 <p className="mt-1 flex flex-wrap items-center gap-2 text-[0.8rem] text-muted"><IdTag>{c.rule_id}</IdTag>{c.basis}</p>
               </li>
             );

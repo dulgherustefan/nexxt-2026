@@ -18,6 +18,7 @@ Fluxurile nu au nume de persoane; conturile persoanelor fizice au doar un pseudo
 from __future__ import annotations
 
 import math
+from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -28,11 +29,16 @@ from versoml.data.world import (HISTORY_DAYS, WORLD_NOW, IdGen, active_device, a
                              make_auth, make_customer, make_history, make_session, money, new_fake, person_name,
                              poisson, rand_time, tx_record, weighted_choice)
 
-POPULATIONS = {"student": 90, "pensioner": 50, "freelancer": 40, "micro_merchant": 70, "sme": 25,
-               "crypto_trader": 20}
-PATTERN_PLAN = [("fan_in", 10), ("fan_out", 5), ("cycle", 4), ("gather_scatter", 3), ("scatter_gather", 3),
-                ("bipartite", 3), ("stack", 2), ("random", 3), ("smurfing", 4), ("layered_fan_out", 2),
-                ("rapid_pass_through", 8), ("behavioural_change", 6)]
+# Mărimile sunt pentru lumea de referință (REFERENCE_CUSTOMERS clienți în zona client); o lume mai mică sau mai
+# mare le scalează proporțional (`_scaled`), cu cel puțin un tipar din fiecare tipologie.
+REFERENCE_CUSTOMERS = 2000
+POPULATIONS = {"student": 270, "pensioner": 150, "freelancer": 120, "micro_merchant": 210, "sme": 75,
+               "crypto_trader": 60}
+PATTERN_PLAN = [("fan_in", 40), ("fan_out", 20), ("cycle", 16), ("gather_scatter", 12), ("scatter_gather", 12),
+                ("bipartite", 12), ("stack", 8), ("random", 12), ("smurfing", 16), ("layered_fan_out", 8),
+                ("rapid_pass_through", 32), ("behavioural_change", 24)]
+# tiparele încep oriunde în istoric (nu doar în ultima lună), ca M5 să poată fi evaluat cu o împărțire temporală
+PATTERN_START_DAYS = (3.0, 110.0)
 FAMILY = {"fan_in": "AMLworld", "fan_out": "AMLworld", "cycle": "AMLworld", "gather_scatter": "AMLworld",
           "scatter_gather": "AMLworld", "bipartite": "AMLworld", "stack": "AMLworld", "random": "AMLworld",
           "smurfing": "SAML-D", "layered_fan_out": "SAML-D", "rapid_pass_through": "PaySim/SAML-D",
@@ -79,6 +85,8 @@ class AmlBuilder:
         self.mules: set[str] = set()
         self.cbs = cbs
         self.retail = [cb for cb in cbs if cb["profile"]["segment"] in ("salariat", "liber_profesionist")]
+        self.retail_by_open = sorted(self.retail, key=lambda cb: (cb["accounts"][0]["opened_at"], cb["customer"]["customer_ref"]))
+        self.retail_opened = [parse_ts(cb["accounts"][0]["opened_at"]) for cb in self.retail_by_open]
         self.victimized: set[str] = set()
         self.extra_client_tx: dict[str, list[dict]] = defaultdict(list)
         self.extra_sessions: dict[str, list[dict]] = defaultdict(list)
@@ -94,7 +102,12 @@ class AmlBuilder:
         self.pattern_victims: list[str] = []
         self.pattern_client_tx: list[str] = []
         self._flow_mark = 0
+        self._cur_t0 = now
+        self.scale = len(cbs) / REFERENCE_CUSTOMERS
         self.ext_friend_pool = [self.external_person() for _ in range(60)]
+
+    def _scaled(self, n: int, minimum: int = 0) -> int:
+        return max(minimum, int(round(n * self.scale)))
 
     # -------- conturi
     def _name(self) -> str:
@@ -212,7 +225,7 @@ class AmlBuilder:
         r, now, start = self.rng, self.now, self.start
         tax = self.cat["tax"]
         # studenți: viață normală + bani de la familie (uneori retrași numerar în aceeași zi)
-        for _ in range(POPULATIONS["student"]):
+        for _ in range(self._scaled(POPULATIONS["student"])):
             internal_parent = bool(self.retail) and r.random() < 0.5
             fam = None if internal_parent else self.external_person()
             family = None if internal_parent else {"name": fam["_name"], "iban": fam["iban"]}
@@ -253,12 +266,12 @@ class AmlBuilder:
                 self.flow(self.clamp(ts + timedelta(hours=r.uniform(2, 72)), ts), iban, uni["iban"],
                           amt * r.uniform(0.9, 1.0), "transfer", "Taxă școlarizare")
         # pensionari și liber-profesioniști: aceeași viață ca la clienții zonei client
-        for _ in range(POPULATIONS["pensioner"]):
+        for _ in range(self._scaled(POPULATIONS["pensioner"])):
             self.life("pensionar", "pensioner")
-        for _ in range(POPULATIONS["freelancer"]):
+        for _ in range(self._scaled(POPULATIONS["freelancer"])):
             self.life("liber_profesionist", "freelancer")
         # mici comercianți (fan-in legitim)
-        for i in range(POPULATIONS["micro_merchant"]):
+        for i in range(self._scaled(POPULATIONS["micro_merchant"])):
             nm = f"{self.rng.choice(['ATELIER', 'SERVICE', 'MAGAZIN', 'CABINET', 'STUDIO', 'CROITORIE', 'MESERIAȘ'])} " \
                  f"{self.rng.choice(['DEMO', 'EXEMPLU', 'FICTIV'])} {i + 1:02d} " \
                  f"{self.rng.choice(['SRL', 'PFA', 'II'])}"
@@ -276,8 +289,9 @@ class AmlBuilder:
                     a = log_uniform(r, 20, 600)
                     revenue += a
                     rep = ("recall_camt056" if r.random() < 0.5 else "dispute_intern") if r.random() < 0.006 else None
-                    if r.random() < 0.4 and self.retail:
-                        cb = r.choice(self.retail)
+                    k = bisect_left(self.retail_opened, ts)      # doar clienți cu contul deja deschis
+                    if r.random() < 0.4 and k:
+                        cb = self.retail_by_open[r.randrange(k)]
                         self.client_payment(cb, ts, iban, nm, a, f"Plată {nm}", instant=r.random() < 0.5, report=rep)
                     else:
                         b = r.choice(buyers) if r.random() < 0.6 else self.external_person()
@@ -312,7 +326,7 @@ class AmlBuilder:
                                                  "holder_name": e["name"], "cui": e["cui"], "synthetic": True,
                                                  "_name": e["name"]})
             self.segments[e["iban"]] = "sme"
-        for i in range(POPULATIONS["sme"]):
+        for i in range(self._scaled(POPULATIONS["sme"])):
             nm = f"{self.rng.choice(['ALBASTRU', 'VERDE', 'ROȘU', 'GALBEN', 'ARGINT', 'CRISTAL', 'GRANIT'])} " \
                  f"{self.rng.choice(['SERV', 'TECH', 'CONSTRUCT', 'TRANS', 'COM'])} DEMO {i + 1:02d} SRL"
             smes.append({"iban": self.company_account(nm, True, "sme")["iban"], "name": nm})
@@ -337,7 +351,7 @@ class AmlBuilder:
                         self.flow(ts, iban, r.choice(self.cat["suppliers"])["iban"], log_uniform(r, 1500, 25000),
                                   "transfer", "Plată furnizor")
         # traderi cripto legitimi: salariu, cumpără și vând des pe exchange
-        for _ in range(POPULATIONS["crypto_trader"]):
+        for _ in range(self._scaled(POPULATIONS["crypto_trader"])):
             acc = self.life("salariat", "crypto_trader", profile={"crypto": True})
             iban = acc["iban"]
             for (y, m) in self.months():
@@ -370,6 +384,7 @@ class AmlBuilder:
         for f in client_tx_to_flows(sorted(h["transactions"], key=lambda t: (t["_dt"], t["tx_id"])), self.fidg):
             f.pop("_client_tx_id", None)
             f["_dt"] = parse_ts(f["ts"])
+            f["_life"] = True          # viața obișnuită a contului, nu face parte din tipar
             self.flows.append(f)
         iban = cb["accounts"][0]["iban"]
         acc = {"iban": iban, "kind": "internal", "bank_code": ids.OWN_BANK, "holder_type": "persoana_fizica",
@@ -398,10 +413,12 @@ class AmlBuilder:
             return acc
         if style == "recruited":
             seg = weighted_choice(r, [("salariat", 0.7), ("liber_profesionist", 0.1), ("student", 0.2)])
-            acc = self.life(seg, "mule")
+            # cont vechi la momentul tiparului (recrutat), nu deschis după el
+            acc = self.life(seg, "mule", opened=self._cur_t0 - timedelta(days=r.randint(150, 3000)))
         else:
             fam = r.choice(self.ext_friend_pool)
-            acc = self.life("student", "mule", opened=now - timedelta(days=r.randint(8, 70)),
+            # deschis cu puțin înaintea tiparului (nu înaintea lui WORLD_NOW): cont nou la momentul spălării
+            acc = self.life("student", "mule", opened=self._cur_t0 - timedelta(days=r.randint(5, 62)),
                             family={"name": fam["_name"], "iban": fam["iban"]},
                             profile={"pos_rate": r.uniform(0.1, 0.45), "ecom_rate": 0.03, "atm_per_month": 1.0,
                                      "p2p_per_month": 1, "utilities": [], "rent": False, "big_events": False,
@@ -417,7 +434,8 @@ class AmlBuilder:
     def victim_payment(self, mule: dict, ts: datetime, amount: float, *, internal_prob: float = 0.15) -> str:
         r = self.rng
         ts = self.clamp(self.daytime(ts))
-        candidates = [cb for cb in self.retail if cb["customer"]["customer_ref"] not in self.victimized]
+        k = bisect_left(self.retail_opened, ts - timedelta(days=1))   # doar clienți cu contul deja deschis
+        candidates = [cb for cb in self.retail_by_open[:k] if cb["customer"]["customer_ref"] not in self.victimized]
         if r.random() < internal_prob and candidates:
             cb = r.choice(candidates)
             ref = cb["customer"]["customer_ref"]
@@ -490,7 +508,7 @@ class AmlBuilder:
         self.flow(t, src["iban"], dst["iban"], amount, self.rng.choice(["transfer", "transfer_instant"]), "Transfer")
         return t
 
-    def _t0(self, lo_days: float = 3, hi_days: float = 26) -> datetime:
+    def _t0(self, lo_days: float = PATTERN_START_DAYS[0], hi_days: float = PATTERN_START_DAYS[1]) -> datetime:
         return self.now - timedelta(days=self.rng.uniform(lo_days, hi_days), hours=self.rng.randint(0, 12))
 
     def _begin(self) -> None:
@@ -499,7 +517,7 @@ class AmlBuilder:
         self._flow_mark = len(self.flows)
 
     def _end(self, typology: str, mules: list[dict], t0: datetime) -> dict:
-        new_flows = self.flows[self._flow_mark:]
+        new_flows = [f for f in self.flows[self._flow_mark:] if not f.get("_life")]
         p = {"pattern_id": f"PAT-{len(self.patterns) + 1:03d}", "typology": typology, "family": FAMILY[typology],
              "mules": [m["iban"] for m in mules], "victims": list(self.pattern_victims),
              "flow_ids": [f["flow_id"] for f in new_flows], "client_tx_ids": list(self.pattern_client_tx),
@@ -514,6 +532,7 @@ class AmlBuilder:
         r = self.rng
         self._begin()
         t0 = self._t0()
+        self._cur_t0 = t0
         style = self.mule_style()
         if typology == "fan_in":
             m = self.new_mule(style)
@@ -703,7 +722,6 @@ class AmlBuilder:
             mules = [m]
         elif typology == "behavioural_change":
             m = self.new_mule("recruited")
-            t0 = self._t0(2, 14)
             for _ in range(r.randint(3, 6)):
                 ts = t0 + timedelta(hours=r.uniform(0, 96))
                 x = log_uniform(r, 600, 5000)
@@ -763,7 +781,8 @@ class AmlBuilder:
             if not acc or acc["kind"] != "internal" or r.random() > 0.6:
                 continue
             for _ in range(r.randint(1, 3)):
-                ts = self.clamp(self.now - timedelta(days=r.uniform(0.5, 27)))
+                age_days = (self.now - parse_ts(acc["opened_at"])).total_seconds() / 86400 if acc.get("opened_at") else HISTORY_DAYS
+                ts = self.clamp(self.now - timedelta(days=r.uniform(0.5, max(1.0, min(HISTORY_DAYS - 2, age_days - 1)))))
                 amt = log_uniform(r, 50, 1500)
                 if r.random() < 0.35 and retail:
                     cb = r.choice(retail)
@@ -777,7 +796,7 @@ class AmlBuilder:
     def run(self) -> dict:
         self.populations()
         for typology, n in PATTERN_PLAN:
-            for _ in range(n):
+            for _ in range(self._scaled(n, minimum=1)):
                 self.pattern(typology)
         self.contaminate()
         dm = self.demo_ring()
@@ -877,7 +896,11 @@ TM_BASIS = "regulă internă de monitorizare, sintetică; pragurile sunt PARAM [
 
 
 def compute_alerts(aml_accounts: list[dict], flows: list[dict], *, now: datetime) -> list[dict]:
-    """Alertele sistemului clasic de monitorizare (reguli simple, multe fals pozitive)."""
+    """Alertele sistemului clasic de monitorizare (reguli simple, multe fals pozitive).
+
+    Ferestrele glisante folosesc liste sortate și `bisect` (aceleași sume, în aceeași ordine, ca varianta
+    pătratică inițială, deci aceleași alerte), ca generarea lumii mari să rămână rapidă.
+    """
     kinds = {a["iban"]: a["kind"] for a in aml_accounts}
     opened = {a["iban"]: parse_ts(a["opened_at"]) for a in aml_accounts if a.get("opened_at")}
     window = now - timedelta(days=30)
@@ -891,39 +914,59 @@ def compute_alerts(aml_accounts: list[dict], flows: list[dict], *, now: datetime
         out[f["from_iban"]].append((ts, f["to_iban"], f["amount"], f["channel"]))
     alerts = []
     seq = 0
+    week, two_days, day = timedelta(days=7), timedelta(hours=48), timedelta(hours=24)
     for iban in sorted(k for k, v in kinds.items() if v == "internal"):
         ins, outs = sorted(inc.get(iban, [])), sorted(out.get(iban, []))
         if not ins and not outs:
             continue
         hits: list[tuple[str, datetime, str]] = []
-        for i, (ts, _, _) in enumerate(ins):
-            w = [x for x in ins if ts <= x[0] <= ts + timedelta(days=7)]
-            senders = {x[1] for x in w}
-            if len(senders) >= 5:
-                amt_in = sum(x[2] for x in w)
-                amt_out = sum(o[2] for o in outs if ts <= o[0] <= w[-1][0] + timedelta(hours=48))
+        in_ts = [x[0] for x in ins]
+        out_ts = [o[0] for o in outs]
+        out_amt = [o[2] for o in outs]
+        # TM-01: fereastra [ts, ts + 7 zile] e un interval contiguu în lista sortată
+        senders_in_window: dict[str, int] = defaultdict(int)
+        lo = hi = 0
+        for ts in in_ts:
+            while hi < len(ins) and ins[hi][0] <= ts + week:
+                senders_in_window[ins[hi][1]] += 1
+                hi += 1
+            while lo < hi and ins[lo][0] < ts:
+                s = ins[lo][1]
+                senders_in_window[s] -= 1
+                if not senders_in_window[s]:
+                    del senders_in_window[s]
+                lo += 1
+            if len(senders_in_window) >= 5:
+                w_last = ins[hi - 1][0]
+                amt_in = sum(x[2] for x in ins[lo:hi])
+                a, b = bisect_left(out_ts, ts), bisect_right(out_ts, w_last + two_days)
+                amt_out = sum(out_amt[a:b])
                 if amt_in and amt_out / amt_in >= 0.8:
-                    hits.append(("TM-01", w[-1][0], f"{len(senders)} plătitori distincți, ieșiri {amt_out / amt_in:.0%}"))
+                    hits.append(("TM-01", w_last, f"{len(senders_in_window)} plătitori distincți, ieșiri {amt_out / amt_in:.0%}"))
                     break
-        for ts, *_ in outs:
-            w = [o for o in outs if ts <= o[0] <= ts + timedelta(days=7)]
-            tot = sum(o[2] for o in w)
-            cr = sum(o[2] for o in w if kinds.get(o[1]) == "exchange")
+        out_crypto = [o[2] if kinds.get(o[1]) == "exchange" else 0.0 for o in outs]
+        for ts in out_ts:
+            a, b = bisect_left(out_ts, ts), bisect_right(out_ts, ts + week)
+            tot = sum(out_amt[a:b])
+            cr = sum(out_crypto[a:b])
             if tot >= 3000 and cr / tot >= 0.7:
-                hits.append(("TM-02", w[-1][0], f"{cr / tot:.0%} din ieșiri spre exchange cripto"))
+                hits.append(("TM-02", outs[b - 1][0], f"{cr / tot:.0%} din ieșiri spre exchange cripto"))
                 break
         near = [x for x in ins if any(0.9 * t <= x[2] < t for t in (1000, 5000, 10000))]
-        for ts, *_ in near:
-            w = [x for x in near if ts <= x[0] <= ts + timedelta(days=7)]
-            if len(w) >= 3:
-                hits.append(("TM-03", w[-1][0], f"{len(w)} intrări chiar sub prag"))
+        near_ts = [x[0] for x in near]
+        for ts in near_ts:
+            a, b = bisect_left(near_ts, ts), bisect_right(near_ts, ts + week)
+            if b - a >= 3:
+                hits.append(("TM-03", near[b - 1][0], f"{b - a} intrări chiar sub prag"))
                 break
         if iban in opened and (now - opened[iban]).days < 60 and sum(x[2] for x in ins) > 15000:
             hits.append(("TM-04", ins[-1][0], f"cont de {(now - opened[iban]).days} zile, intrări {sum(x[2] for x in ins):.0f} lei"))
+        out_cash = [o[2] if kinds.get(o[1]) == "cash" else 0.0 for o in outs]
         for ts, _, amt in ins:
             if amt < 2000:
                 continue
-            cash = sum(o[2] for o in outs if kinds.get(o[1]) == "cash" and ts <= o[0] <= ts + timedelta(hours=24))
+            a, b = bisect_left(out_ts, ts), bisect_right(out_ts, ts + day)
+            cash = sum(out_cash[a:b])
             if cash >= 0.8 * amt:
                 hits.append(("TM-05", ts, f"retrageri numerar {cash:.0f} lei după o intrare de {amt:.0f} lei"))
                 break

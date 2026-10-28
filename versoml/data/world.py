@@ -11,6 +11,7 @@ Funcțiile `make_customer`, `make_history`, `finalize_balances` și `client_tx_t
 from __future__ import annotations
 
 import math
+import pickle
 import random
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -752,8 +753,29 @@ def make_prior_disputes(rng: random.Random, idg: IdGen, cb: dict, *, now: dateti
 # ---------------------------------------------------------------- generatorul
 
 
-def generate_world(seed: int = 7, n_customers: int = 400) -> World:
-    """Generează lumea Băncii Demo (zona client + zona AML), deterministă pentru un seed dat."""
+N_CUSTOMERS = 2000                 # clienții lumii de referință (seed-ul bazelor, antrenarea, setul freeform_60)
+_WORLD_MEMO: dict[tuple[int, int], bytes] = {}
+
+
+def generate_world(seed: int = 7, n_customers: int = N_CUSTOMERS, *, cache: bool = True) -> World:
+    """Generează lumea Băncii Demo (zona client + zona AML), deterministă pentru un seed dat.
+
+    Lumea e o funcție pură de (seed, n_customers), deci în același proces o păstrăm serializată (ultimele două):
+    apelurile următoare primesc o copie nouă, independentă (seed-ul și antrenarea modifică dict-urile pe loc).
+    `cache=False` o generează din nou (testul de determinism).
+    """
+    key = (seed, n_customers)
+    if cache and key in _WORLD_MEMO:
+        return pickle.loads(_WORLD_MEMO[key])
+    world = _generate_world(seed, n_customers)
+    if cache:
+        while len(_WORLD_MEMO) >= 2:          # cel mult două lumi în memorie (lumea de referință + una mică)
+            _WORLD_MEMO.pop(next(iter(_WORLD_MEMO)))
+        _WORLD_MEMO[key] = pickle.dumps(world, protocol=pickle.HIGHEST_PROTOCOL)
+    return world
+
+
+def _generate_world(seed: int, n_customers: int) -> World:
     from versoml.data import aml_world, complaints as complaint_gen
 
     now = WORLD_NOW

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import pickle
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -51,12 +52,16 @@ def _json_default(o: Any) -> Any:
     return str(o)
 
 
+_METRICS_LOCK = threading.Lock()
+
+
 def update_metrics(models_path: Path, section: str, metrics: dict) -> dict:
-    """Actualizează o secțiune din metrics.json (alte module își păstrează secțiunile)."""
+    """Actualizează o secțiune din metrics.json (alte module își păstrează secțiunile; sigur între fire)."""
     path = models_path / "metrics.json"
-    data = read_json(path) if path.exists() else {}
-    data[section] = metrics
-    write_json(data, path)
+    with _METRICS_LOCK:
+        data = read_json(path) if path.exists() else {}
+        data[section] = metrics
+        write_json(data, path)
     return data
 
 

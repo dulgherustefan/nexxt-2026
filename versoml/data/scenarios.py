@@ -114,6 +114,7 @@ class CaseParams:
     tags: tuple[str, ...] = ()
     inel: bool = False
     duplicate: bool = False
+    typology: str | None = None       # id din typologies_ro.yaml: semnale de jurnal în plus (_typology_signals)
 
 
 def _b(dt: str) -> datetime:
@@ -285,6 +286,7 @@ def build_case(p: CaseParams, seed: int = 7) -> ScenarioBundle:
     else:  # pragma: no cover
         raise ValueError(builder)
 
+    typology = _typology_signals(p, rng, idg, cb, hist, records, case_txs, beneficiary) if p.typology else None
     tx = case_txs[-1]
     if p.live:
         hist_txs = finalize_balances(cb, hist["transactions"], rng=rng, target_balance=p.target_balance)
@@ -328,6 +330,8 @@ def build_case(p: CaseParams, seed: int = 7) -> ScenarioBundle:
         "aml": {"accounts": aml_accounts, "flows": aml_flows, "labels": aml_labels},
         "client_fraud_score": p.client_fraud_score,
     })
+    if typology:
+        records["typology"] = typology
     if not p.live:
         records["auth_events"] = [a for a in records["auth_events"]
                                   if a["tx_id"] is None or a["tx_id"] in {t["tx_id"] for t in hist_txs}]
@@ -370,6 +374,81 @@ def build_case(p: CaseParams, seed: int = 7) -> ScenarioBundle:
         auth_events=records["auth_events"], sessions=records["sessions"], customer=cb["customer"], notified_at=notified)
     return ScenarioBundle(scenario_id=p.key, scenario=Scenario(p.scenario), title="", description="",
                           complaint=complaint, records=records, rule_context_hints=hints, expected=expected, live=p.live)
+
+
+# ---------------------------------------------------------------- semnale din jurnale, pe tipologie (typologies_ro.yaml)
+
+
+def _typology_signals(p: "CaseParams", rng, idg: IdGen, cb: dict, hist: dict, records: dict, case_txs: list[dict],
+                      beneficiary: dict | None) -> dict:
+    """Înregistrări de jurnal specifice tipologiei `p.typology` (din `bank_signals`), adăugate cazului.
+
+    Nu schimbă constructorul de bază: plata contestată, SCA și sesiunea rămân cele ale scenariului, deci regulile
+    văd aceleași fapte; tipologia adaugă doar ce ar mai vedea banca în jurnale (încercări respinse, credite,
+    plăți anterioare spre același beneficiar, sesiuni cu acces la distanță, tokenizări).
+    """
+    from versoml.data.typologies import load_typologies
+
+    t = next((x for x in load_typologies() if x["id"] == p.typology), None)
+    if t is None:
+        return {}
+    tx = case_txs[-1]
+    ex = tx["_dt"]
+    dev = active_device(cb)
+    added: list[str] = []
+    tid = t["id"]
+    if tid in ("romance_scam_crypto", "investment_fake_platform_deepfake_ad") and beneficiary:
+        # plăți repetate, în creștere, spre același beneficiar nou, în săptămânile dinainte
+        for k, frac in enumerate((0.15, 0.3, 0.55)):
+            ts = ex - timedelta(days=21 - 7 * k, hours=rng.randint(1, 8))
+            hist["transactions"].append(tx_record(
+                idg, cb, "debit", "transfer", "transfer_instant", round(p.amount * frac, 2), ts,
+                f"Transfer to {beneficiary['name']}", counterparty_name=beneficiary["name"],
+                counterparty_iban=beneficiary["iban"], device_id=dev["device_id"], ip=cb["profile"]["mobile_ip"],
+                end_to_end_id=f"E2E{ids.hex_id(rng, 12).upper()}", _optional=False))
+        added.append("earlier_rising_payments_to_same_payee")
+    elif tid in ("whatsapp_new_number_relative", "voice_clone_relative_emergency", "whatsapp_account_hijack_pairing_code",
+                 "safe_account_transfer") and beneficiary:
+        records.setdefault("new_payees", []).append({"customer_ref": p.customer_ref, "iban": beneficiary["iban"],
+                                                     "name": beneficiary["name"],
+                                                     "created_at": iso(ex - timedelta(minutes=rng.randint(2, 9))),
+                                                     "synthetic": True})
+        added.append("payee_created_minutes_before")
+    elif tid in ("authority_impersonation_loan_crypto_atm", "loan_taken_in_victim_name"):
+        loan = round(max(p.amount * rng.uniform(1.1, 1.6), 5000.0), 2)
+        hist["transactions"].append(tx_record(
+            idg, cb, "credit", "loan_disbursement", "transfer", loan, ex - timedelta(hours=rng.uniform(1, 20)),
+            "Personal loan disbursement (online)", counterparty_name=art.BANK_NAME, counterparty_iban=None,
+            disputable=False, _optional=False))
+        added.append("loan_disbursed_shortly_before")
+    elif tid == "remote_access_app_takeover":
+        s = next((x for x in records["sessions"] if x["session_id"] == tx.get("session_id")), None)
+        if s is not None:
+            s["remote_access_suspected"] = True
+            s["screen_sharing_app"] = "remote access tool (synthetic)"
+        added.append("remote_access_session")
+    elif tid in ("card_testing_carding_bots", "card_data_theft_cnp"):
+        for k in range(rng.randint(3, 6)):
+            records["auth_events"].append(make_auth(
+                idg, cb, ts=ex - timedelta(minutes=40 - 6 * k), method="none", purpose="payment", device=None,
+                tx_id=None, shown=False, ip=ids.test_ip(rng, "attacker"), result="declined"))
+        added.append("declined_small_card_tests")
+    elif tid in ("courier_sms_link", "fake_fine_or_refund_sms", "qr_code_phishing", "bank_phishing_login_page"):
+        for k in range(2):
+            records["auth_events"].append(make_auth(
+                idg, cb, ts=ex - timedelta(seconds=150 - 40 * k), method="sms_otp", purpose="device_enrollment",
+                device=None, session_id=tx.get("session_id"), shown=False, result="expired",
+                otp_text="Demo Bank: your activation code. Do not share it with anyone."))
+        added.append("repeated_otp_challenges")
+    elif tid == "wallet_token_provisioning_fraud":
+        records["auth_events"].append(make_auth(
+            idg, cb, ts=ex - timedelta(minutes=rng.randint(10, 50)), method="sms_otp", purpose="token_provisioning",
+            device=None, shown=False, ip=ids.test_ip(rng, "attacker"),
+            otp_text="Demo Bank: code to add your card to a mobile wallet. Do not share it."))
+        added.append("token_provisioning_new_device")
+    return {"id": tid, "name": t.get("name"), "psd2_class": t.get("psd2_class"), "family": t.get("family"),
+            "confidence": t.get("confidence"), "bank_signals": list(t.get("bank_signals") or [])[:4],
+            "log_markers": added}
 
 
 def _labels(p: CaseParams) -> tuple[str, str]:

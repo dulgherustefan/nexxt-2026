@@ -24,18 +24,51 @@ def _digest(w) -> str:
 
 
 def test_deterministic_and_seed_sensitive(world):
-    assert _digest(world) == _digest(generate_world(7))
-    other = generate_world(8, n_customers=40)
+    assert _digest(world) == _digest(generate_world(7, cache=False))        # a fresh run, not the in-process copy
+    other = generate_world(8, n_customers=40)              # memo keeps two worlds: the seed-7 one stays cached
     assert other.customers[0]["full_name"] != world.customers[0]["full_name"] or other.customers[0]["cnp"] != world.customers[0]["cnp"]
 
 
 def test_sizes(world):
-    assert len(world.customers) == 400
-    assert len(world.card_transactions) > 10000 and len(world.transfers) > 5000
-    assert len(world.flows) > 50000
+    assert len(world.customers) == 2000
+    assert len(world.card_transactions) > 100000 and len(world.transfers) > 50000
+    assert len(world.flows) > 300000
     internal_mules = [l for l in world.labels if l["label"] == "mule" and l["is_internal"]]
-    assert len(internal_mules) >= 60
-    assert sum(1 for l in world.labels if l["hard_negative"]) >= 150
+    assert len(internal_mules) >= 300
+    assert sum(1 for l in world.labels if l["hard_negative"]) >= 600
+
+
+def test_cached_world_is_an_independent_copy(world):
+    a, b = generate_world(7), generate_world(7)
+    assert a is not b and a.customers[0] == b.customers[0]
+    a.customers[0]["full_name"] = "changed"
+    assert generate_world(7).customers[0]["full_name"] != "changed"
+
+
+def test_patterns_are_spread_over_the_history(world):
+    days = [(world.now - parse_ts(p["start"])).days for p in world.patterns if p["typology"] != "demo_ring"]
+    assert min(days) <= 10 and max(days) >= 90
+    # a fresh mule is opened shortly before its pattern, not before WORLD_NOW
+    opened = {a["iban"]: parse_ts(a["opened_at"]) for a in world.aml_accounts if a.get("opened_at")}
+    for p in world.patterns:
+        for m in p["mules"]:
+            if m in opened:
+                assert opened[m] <= parse_ts(p["end"])
+
+
+def test_alerts_match_the_reference_definition():
+    from versoml.data.aml_world import compute_alerts
+
+    t0 = world_now = generate_world(7, n_customers=40).now
+    ib = "RO00BDEM0000000000000001"
+    accounts = [{"iban": ib, "kind": "internal", "opened_at": (t0 - timedelta(days=20)).isoformat()},
+                {"iban": art.CRYPTO_EXCHANGE_IBAN, "kind": "exchange"}, {"iban": art.CASH_NODE, "kind": "cash"}]
+    flows = [{"ts": (t0 - timedelta(days=3, hours=k)).isoformat(), "from_iban": f"S{k}", "to_iban": ib, "amount": 4000.0,
+              "channel": "transfer"} for k in range(6)]
+    flows += [{"ts": (t0 - timedelta(days=2)).isoformat(), "from_iban": ib, "to_iban": art.CRYPTO_EXCHANGE_IBAN,
+               "amount": 23000.0, "channel": "transfer_instant"}]
+    rules = {a["rule_id"] for a in compute_alerts(accounts, flows, now=world_now)}
+    assert {"TM-01", "TM-02", "TM-04"} <= rules
 
 
 def test_typologies_cover_amlworld_samld_paysim(world):

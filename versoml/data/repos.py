@@ -295,6 +295,127 @@ class ClientRepo(_Repo):
         with self._conn() as c:
             return row_to_dict(c.execute("SELECT * FROM merchants WHERE merchant_id=?", (merchant_id,)).fetchone())
 
+    # -------- identificarea clientului (reclamații libere, fără customer_ref)
+    def world_now(self) -> datetime | None:
+        """Momentul lumii sintetice (meta.world_now), referința pentru datele relative din setul de aur."""
+        try:
+            with self._conn() as c:
+                r = c.execute("SELECT value FROM meta WHERE key='world_now'").fetchone()
+        except sqlite3.Error:
+            return None
+        return parse_ts(r[0]) if r else None
+
+    def customer_index(self) -> list[dict]:
+        """Toți clienții, cu câmpurile de identificare (nume, telefon, e-mail, oraș). Doar în zona client."""
+        with self._conn() as c:
+            return rows(c.execute("SELECT customer_ref, first_name, last_name, full_name, phone, email, city "
+                                  "FROM customers ORDER BY customer_ref"))
+
+    def find_customer_by_iban(self, iban: str) -> str | None:
+        """Clientul care deține IBAN-ul (unul dintre conturile lui), sau None."""
+        try:
+            norm = ids.normalize_iban(iban)
+        except Exception:  # noqa: BLE001 - un IBAN malformat nu identifică pe nimeni
+            return None
+        with self._conn() as c:
+            r = c.execute("SELECT customer_ref FROM accounts WHERE iban=?", (norm,)).fetchone()
+        return r[0] if r else None
+
+    def find_customers_by_phone(self, phone: str) -> list[str]:
+        """Clienții cu numărul de telefon dat (comparat în forma E.164)."""
+        norm = ids.normalize_phone(phone)
+        if len(norm) < 8:
+            return []
+        with self._conn() as c:
+            refs = [r[0] for r in c.execute("SELECT customer_ref, phone FROM customers WHERE phone IS NOT NULL")
+                    if ids.normalize_phone(r[1] or "") == norm]
+        return sorted(set(refs))
+
+    def find_customers_by_email(self, email: str) -> list[str]:
+        """Clienții cu adresa de e-mail dată (fără diferență de majuscule)."""
+        with self._conn() as c:
+            return [r[0] for r in c.execute("SELECT customer_ref FROM customers WHERE lower(email)=lower(?) "
+                                            "ORDER BY customer_ref", ((email or "").strip(),))]
+
+    def customer_cards_last4(self, customer_ref: str) -> dict[str, str]:
+        """card_id -> ultimele 4 cifre, pentru cardurile clientului."""
+        with self._conn() as c:
+            return {r[0]: r[1] for r in c.execute("SELECT card_id, last4 FROM cards WHERE customer_ref=?", (customer_ref,))
+                    if r[1]}
+
+    def get_merchants(self, merchant_ids: Iterable[str]) -> dict[str, dict]:
+        """Comercianții după ID (o singură interogare)."""
+        wanted = sorted({m for m in merchant_ids if m})
+        if not wanted:
+            return {}
+        with self._conn() as c:
+            q = ",".join("?" for _ in wanted)
+            return {r["merchant_id"]: r for r in rows(c.execute(f"SELECT * FROM merchants WHERE merchant_id IN ({q})",
+                                                                 wanted))}
+
+    def disputed_tx_ids(self, customer_ref: str, *, exclude_case_id: str | None = None) -> dict[str, str]:
+        """Plățile clientului cu o contestație deschisă în sesiunea curentă: tx_id -> ID-ul cazului. Disputele
+        închise din arhivă nu contează (clientul poate reveni asupra aceleiași plăți)."""
+        out: dict[str, str] = {}
+        with self._conn() as c:
+            for r in c.execute("SELECT case_id, transaction_refs_json FROM complaints WHERE customer_ref=? "
+                               "AND COALESCE(historical,0)=0", (customer_ref,)):
+                if r[0] == exclude_case_id:
+                    continue
+                for ref in json.loads(r[1]) if r[1] else []:
+                    out.setdefault(ref, r[0])
+        return out
+
+    def refunded_tx_ids(self, customer_ref: str) -> dict[str, str]:
+        """Plățile clientului deja rambursate: tx_id -> ID-ul cazului care le-a rambursat."""
+        out: dict[str, str] = {}
+        with self._conn() as c:
+            for r in c.execute("SELECT r.case_id, c.transaction_refs_json FROM refunds r "
+                               "JOIN complaints c ON c.case_id = r.case_id WHERE r.customer_ref=?", (customer_ref,)):
+                for ref in json.loads(r[1]) if r[1] else []:
+                    out.setdefault(ref, r[0])
+        return out
+
+    def search_customers(self, q: str, limit: int = 20) -> list[dict]:
+        """Căutarea din consolă: după referință, nume, telefon, e-mail sau IBAN. Întoarce doar câmpuri afișabile
+        (referința, orașul, conturile mascate, ultima tranzacție), fără nume, CNP sau date de contact."""
+        from versoml.data.text import fold as _fold
+
+        q = (q or "").strip()
+        limit = max(1, min(int(limit or 20), 20))
+        with self._conn() as c:
+            if not q:
+                refs = [r[0] for r in c.execute("SELECT customer_ref FROM customers ORDER BY customer_ref LIMIT ?", (limit,))]
+            else:
+                needle = _fold(q)
+                digits = "".join(ch for ch in q if ch.isdigit())
+                compact = q.replace(" ", "").upper()
+                refs = []
+                for r in c.execute("SELECT customer_ref, full_name, phone, email FROM customers ORDER BY customer_ref"):
+                    if (needle in _fold(r[0]) or needle in _fold(r[1] or "") or needle in (r[3] or "").lower()
+                            or (len(digits) >= 6 and digits in "".join(ch for ch in (r[2] or "") if ch.isdigit()))):
+                        refs.append(r[0])
+                if compact.startswith("RO") and len(compact) >= 8:
+                    refs += [r[0] for r in c.execute("SELECT customer_ref FROM accounts WHERE iban LIKE ?", (compact + "%",))]
+                refs = list(dict.fromkeys(refs))[:limit]
+            out = []
+            for ref in refs:
+                cust = c.execute("SELECT city FROM customers WHERE customer_ref=?", (ref,)).fetchone()
+                accounts = [ids.mask_iban(a[0]) for a in c.execute(
+                    "SELECT iban FROM accounts WHERE customer_ref=? ORDER BY is_primary DESC, iban", (ref,))]
+                last = c.execute("SELECT ts FROM transactions WHERE customer_ref=? ORDER BY ts_epoch DESC LIMIT 1",
+                                 (ref,)).fetchone()
+                out.append({"customer_ref": ref, "city": cust[0] if cust else None, "accounts": accounts,
+                            "last_tx_at": last[0] if last else None})
+        return out
+
+    def update_complaint_identity(self, case_id: str, customer_ref: str | None, transaction_refs: list[str]) -> None:
+        """Extensie: după identificare, reclamația liberă primește clientul și plata găsite (pentru istoricul de
+        dispute al clientului). Textul rămâne cel primit."""
+        with self._tx() as c:
+            c.execute("UPDATE complaints SET customer_ref=COALESCE(?, customer_ref), transaction_refs_json=? WHERE case_id=?",
+                      (customer_ref, json.dumps(list(transaction_refs or []), ensure_ascii=False), case_id))
+
     # -------- reclamații
     def save_complaint(self, complaint: Complaint) -> None:
         """Salvează (sau actualizează) reclamația. Textul rămâne neîncrezut: se stochează, nu se interpretează."""

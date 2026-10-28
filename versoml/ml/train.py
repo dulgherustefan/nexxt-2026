@@ -1,9 +1,11 @@
-"""Antrenarea tuturor modelelor: `python -m versoml.ml.train` (sub 2 minute pe un laptop).
+"""Antrenarea tuturor modelelor: `python -m versoml.ml.train` (sub 3 minute pe un laptop).
 
 Scrie artefactele în `get_settings().models_dir` (var/models) și metricile în `models_dir/metrics.json`:
-M1 (acuratețe, macro-F1, ECE pe un set ținut deoparte), M2 (AUC, PR-AUC, Brier), M5 (baseline-uri: doar reguli,
-GBDT fără graf, GBDT cu graf), plus verificări de sănătate pentru M6 (legarea cazurilor din demo) și M7
-(rata de schimbare contrafactuală pe cazul demo, cu oracolul tabelului de rezultate).
+M1 (ansamblu stivuit; acuratețe, macro-F1, ECE pe șabloane ținute deoparte, transfer EN->RO, șabloane -> text
+liber, greșeli de tastare; fiecare membru față de ansamblu), M2 (LightGBM + LR + IsolationForest stivuite;
+împărțire temporală cu derivă și 5% etichete zgomotoase), M5 (GBDT pe graf + PageRank personalizat + IsolationForest
++ reguli; împărțire temporală cu decalaj și tipologii ținute deoparte; baseline-uri), plus verificări de sănătate
+pentru M6 (legarea cazurilor din demo) și M7 (rata de schimbare contrafactuală pe cazul demo, cu oracolul).
 """
 
 from __future__ import annotations
@@ -53,28 +55,37 @@ def m7_sanity(seed: int = 7) -> dict:
             "change_rate": res["change_rate"], "fragile_fields": res["fragile_fields"], "n_variants": res["n_variants"]}
 
 
-def train_all(seed: int = 7, *, models_dir: str | Path | None = None) -> dict:
-    """Antrenează M1, M2, M5, verifică M6/M7 și scrie `metrics.json`. Întoarce metricile."""
+def train_all(seed: int = 7, *, models_dir: str | Path | None = None, quick: bool = False) -> dict:
+    """Antrenează M1, M2, M5, verifică M6/M7 și scrie `metrics.json`. Întoarce metricile.
+
+    `quick=True` (testele): aceleași modele servite, fără experimentele de evaluare cinstită ale M1 și fără
+    tipologiile ținute deoparte ale M5 (rămâne împărțirea temporală).
+    """
     from versoml.data.world import generate_world
     from versoml.ml.m1_classifier import train_m1
     from versoml.ml.m2_client_fraud import train_m2
     from versoml.ml.m5_mule import train_m5
 
+    from concurrent.futures import ThreadPoolExecutor
+
     out = _models_dir(models_dir)
     t0 = time.time()
     timings: dict[str, float] = {}
-    t = time.time()
-    world = generate_world(seed)
-    timings["world"] = round(time.time() - t, 2)
-    t = time.time()
-    m1 = train_m1(seed, models_dir=out)
-    timings["m1"] = round(time.time() - t, 2)
-    t = time.time()
-    m2 = train_m2(seed, models_dir=out)
-    timings["m2"] = round(time.time() - t, 2)
-    t = time.time()
-    m5 = train_m5(world, seed=seed, models_dir=out)
-    timings["m5"] = round(time.time() - t, 2)
+
+    def timed(name: str, fn, *args, **kwargs):
+        t = time.time()
+        res = fn(*args, **kwargs)
+        timings[name] = round(time.time() - t, 2)
+        return res
+
+    # modelele sunt independente: M1 (text) se antrenează în paralel cu lumea + M5 (graf) și cu M2 (simulator);
+    # bibliotecile numerice eliberează GIL-ul, iar metrics.json se scrie sub lacăt (common.update_metrics)
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        f1 = ex.submit(timed, "m1", train_m1, seed, models_dir=out, evaluate_honestly=not quick)
+        f2 = ex.submit(timed, "m2", train_m2, seed, models_dir=out)
+        world = timed("world", generate_world, seed)
+        m5 = timed("m5", train_m5, world, seed=seed, models_dir=out, quick=quick)
+        m1, m2 = f1.result(), f2.result()
     t = time.time()
     m6 = m6_sanity(seed)
     m7 = m7_sanity(seed)
@@ -91,10 +102,14 @@ def train_all(seed: int = 7, *, models_dir: str | Path | None = None) -> dict:
 def _summary(m: dict) -> dict:
     return {
         "seconds_total": m["seconds_total"],
-        "m1": {h: {k: m["m1_classifier"][h][k] for k in ("accuracy", "macro_f1", "ece")} for h in ("channel", "dispute_type", "scenario")},
-        "m1_text_only": m["m1_classifier"].get("accuracy_text_only"),
-        "m2": {k: m["m2_client_fraud"]["held_out"][k] for k in ("auc", "pr_auc", "f1")},
-        "m5": {k: {x: m["m5_mule"][k][x] for x in ("auc", "pr_auc", "f1", "threshold")} for k in ("rules_only", "gbdt_no_graph", "gbdt_graph")},
+        "m1_held_out_templates": {h: {k: m["m1_classifier"][h][k] for k in ("accuracy", "macro_f1", "ece")}
+                                  for h in ("channel", "dispute_type", "scenario") if h in m["m1_classifier"]},
+        "m1_scenario_member_vs_ensemble": {
+            split: {k: v["scenario"][k]["accuracy"] for k in ("char", "word", "cnb", "emb", "ensemble_served") if k in v["scenario"]}
+            for split, v in m["m1_classifier"].get("honest", {}).items() if "scenario" in v},
+        "m2_temporal": {k: v.get("auc") for k, v in m["m2_client_fraud"]["temporal_split"].items()},
+        "m5_temporal": {k: {x: v[x] for x in ("auc", "pr_auc") if x in v} for k, v in m["m5_mule"]["temporal_split"].items()
+                        if isinstance(v, dict) and "auc" in v},
         "m6": {k: v for k, v in m["m6_entity_resolution"].items() if k != "clusters"},
         "m7": m["m7_counterfactual"],
     }
@@ -105,5 +120,7 @@ if __name__ == "__main__":
 
     ap = argparse.ArgumentParser(description="Train M1, M2 and M5 and write var/models/metrics.json.")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--quick", action="store_true",
+                    help="same served models, without the honest-evaluation experiments (for tests)")
     args = ap.parse_args()
-    print(json.dumps(_summary(train_all(args.seed)), ensure_ascii=False, indent=2))
+    print(json.dumps(_summary(train_all(args.seed, quick=args.quick)), ensure_ascii=False, indent=2))

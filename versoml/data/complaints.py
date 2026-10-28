@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from versoml.data import artifacts as art
 from versoml.data import ids
 from versoml.data.calendar_ro import iso, parse_ts
+from versoml.data.complaints_ro import pick
 from versoml.data.text import normalize_ro, strip_diacritics
 
 # default channel and dispute type per scenario (reclamatie_tardiva and injectie_document follow the base scenario)
@@ -375,6 +376,7 @@ def complaint_text(scenario: str, rng: random.Random, *, facts: dict, persona: d
     """
     persona = persona or {"first_name": "Ana", "last_name": "Testescu", "sex": rng.choice("MF")}
     style = dict(style or {})
+    v = style.get("variants")    # None = toate variantele (implicit, identic cu înainte); 0/1/2 = un grup
     register = style.get("register") or rng.choice(["formal", "informal"])
     length = style.get("length") or rng.choice(["scurt", "mediu", "mediu", "lung"])
     base = facts.get("underlying") if scenario == "injectie_document" else scenario
@@ -384,16 +386,16 @@ def complaint_text(scenario: str, rng: random.Random, *, facts: dict, persona: d
     fs = _facts_strings(facts, rng)
     parts: list[str] = []
     if length != "scurt" or rng.random() < 0.4:
-        parts.append(rng.choice(OPENERS[register]))
+        parts.append(pick(rng, OPENERS[register], v))
     slots = tpl["story"]
     if base == "inel_carausi" and not style.get("inel_cue", True):
         slots = slots[:2]          # the victim doesn't know there are others: it reads like an ordinary phishing
-    chosen = [rng.choice(s) for s in slots]
+    chosen = [pick(rng, s, v) for s in slots]
     if length == "scurt":
         chosen = [chosen[0], chosen[-1]] if len(chosen) > 2 else chosen
     if style.get("vague"):
         key = SCENARIO_LABELS.get(base, ("card", "neautorizata"))
-        chosen = [rng.choice(GENERIC.get(key, GENERIC[("card", "neautorizata")]))]
+        chosen = [pick(rng, GENERIC.get(key, GENERIC[("card", "neautorizata")]), v)]
     parts += chosen
     if base == "reclamatie_tardiva" and facts.get("tardiva_channel") and rng.random() < 0.75:
         parts.append(rng.choice(["It was a card payment, online.", "It was a payment with my card.",
@@ -406,14 +408,14 @@ def complaint_text(scenario: str, rng: random.Random, *, facts: dict, persona: d
         parts.append("I know I pressed approve in the app myself, but I was tricked.")
     if length == "lung":
         for extra in tpl.get("extra", []):
-            parts.append(rng.choice(extra))
-        parts.append(rng.choice(LONG_EXTRAS))
+            parts.append(pick(rng, extra, v))
+        parts.append(pick(rng, LONG_EXTRAS, v))
     elif length == "mediu" and tpl.get("extra") and rng.random() < 0.5:
-        parts.append(rng.choice(tpl["extra"][0]))
+        parts.append(pick(rng, tpl["extra"][0], v))
     if base not in NO_REMEDY or rng.random() < 0.3:
-        parts.append(rng.choice(REMEDIES[register]))
+        parts.append(pick(rng, REMEDIES[register], v))
     if register == "formal" or rng.random() < 0.3:
-        parts.append(rng.choice(CLOSINGS[register]))
+        parts.append(pick(rng, CLOSINGS[register], v))
     fs["nume"] = f"{persona['first_name']} {persona['last_name']}"
     fs["prenume"] = persona["first_name"]
     text = "\n".join(_fill(p, fs) for p in parts) if length == "lung" else " ".join(_fill(p, fs) for p in parts)
@@ -487,12 +489,20 @@ def random_facts(scenario: str, rng: random.Random, *, merchants: list[dict], no
             "admits_sharing": rng.random() < 0.2, "admits_approving": rng.random() < 0.3}
 
 
-def generate_corpus(n_per_scenario: int = 300, seed: int = 7) -> list[dict]:
-    """Labelled complaints for M1: {text, meta, channel, dispute_type, scenario}."""
+def generate_corpus(n_per_scenario: int = 300, seed: int = 7, *, language: str = "en", group: int | None = None,
+                    typo_boost: float = 0.0) -> list[dict]:
+    """Labelled complaints for M1: {text, meta, channel, dispute_type, scenario, language, group, source}.
+
+    language: "en" (`complaint_text`) or "ro" (`complaints_ro.complaint_text_ro`, messier style).
+    group: None = every phrase variant; 0/1/2 = only the variants of that group (`complaints_ro.pick`), so a
+    model trained on two groups can be tested on the third, whose sentences it never saw (held-out templates).
+    typo_boost: extra typo rate on top of the style (robustness tests).
+    """
+    from versoml.data.complaints_ro import INJECTIONS_RO, complaint_text_ro, random_style_ro
     from versoml.data.world import WORLD_NOW, new_fake, person_name, static_catalogs
 
-    rng = ids.sub_rng("corpus", seed)
-    fake = new_fake("corpus", seed)
+    rng = ids.sub_rng("corpus", seed) if (language, group) == ("en", None) else ids.sub_rng("corpus", seed, language, group)
+    fake = new_fake("corpus", seed) if language == "en" else new_fake("corpus", seed, language, group)
     merchants = static_catalogs(7)["merchants"]
     rows = []
     for scenario in SCENARIO_LABELS:
@@ -508,16 +518,26 @@ def generate_corpus(n_per_scenario: int = 300, seed: int = 7) -> list[dict]:
             if underlying:
                 facts["underlying"] = underlying
             first, last, sex = person_name(fake, rng)
-            text, att = complaint_text(scenario, rng, facts=facts,
-                                       persona={"first_name": first, "last_name": last, "sex": sex},
-                                       style=random_style(rng, injection=scenario == "injectie_document",
-                                                          vague_rate=0.12))
+            persona = {"first_name": first, "last_name": last, "sex": sex}
+            if language == "ro":
+                style = random_style_ro(rng)
+                if scenario == "injectie_document":
+                    style["injection"] = rng.choice(INJECTIONS_RO + INJECTIONS)
+            else:
+                style = random_style(rng, injection=scenario == "injectie_document", vague_rate=0.12)
+            if group is not None:
+                style["variants"] = group
+            if typo_boost:
+                style["typo_rate"] = style.get("typo_rate", 0.0) + typo_boost
+            make = complaint_text_ro if language == "ro" else complaint_text
+            text, att = make(scenario, rng, facts=facts, persona=persona, style=style)
             ch, dt, sc = labels_for(scenario, underlying, channel_override)
             meta = {"attachments": [a["kind"] for a in att], "source": rng.choice(["app", "app", "email", "web_form", "call_center"])}
             if rng.random() < 0.5:
                 meta["channel_hint"] = ch
             rows.append({"text": text, "attachments": att, "meta": meta, "channel": ch, "dispute_type": dt,
-                         "scenario": sc, "underlying": underlying})
+                         "scenario": sc, "underlying": underlying, "language": language, "group": group,
+                         "source": "template"})
     return rows
 
 

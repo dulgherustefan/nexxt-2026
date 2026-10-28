@@ -184,18 +184,25 @@ def eval_noninterference(fast: bool) -> dict:
 def _rows_summary(sections: dict) -> list[dict]:
     rules = sections.get("rules_golden", {})
     gen = sections.get("rules_generated", {})
+    typ = sections.get("rules_typologies", {})
     ni = sections.get("noninterference", {})
     priv = sections.get("privacy", {})
     inj = sections.get("injection", {})
     letters = sections.get("letter_filter", {})
     ml = sections.get("ml", {})
     m1 = ml.get("m1_classifier") or ml.get("m1") or {}
+    m2 = ml.get("m2_client_fraud") or {}
     m5 = ml.get("m5_mule") or ml.get("m5") or {}
-    m5_auc = (m5.get("gbdt_graph") or m5.get("graph_aware") or {}).get("auc") if isinstance(m5, dict) else None
-    m5_rules_auc = (m5.get("rules_only") or {}).get("auc") if isinstance(m5, dict) else None
+    m5t = (m5.get("temporal_split") or {}) if isinstance(m5, dict) else {}
+    m5_auc = (m5t.get("ensemble") or m5.get("gbdt_graph") or {}).get("auc") if isinstance(m5, dict) else None
+    m5_rules_auc = (m5t.get("rules_only") or m5.get("rules_only") or {}).get("auc") if isinstance(m5, dict) else None
+    honest = m1.get("honest") or {}
+    free = ((honest.get("templates_to_llm_paraphrases") or {}).get("scenario") or {}).get("ensemble_served") or {}
+    xling = ((honest.get("cross_lingual_en_to_ro") or {}).get("scenario") or {}).get("ensemble_served") or {}
     rows = [
         {"name": "Rules: refund verdict on the golden set (40)", "value": rules.get("verdict_accuracy"), "target": "100%"},
         {"name": "Rules: verdict on 300 generated cases", "value": gen.get("verdict_accuracy"), "target": "100%"},
+        {"name": "Rules: verdict on the typology cases", "value": typ.get("verdict_accuracy"), "target": "100%"},
         {"name": "Correct refund deadlines", "value": rules.get("deadline_accuracy"), "target": "100%"},
         {"name": "Recall of escalations to a person", "value": rules.get("escalation_recall"), "target": "≥ 0.95"},
         {"name": "Non-interference: leaks across the wall", "value": ni.get("leaks"), "target": "0"},
@@ -205,13 +212,200 @@ def _rows_summary(sections: dict) -> list[dict]:
         {"name": "Letter check: tipping-off recall", "value": letters.get("tipping_off_recall"), "target": "100%"},
         {"name": "Letter check: clean letters blocked by mistake", "value": letters.get("false_blocks"), "target": "0"},
         {"name": "Injections: false alarms on clean complaints", "value": inj.get("false_positive_rate"), "target": "≈ 0"},
-        {"name": "M1 scenario classification: macro-F1", "value": (m1.get("scenario") or {}).get("macro_f1"), "target": "≥ 0.90"},
-        {"name": "M1 scenario calibration: ECE", "value": (m1.get("scenario") or {}).get("ece"), "target": "≤ 0.05"},
-        {"name": "M5 money mules: AUC (graph GBDT)", "value": m5_auc, "target": "≥ 0.85"},
+        {"name": "M1 scenario on held-out templates: macro-F1", "value": (m1.get("scenario") or {}).get("macro_f1"), "target": "≥ 0.90"},
+        {"name": "M1 scenario calibration on held-out templates: ECE", "value": (m1.get("scenario") or {}).get("ece"), "target": "≤ 0.05"},
+        {"name": "M1 scenario, trained on templates, tested on free text", "value": free.get("accuracy"), "target": "comparison"},
+        {"name": "M1 scenario, trained on English, tested on Romanian", "value": xling.get("accuracy"), "target": "comparison"},
+        {"name": "M2 client-fraud signal: AUC, temporal split", "value": ((m2.get("temporal_split") or {}).get("ensemble") or {}).get("auc"), "target": "≥ 0.80"},
+        {"name": "M5 money mules: AUC, temporal split (ensemble)", "value": m5_auc, "target": "≥ 0.85"},
         {"name": "M5 money mules: AUC, rules only (baseline)", "value": m5_rules_auc, "target": "comparison"},
-        {"name": "M5: false alarms on hard negatives", "value": m5.get("false_positive_rate_hard_negatives") if isinstance(m5, dict) else None, "target": "≈ 0"},
+        {"name": "M5: false alarms on hard negatives", "value": (m5t.get("false_positive_rate_hard_negatives") if m5t else
+                                                            m5.get("false_positive_rate_hard_negatives") if isinstance(m5, dict) else None), "target": "≈ 0"},
     ]
+    for key in sections:   # extension sections bring their own rows
+        extra = sections[key].get("summary_rows") if isinstance(sections[key], dict) else None
+        if isinstance(extra, list):
+            rows += [r for r in extra if isinstance(r, dict) and {"name", "value", "target"} <= set(r)]
     return rows
+
+
+# the metrics of the single models this release replaced (var/models/metrics.json of 28.10.2026, 18:46):
+# random or same-template splits, so they measured template recall more than skill
+OLD_ML = {"m1_scenario_accuracy": 0.9927, "m1_scenario_macro_f1": 0.9927, "m1_scenario_ece": 0.0397,
+          "m1_split": "a second corpus from the same templates (seed + 1000)",
+          "m2_auc": 0.9908, "m2_split": "random 75/25 split of the simulator",
+          "m5_auc": 0.9914, "m5_split": "group CV on one 30-day window (patterns only in the last month)"}
+
+
+def _fmt(v: Any) -> str:
+    if v is None:
+        return "n/a"
+    return f"{v:.3f}" if isinstance(v, float) else str(v)
+
+
+def ml_markdown(ml: dict) -> list[str]:
+    """Tabelele de model: vechi față de nou, membru față de ansamblu, pe împărțiri cinstite."""
+    if not isinstance(ml, dict) or "m1_classifier" not in ml:
+        return []
+    m1, m2, m5 = ml.get("m1_classifier") or {}, ml.get("m2_client_fraud") or {}, ml.get("m5_mule") or {}
+    out = ["", "## Models: old vs new", "", "| Model | Old (split) | New, honest split | New, old-style split |", "|---|---|---|---|"]
+    rs = ((m1.get("honest") or {}).get("random_split_leaky") or {}).get("scenario", {}).get("ensemble_served", {})
+    out.append(f"| M1 scenario accuracy | {_fmt(OLD_ML['m1_scenario_accuracy'])} ({OLD_ML['m1_split']}) | "
+               f"{_fmt((m1.get('scenario') or {}).get('accuracy'))} (held-out templates) | {_fmt(rs.get('accuracy'))} (random split) |")
+    m2t = (m2.get("temporal_split") or {}).get("ensemble") or {}
+    out.append(f"| M2 AUC | {_fmt(OLD_ML['m2_auc'])} ({OLD_ML['m2_split']}) | {_fmt(m2t.get('auc'))} (temporal, 5% label noise; "
+               f"{_fmt(m2t.get('auc_clean_labels'))} on clean labels) | {_fmt((m2.get('random_split_old_style') or {}).get('ensemble'))} |")
+    m5t = (m5.get("temporal_split") or {}).get("ensemble") or {}
+    out.append(f"| M5 AUC | {_fmt(OLD_ML['m5_auc'])} ({OLD_ML['m5_split']}) | {_fmt(m5t.get('auc'))} (temporal, 7-day gap) | "
+               f"{_fmt((m5.get('gbdt_graph') or {}).get('auc'))} (group CV, GBDT) |")
+    honest = m1.get("honest") or {}
+    if honest:
+        cols = ["char", "word", "cnb", "emb", "ensemble_fallback", "ensemble_full", "ensemble_served"]
+        out += ["", "### M1 scenario accuracy: members vs ensemble", "",
+                "`emb` and `ensemble_full` are measured on the rows that have a cached embedding; `ensemble_served` is "
+                "what `classify_complaint` returns (the embedding meta-learner only where a vector exists and where it "
+                "beat the fallback out of fold).", "",
+                "| Split | " + " | ".join(cols) + " | n |", "|---|" + "---|" * (len(cols) + 1)]
+        for split, v in honest.items():
+            sc = v.get("scenario") or {}
+            if not sc:
+                continue
+            out.append(f"| {split} | " + " | ".join(_fmt((sc.get(c) or {}).get("accuracy")) for c in cols)
+                       + f" | {(sc.get('ensemble_served') or sc.get('ensemble_fallback') or {}).get('n', '')} |")
+        amb = (honest.get("hard_negatives") or {}).get("ambiguity")
+        if amb:
+            out.append(f"\nAmbiguity flag on hard negatives: vague or multi-issue complaints flagged "
+                       f"{_fmt(amb.get('vague_or_multi_issue_flagged'))}, clear ones flagged {_fmt(amb.get('clear_hard_negatives_flagged'))}.")
+    if m2.get("temporal_split"):
+        t = m2["temporal_split"]
+        out += ["", "### M2 client-fraud signal: members vs ensemble (temporal split)", "",
+                "| Member | AUC | PR-AUC | Brier | AUC on clean labels |", "|---|---|---|---|---|"]
+        for k in ("lgbm", "lr", "ensemble"):
+            r = t.get(k) or {}
+            out.append(f"| {k} | {_fmt(r.get('auc'))} | {_fmt(r.get('pr_auc'))} | {_fmt(r.get('brier'))} | {_fmt(r.get('auc_clean_labels'))} |")
+        out.append(f"| iforest (stacked feature only) | {_fmt((t.get('iforest_alone') or {}).get('auc'))} | | | |")
+    if m5.get("temporal_split"):
+        t = m5["temporal_split"]
+        out += ["", "### M5 money mules: baselines, members and ensemble (temporal split)", "",
+                f"Train: 30-day windows ending {', '.join(a[:10] for a in t.get('train_snapshots_as_of', []))}; test: "
+                f"{t.get('test_window', ['', ''])[0][:10]} to {t.get('test_window', ['', ''])[1][:10]} "
+                f"({t.get('label_delay_days')}-day gap, {t.get('test_mules')} active mules among {t.get('n_test')} accounts).", "",
+                "| Model | AUC | PR-AUC | F1 |", "|---|---|---|---|"]
+        for k in ("rules_only", "gbdt_no_graph", "gbdt_graph", "ppr_alone", "iforest_alone", "ensemble"):
+            r = t.get(k) or {}
+            out.append(f"| {k} | {_fmt(r.get('auc'))} | {_fmt(r.get('pr_auc'))} | {_fmt(r.get('f1'))} |")
+        th = m5.get("typology_holdout") or {}
+        if th:
+            out += ["", "Typology hold-out (trained without that typology, tested on its mules in the last window):", "",
+                    "| Typology | Mules | Ensemble AUC | Ensemble recall | Rules-only AUC |", "|---|---|---|---|---|"]
+            for k, r in sorted(th.items()):
+                if r.get("positives"):
+                    out.append(f"| {k} | {r['positives']} | {_fmt(r.get('ensemble_auc'))} | "
+                               f"{_fmt(r.get('ensemble_recall_at_thr'))} | {_fmt(r.get('rules_only_auc'))} |")
+    lat = ml.get("_latency_ms")
+    if lat and "error" not in lat:
+        out += ["", "Inference latency (median of repeated calls, warm): " +
+                ", ".join(f"{k} {v} ms" for k, v in lat.items()) + "."]
+    out += ["", "Notes: every number is on synthetic data. Methods follow docs/08_cercetare_rag_ml_agenti.md: stacking on "
+            "out-of-fold predictions (Wolpert 1992; scikit-learn stacking docs), IsolationForest as a stacked feature "
+            "(Liu, Ting, Zhou 2008), sigmoid / temperature calibration with few positives (Niculescu-Mizil and Caruana "
+            "2005), group splits on unseen templates and temporal splits with a gap (ULB fraud-detection handbook, ch. 5), "
+            "LLM paraphrases added on top of templates, never instead of them (Li et al. 2023; Gerstgrasser et al. 2024), "
+            "AML typologies after AMLworld (Altman et al. 2023, data at github.com/IBM/AML-Data), PPR as guilt by "
+            "association (Koutra et al. 2011)."]
+    return out
+
+
+def eval_ml_latency() -> dict:
+    """Median inference time per call, warm, for the trained models (skipped when they are not trained)."""
+    import statistics
+
+    d = get_settings().models_dir
+    out: dict[str, float] = {}
+    if (d / "m1_classifier.pkl").exists():
+        from versoml.ml.m1_classifier import classify_complaint
+
+        text = "Got an SMS about a parcel, opened the link and then RON 3,200 left my account."
+        classify_complaint(text, models_dir=d, allow_live=False)
+        ts = []
+        for _ in range(15):
+            t = time.perf_counter()
+            classify_complaint(text, models_dir=d, allow_live=False)
+            ts.append((time.perf_counter() - t) * 1000)
+        out["M1"] = round(statistics.median(ts), 1)
+    if (d / "m2_client_fraud.txt").exists():
+        from versoml.ml.m2_client_fraud import client_fraud_signal
+
+        f = {"prior_disputes_12m": 1, "device_known": 1, "hours_purchase_to_dispute": 30, "channel_card": 1}
+        client_fraud_signal(f, models_dir=d)
+        ts = []
+        for _ in range(15):
+            t = time.perf_counter()
+            client_fraud_signal(f, models_dir=d)
+            ts.append((time.perf_counter() - t) * 1000)
+        out["M2"] = round(statistics.median(ts), 1)
+    if (d / "m5_mule.txt").exists() and get_settings().aml_db.exists():
+        from versoml.data.aml_world import demo_mule
+        from versoml.data.repos import AmlRepo
+        from versoml.ml.m5_mule import score_accounts
+
+        g = AmlRepo(get_settings().aml_db).neighborhood([demo_mule(7)["iban"]], hops=2, days=30)
+        if g.get("nodes"):
+            score_accounts(g, models_dir=d)
+            ts = []
+            for _ in range(7):
+                t = time.perf_counter()
+                score_accounts(g, models_dir=d)
+                ts.append((time.perf_counter() - t) * 1000)
+            out["M5 (demo neighbourhood)"] = round(statistics.median(ts), 1)
+    return out
+
+
+def eval_data() -> dict:
+    """Sizes of the synthetic data that the models and the matcher use (read from the committed files)."""
+    from versoml.data.corpus_llm import LLM_CORPUS
+
+    ff = _rows(GOLDEN_DIR / "freeform_60.jsonl")
+    llm = _rows(LLM_CORPUS)
+    from collections import Counter
+
+    return {"freeform_60": {"lines": len(ff), "by_category": dict(Counter(r.get("category") for r in ff)),
+                            "by_language": dict(Counter(r.get("language") for r in ff))},
+            "llm_corpus": {"rows": len(llm), "by_kind": dict(Counter(r.get("kind") for r in llm)),
+                           "by_language": dict(Counter(r.get("language") for r in llm)),
+                           "scrubbed_rows": sum(1 for r in llm if r.get("scrubbed"))}}
+
+
+# Extension point: other modules add evaluation sections here (retrieval, the free-text matcher, ...).
+# Each entry is (section key, "module:function"); the function takes `fast: bool` and returns a dict that may
+# carry "summary_rows" ([{name, value, target}]) and "markdown" (a list of lines for the report). A module that
+# is not there yet is skipped.
+OPTIONAL_SECTIONS: list[tuple[str, str]] = [
+    ("retrieval", "versoml.knowledge.evaluate:eval_section"),
+    ("matcher", "versoml.zone_client.matcher:eval_section"),
+]
+
+
+def register_section(key: str, target: str) -> None:
+    if (key, target) not in OPTIONAL_SECTIONS:
+        OPTIONAL_SECTIONS.append((key, target))
+
+
+def _optional_sections(fast: bool) -> dict[str, dict]:
+    import importlib
+
+    out: dict[str, dict] = {}
+    for key, target in OPTIONAL_SECTIONS:
+        mod_name, _, fn_name = target.partition(":")
+        try:
+            fn = getattr(importlib.import_module(mod_name), fn_name)
+        except (ImportError, AttributeError):
+            continue
+        try:
+            out[key] = fn(fast)
+        except Exception as exc:  # noqa: BLE001 - a failed section shows in the report and does not stop the rest
+            out[key] = {"status": "eroare", "error": f"{type(exc).__name__}: {exc}"[:400]}
+    return out
 
 
 def _markdown(report: dict) -> str:
@@ -222,7 +416,11 @@ def _markdown(report: dict) -> str:
         if isinstance(value, float) and value <= 1:
             value = f"{value * 100:.1f}%"
         lines.append(f"| {row['name']} | {value if value is not None else 'n/a'} | {row['target']} |")
-    lines += ["", "## Details", "", "```json", json.dumps(report["sections"], ensure_ascii=False, indent=1, default=str)[:20000], "```", ""]
+    lines += ml_markdown(report["sections"].get("ml") or {})
+    for key, sec in report["sections"].items():
+        if isinstance(sec, dict) and isinstance(sec.get("markdown"), list):
+            lines += [""] + [str(x) for x in sec["markdown"]]
+    lines += ["", "## Details", "", "```json", json.dumps(report["sections"], ensure_ascii=False, indent=1, default=str)[:30000], "```", ""]
     return "\n".join(lines)
 
 
@@ -230,14 +428,27 @@ async def run_all(fast: bool = False) -> dict:
     sections: dict[str, Any] = {}
     golden = _rows(GOLDEN_DIR / "golden_40.jsonl")
     generated = _rows(GOLDEN_DIR / "generated_300.jsonl")
+    typology = _rows(GOLDEN_DIR / "typology_cases.jsonl")
+
+    def ml() -> dict:
+        m = eval_ml()
+        if isinstance(m, dict) and "m1_classifier" in m:
+            try:
+                m["_latency_ms"] = eval_ml_latency()
+            except Exception as exc:  # noqa: BLE001 - the latency is extra information, not a reason to lose the metrics
+                m["_latency_ms"] = {"error": f"{type(exc).__name__}"}
+        return m
+
     for key, fn in (("rules_golden", lambda: eval_rules(golden)), ("rules_generated", lambda: eval_rules(generated)),
+                    ("rules_typologies", lambda: eval_rules(typology)),
                     ("privacy", lambda: eval_privacy(golden + generated[:100])),
                     ("injection", lambda: eval_injection(golden + generated)), ("letter_filter", eval_letter_filter),
-                    ("ml", eval_ml), ("noninterference", lambda: eval_noninterference(fast))):
+                    ("ml", ml), ("data", eval_data), ("noninterference", lambda: eval_noninterference(fast))):
         try:
             sections[key] = fn()
         except Exception as exc:  # noqa: BLE001 - a failed section shows in the report and does not stop the rest
             sections[key] = {"status": "eroare", "error": f"{type(exc).__name__}: {exc}"[:400]}
+    sections.update(_optional_sections(fast))
     from versoml.shared.llm import get_llm
 
     report = {"at": datetime.now(timezone.utc).isoformat(), "llm_mode": get_llm().mode, "sections": sections}

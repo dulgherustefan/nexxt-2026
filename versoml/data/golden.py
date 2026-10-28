@@ -14,7 +14,8 @@ Convenții pe care se bazează așteptările (cazurile stau departe de praguri, 
 - termenul T+1: 23:59:59 ora României, în următoarea zi lucrătoare după data locală a notificării;
 - 13 luni: comparație pe date locale, inclusiv (art. 169, `add_months`).
 
-Rulare: `python -m versoml.data.golden` regenerează fișierele (determinist).
+Rulare: `python -m versoml.data.golden` regenerează fișierele (determinist), inclusiv `golden/freeform_60.jsonl`
+(reclamații libere fără `transaction_refs`, pentru matcher; vezi `versoml.data.freeform`).
 """
 
 from __future__ import annotations
@@ -36,6 +37,8 @@ from versoml.data.scenarios import (SCENARIOS, CaseParams, ScenarioBundle, _b, _
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
 GOLDEN_40 = GOLDEN_DIR / "golden_40.jsonl"
 GENERATED_300 = GOLDEN_DIR / "generated_300.jsonl"
+FREEFORM_60 = GOLDEN_DIR / "freeform_60.jsonl"          # versoml.data.freeform
+TYPOLOGY_CASES = GOLDEN_DIR / "typology_cases.jsonl"    # un caz pe tipologie (typologies_ro.yaml)
 
 
 def _variants(seed: int = 7) -> list[tuple[CaseParams, tuple[str, ...], str]]:
@@ -252,6 +255,29 @@ def generated_300(seed: int = 7, n: int = 300) -> list[dict]:
     return lines
 
 
+def typology_cases(seed: int = 7) -> list[dict]:
+    """Un caz pe tipologie din `typologies_ro.yaml`: constructorul lui `maps_to_scenario`, plus semnalele de jurnal
+    ale tipologiei (`scenarios._typology_signals`). Rezultatul așteptat vine tot din oracol (același tabel ca regulile)."""
+    from dataclasses import replace
+
+    from versoml.data.typologies import load_typologies
+
+    rng = ids.sub_rng("typology-cases", seed)
+    lines = []
+    for i, t in enumerate(load_typologies(), 1):
+        sc = t["maps_to_scenario"]
+        p = _random_params(i, sc, rng, seed)
+        p = replace(p, key=f"TY{i:02d}", case_id=f"CT-2026-93{i:04d}", customer_ref=f"CUST-TY-{i:02d}",
+                    alias=f"Customer T{i:02d}", typology=t["id"])
+        b = build_case(p, seed)
+        line = _line(f"T{i:02d}", sc, b, tags=("tipologie", str(t.get("family") or "")), notes=str(t.get("name") or t["id"]),
+                     source="typology", materialized=False, underlying=None)
+        line["typology"] = t["id"]
+        line["typology_signals"] = (b.records.get("typology") or {}).get("log_markers", [])
+        lines.append(line)
+    return lines
+
+
 def write_jsonl(lines: list[dict], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
@@ -265,10 +291,17 @@ def read_jsonl(path: Path) -> list[dict]:
 
 
 def write_all(seed: int = 7) -> dict:
+    from versoml.data.freeform import build_freeform
+    from versoml.data.world import generate_world
+
     g40, g300 = golden_40(seed), generated_300(seed)
+    ff = build_freeform(generate_world(seed), seed)
+    ty = typology_cases(seed)
     write_jsonl(g40, GOLDEN_40)
     write_jsonl(g300, GENERATED_300)
-    return {"golden_40": len(g40), "generated_300": len(g300), "dir": str(GOLDEN_DIR)}
+    write_jsonl(ff, FREEFORM_60)
+    write_jsonl(ty, TYPOLOGY_CASES)
+    return {"golden_40": len(g40), "generated_300": len(g300), "freeform_60": len(ff), "typology_cases": len(ty), "dir": str(GOLDEN_DIR)}
 
 
 if __name__ == "__main__":

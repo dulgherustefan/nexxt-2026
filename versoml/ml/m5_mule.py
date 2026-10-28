@@ -5,9 +5,15 @@ Pași:
 2. trăsături de graf: agregare medie pe vecini în stil GraphSAGE (vecini de intrare, de ieșire și la 2 pași,
    prin vecinii care nu sunt hub-uri), PageRank pe subgraful-ego cu 2 pași;
 3. LightGBM; explicații cu `pred_contrib=True` (contribuții TreeSHAP);
-4. comunități Louvain (networkx) și tipologii prin reguli explicite.
+4. stivă: meta LR (sigmoid) peste logit(GBDT, OOF pe grupuri de tipar), PageRank personalizat din conturile cu plăți
+   raportate ca fraudă (fapt observabil; etichetele de adevăr nu intră în trăsături), anomalia IsolationForest pe
+   trăsăturile proprii (doar ca trăsătură în stivă) și scorul doar-reguli;
+5. comunități Louvain (networkx) și tipologii prin reguli explicite.
 
-Baseline-uri cinstite în metrici: doar reguli vs. GBDT fără graf vs. GBDT cu graf.
+Etichetele sunt pe fereastră (cărăușul e activ în tipar în acele 30 de zile). Evaluarea cinstită: împărțire
+temporală (antrenare pe ferestrele care se termină la 37, 67 și 97 de zile înainte de WORLD_NOW, test pe ultimele
+30 de zile, cu 7 zile de decalaj), tipologii ținute deoparte și baseline-uri: doar reguli, GBDT fără graf, GBDT cu
+graf, PPR singur, IsolationForest singur, ansamblul.
 Scorul e un semnal pentru analistul AML, nu o decizie; nu folosește date demografice.
 
 `graph` = dict-ul întors de `AmlRepo.neighborhood()`: {"nodes": [{id, kind, features, ...}], "edges": [...]}.
@@ -31,11 +37,16 @@ import scipy.sparse as sp
 from versoml.contracts import AccountScore
 from versoml.data.calendar_ro import parse_ts
 from versoml.data.features import FEATURE_LABELS_RO, HUB_DEGREE, NODE_FEATURES, THRESHOLDS, node_features
-from versoml.ml.common import (best_f1_threshold, binary_metrics, models_dir as _models_dir, read_json,
-                            update_metrics, version_tag, write_json)
+from versoml.ml.common import (best_f1_threshold, binary_metrics, load_pickle, models_dir as _models_dir, read_json,
+                            save_pickle, update_metrics, version_tag, write_json)
 
 MODEL_FILE = "m5_mule.txt"
 META_FILE = "m5_mule.json"
+STACK_FILE = "m5_mule_stack.pkl"
+PPR_ALPHA = 0.85                 # PageRank personalizat: probabilitatea de a continua pe muchii
+LABEL_DELAY_DAYS = 7             # decalajul dintre ultima fereastră de antrenare și fereastra de test
+N_TRAIN_SNAPSHOTS = 3            # ferestre de 30 de zile înaintea decalajului (zilele 37-127 înainte de WORLD_NOW)
+HARD_SEGMENTS = {"student", "pensioner", "micro_merchant", "sme", "crypto_trader"}
 LABEL_HIGH, LABEL_MID = 0.70, 0.30          # PARAM [U]: pragurile etichetelor carausi_probabil / de_verificat
 
 AGG_FEATURES = ["in_count", "out_count", "in_amount", "out_amount", "distinct_senders", "distinct_receivers",
@@ -239,80 +250,259 @@ def rules_score(f: dict[str, float | None]) -> float:
     return sum(flags) / len(flags)
 
 
-# ---------------------------------------------------------------- date de antrenare
+# ---------------------------------------------------------------- date de antrenare: instantanee pe ferestre
+
+
+def ppr_from_seeds(g: nx.DiGraph, kinds: dict[str, str], feats: dict[str, dict], *, alpha: float = PPR_ALPHA,
+                   iters: int = 40, hub_degree: int = HUB_DEGREE) -> dict[str, float]:
+    """PageRank personalizat din conturile cu plăți raportate ca fraudă (fapt observabil, nu eticheta modelului).
+
+    Fiecare semință are masa 1 (nu 1/|S|), deci scorul unui cont e suma contribuțiilor semințelor din apropiere:
+    aceeași valoare pe graful întregii ferestre (antrenare) și pe vecinătatea locală (inferență). Banii curg pe
+    muchii (ponderi = sume); hub-urile (exchange, numerar, conturi cu foarte mulți parteneri) nu propagă.
+    """
+    nodes = list(g.nodes)
+    if not nodes:
+        return {}
+    idx = {n: i for i, n in enumerate(nodes)}
+    hub = _hub_mask(nodes, feats, kinds, hub_degree)
+    seeds = np.array([((feats.get(n) or {}).get("victim_reports") or 0) >= 1 and not hub[idx[n]] for n in nodes], dtype=float)
+    if not seeds.any():
+        return {n: 0.0 for n in nodes}
+    rows, cols, w = [], [], []
+    for s, t, d in g.edges(data=True):
+        if hub[idx[s]] or hub[idx[t]]:
+            continue
+        rows.append(idx[s])
+        cols.append(idx[t])
+        w.append(max(float(d.get("amount") or 0.0), 1e-9))
+    m = sp.csr_matrix((w, (rows, cols)), shape=(len(nodes), len(nodes)))
+    out_w = np.asarray(m.sum(axis=1)).ravel()
+    pt = (sp.diags(np.where(out_w > 0, 1.0 / np.where(out_w > 0, out_w, 1.0), 0.0)) @ m).T.tocsr()
+    x = (1 - alpha) * seeds
+    for _ in range(iters):
+        x = alpha * (pt @ x) + (1 - alpha) * seeds
+    return {n: float(x[idx[n]]) for n in nodes}
+
+
+def window_labels(world: Any, *, as_of: datetime, days: int = 30) -> dict[str, dict]:
+    """Cărăușii ACTIVI în fereastra (as_of - days, as_of]: contul apare într-un flux al tiparului din fereastră.
+
+    Eticheta e pe fereastră, nu pe cont: un cont recrutat e normal înainte de tipar și cărăuș în fereastra lui.
+    """
+    lo = as_of - timedelta(days=days)
+    flow_ts = getattr(world, "_flow_index", None)
+    if flow_ts is None:
+        flow_ts = {f["flow_id"]: (parse_ts(f["ts"]), f["from_iban"], f["to_iban"]) for f in world.flows}
+        world._flow_index = flow_ts
+    out: dict[str, dict] = {}
+    for p in world.patterns:
+        mules = set(p["mules"])
+        for fid in p["flow_ids"]:
+            rec = flow_ts.get(fid)
+            if rec is None or not (lo < rec[0] <= as_of):
+                continue
+            for acc in (rec[1], rec[2]):
+                if acc in mules and acc not in out:
+                    out[acc] = {"pattern": p["pattern_id"], "typology": p["typology"]}
+    return out
 
 
 def training_frame(world: Any, *, days: int = 30, as_of: datetime | None = None) -> dict:
-    """Trăsăturile tuturor conturilor interne active în fereastră + etichetele de adevăr din lume."""
+    """Instantaneul la `as_of`: trăsăturile conturilor interne active în fereastră, PPR, reguli și etichetele de
+    adevăr ale ferestrei (doar pentru antrenare și evaluare). Toate fluxurile folosite au ts <= as_of."""
     as_of = as_of or world.now
     accounts = {a["iban"]: a for a in world.aml_accounts}
     kinds = {k: a["kind"] for k, a in accounts.items()}
-    feats = node_features(world.flows, accounts, as_of=as_of, days=days)
     lo = as_of - timedelta(days=days)
     win = [f for f in world.flows if lo < parse_ts(f["ts"]) <= as_of]
+    feats = node_features(win, accounts, as_of=as_of, days=days)
     g = build_graph(win)
-    labels = {lab["id"]: lab for lab in world.labels}
+    labels = window_labels(world, as_of=as_of, days=days)
     nodes = sorted(n for n, f in feats.items() if kinds.get(n) == "internal" and (f["in_count"] or 0) + (f["out_count"] or 0) > 0)
-    y = np.array([1 if labels.get(n, {}).get("label") == "mule" else 0 for n in nodes])
-    groups = []
-    for n in nodes:
-        pats = labels.get(n, {}).get("patterns") or []
-        groups.append(pats[0] if pats else f"N:{n}")
-    X_own = own_frame(feats, nodes)
-    X_graph = graph_features(g, feats, kinds, nodes=nodes)
-    segments = [labels.get(n, {}).get("segment") for n in nodes]
-    return {"nodes": nodes, "y": y, "groups": np.array(groups), "X_own": X_own, "X_graph": X_graph,
-            "feats": feats, "segments": segments, "kinds": kinds}
+    y = np.array([1 if n in labels else 0 for n in nodes])
+    groups = np.array([labels[n]["pattern"] if n in labels else f"N:{n}" for n in nodes])
+    ppr = ppr_from_seeds(g, kinds, feats)
+    seg = {lab["id"]: lab.get("segment") for lab in world.labels}
+    return {"nodes": nodes, "y": y, "groups": groups, "X_own": own_frame(feats, nodes),
+            "X_graph": graph_features(g, feats, kinds, nodes=nodes), "feats": feats, "kinds": kinds,
+            "segments": [seg.get(n) for n in nodes], "typologies": [labels.get(n, {}).get("typology") for n in nodes],
+            "ppr": np.array([ppr.get(n, 0.0) for n in nodes]), "rules": np.array([rules_score(feats[n]) for n in nodes]),
+            "as_of": as_of, "max_flow_ts": max((parse_ts(f["ts"]) for f in win), default=None)}
+
+
+def _concat(frames: list[dict]) -> dict:
+    out = {k: np.concatenate([f[k] for f in frames]) for k in ("y", "groups", "ppr", "rules")}
+    out["X_own"] = pd.concat([f["X_own"] for f in frames], ignore_index=True)
+    out["X_graph"] = pd.concat([f["X_graph"] for f in frames], ignore_index=True)
+    out["segments"] = [s for f in frames for s in f["segments"]]
+    out["typologies"] = [t for f in frames for t in f["typologies"]]
+    out["nodes"] = [n for f in frames for n in f["nodes"]]
+    return out
+
+
+def _gbm(seed: int):
+    import lightgbm as lgb
+
+    return lgb.LGBMClassifier(**LGB_PARAMS, random_state=seed)
 
 
 def _cv_scores(X: pd.DataFrame, y: np.ndarray, groups: np.ndarray, seed: int, n_splits: int = 5) -> np.ndarray:
-    import lightgbm as lgb
     from sklearn.model_selection import StratifiedGroupKFold
 
     oof = np.zeros(len(y))
     cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     for tr, te in cv.split(X, y, groups):
-        m = lgb.LGBMClassifier(**LGB_PARAMS, random_state=seed)
-        m.fit(X.iloc[tr], y[tr])
-        oof[te] = m.predict_proba(X.iloc[te])[:, 1]
+        oof[te] = _gbm(seed).fit(X.iloc[tr], y[tr]).predict_proba(X.iloc[te])[:, 1]
     return oof
 
 
-def train_m5(world: Any = None, *, seed: int = 7, models_dir: str | Path | None = None) -> dict:
-    """Antrenează M5, calculează baseline-urile în validare încrucișată pe grupuri și salvează modelul."""
-    import lightgbm as lgb
+def _iso_matrix(X_own: pd.DataFrame) -> np.ndarray:
+    return np.array([_transform({k: (None if pd.isna(v) else v) for k, v in row.items()})
+                     for row in X_own[AGG_FEATURES].to_dict("records")]) if len(X_own) else np.zeros((0, len(AGG_FEATURES)))
+
+
+def _logit(p: np.ndarray) -> np.ndarray:
+    p = np.clip(p, 1e-4, 1 - 1e-4)
+    return np.log(p / (1 - p))
+
+
+def _meta_x(p_gbm: np.ndarray, ppr: np.ndarray, iso: np.ndarray, rules: np.ndarray) -> np.ndarray:
+    return np.column_stack([_logit(p_gbm), np.log1p(100.0 * np.asarray(ppr)), iso, rules])
+
+
+META_INPUTS = ["logit(GBDT on own + graph features)", "log1p(100 x personalized PageRank from reported accounts)",
+               "IsolationForest anomaly on own features", "rules-only score"]
+
+
+def fit_stack(frame: dict, seed: int) -> dict:
+    """GBDT (OOF pe grupuri de tipar) + PPR + IsolationForest + reguli -> meta LR (sigmoid), apoi GBDT final."""
+    from sklearn.ensemble import IsolationForest
+    from sklearn.linear_model import LogisticRegression
+
+    X = pd.concat([frame["X_own"], frame["X_graph"]], axis=1)
+    y = frame["y"]
+    oof = _cv_scores(X, y, frame["groups"], seed)
+    iso = IsolationForest(n_estimators=100, random_state=seed).fit(_iso_matrix(frame["X_own"]))
+    iso_s = -iso.score_samples(_iso_matrix(frame["X_own"]))
+    meta = LogisticRegression(C=1.0, max_iter=2000).fit(_meta_x(oof, frame["ppr"], iso_s, frame["rules"]), y)
+    gbm = _gbm(seed).fit(X, y)
+    return {"gbm": gbm, "iforest": iso, "meta": meta, "features": list(X.columns), "oof": oof, "iso_train": iso_s}
+
+
+def stack_predict(model: dict, frame: dict) -> dict[str, np.ndarray]:
+    X = pd.concat([frame["X_own"], frame["X_graph"]], axis=1)[model["features"]]
+    p = model["gbm"].predict_proba(X)[:, 1] if len(X) else np.zeros(0)
+    iso = -model["iforest"].score_samples(_iso_matrix(frame["X_own"])) if len(X) else np.zeros(0)
+    ens = model["meta"].predict_proba(_meta_x(p, frame["ppr"], iso, frame["rules"]))[:, 1] if len(X) else np.zeros(0)
+    return {"gbdt_graph": p, "iforest": iso, "ppr": frame["ppr"], "rules_only": frame["rules"], "ensemble": ens}
+
+
+def train_m5(world: Any = None, *, seed: int = 7, models_dir: str | Path | None = None, quick: bool = False) -> dict:
+    """Antrenează M5 pe instantanee de 30 de zile; evaluare temporală (cu decalaj), pe tipologii ținute deoparte și
+    în validare încrucișată pe grupuri; salvează modelul final (antrenat pe toate instantaneele)."""
+    from concurrent.futures import ThreadPoolExecutor
 
     if world is None:
         from versoml.data.world import generate_world
         world = generate_world(seed)
     out_dir = _models_dir(models_dir)
-    tf = training_frame(world)
-    y, groups = tf["y"], tf["groups"]
-    X_own, X_all = tf["X_own"], pd.concat([tf["X_own"], tf["X_graph"]], axis=1)
-    rule = np.array([rules_score(tf["feats"][n]) for n in tf["nodes"]])
-    oof_own = _cv_scores(X_own, y, groups, seed)
-    oof_all = _cv_scores(X_all, y, groups, seed)
-    thr_own, thr_all = best_f1_threshold(y, oof_own), best_f1_threshold(y, oof_all)
-    metrics = {
-        "rules_only": binary_metrics(y, rule, threshold=0.5),
-        "gbdt_no_graph": binary_metrics(y, oof_own, threshold=thr_own),
-        "gbdt_graph": binary_metrics(y, oof_all, threshold=thr_all),
-        "gbdt_graph_at_0.5": binary_metrics(y, oof_all, threshold=0.5),
-        "cv": "StratifiedGroupKFold(5), grupuri = tiparul de spălare (cărăușii aceluiași tipar stau în același fold)",
-        "window_days": 30, "n_accounts": int(len(y)), "mule_rate": round(float(y.mean()), 4),
-    }
-    seg = np.array(tf["segments"], dtype=object)
-    hard = np.isin(seg, ["student", "pensioner", "micro_merchant", "sme", "crypto_trader"])
-    if hard.any():
-        metrics["false_positive_rate_hard_negatives"] = round(float(((oof_all >= thr_all) & hard & (y == 0)).sum() / max(1, (hard & (y == 0)).sum())), 4)
-    model = lgb.LGBMClassifier(**LGB_PARAMS, random_state=seed)
-    model.fit(X_all, y)
-    model.booster_.save_model(str(out_dir / MODEL_FILE))
-    version = version_tag("m5-lgbm-graph", seed, list(X_all.columns), metrics["gbdt_graph"]["auc"])
-    write_json({"version": version, "features": list(X_all.columns), "threshold_best_f1": thr_all,
+    test_as_of = world.now
+    train_as_of = [world.now - timedelta(days=30 + LABEL_DELAY_DAYS + 30 * k) for k in range(N_TRAIN_SNAPSHOTS)]
+    with ThreadPoolExecutor(max_workers=N_TRAIN_SNAPSHOTS + 1) as ex:
+        frames = list(ex.map(lambda a: training_frame(world, as_of=a), [test_as_of] + train_as_of))
+    test, trains = frames[0], frames[1:]
+    tr = _concat(trains)
+    cutoff = test_as_of - timedelta(days=30)
+    # 1. împărțirea temporală: antrenare pe ferestrele vechi, test pe ultimele 30 de zile
+    m = fit_stack(tr, seed)
+    s = stack_predict(m, test)
+    y = test["y"]
+    own_cols = list(tr["X_own"].columns)
+    gbm_own = _gbm(seed).fit(tr["X_own"], tr["y"])
+    s["gbdt_no_graph"] = gbm_own.predict_proba(test["X_own"][own_cols])[:, 1]
+    thr = best_f1_threshold(tr["y"], m["meta"].predict_proba(_meta_x(m["oof"], tr["ppr"], m["iso_train"], tr["rules"]))[:, 1])
+    thr_gbm = best_f1_threshold(tr["y"], m["oof"])
+    temporal = {k: binary_metrics(y, s[k], threshold={"ensemble": thr, "gbdt_graph": thr_gbm}.get(k, 0.5))
+                for k in ("rules_only", "gbdt_no_graph", "gbdt_graph", "ensemble")}
+    from sklearn.metrics import average_precision_score, roc_auc_score
+
+    for k in ("ppr", "iforest"):
+        temporal[f"{k}_alone"] = {"auc": round(float(roc_auc_score(y, s[k])), 4),
+                                  "pr_auc": round(float(average_precision_score(y, s[k])), 4)}
+    temporal["ensemble"]["threshold_from"] = "best F1 on the training snapshots (out-of-fold)"
+    seg = np.array(test["segments"], dtype=object)
+    hard = np.isin(seg, list(HARD_SEGMENTS)) & (y == 0)
+    fpr_hard = round(float(((s["ensemble"] >= thr) & hard).sum() / max(1, hard.sum())), 4)
+    # 2. tipologii ținute deoparte: fără cărăușii unei tipologii la antrenare, testați pe ea în ultima fereastră
+    typ_tr = np.array([t or "" for t in tr["typologies"]], dtype=object)
+    typ_te = np.array([t or "" for t in test["typologies"]], dtype=object)
+    X_tr = pd.concat([tr["X_own"], tr["X_graph"]], axis=1)[m["features"]]
+    X_te = pd.concat([test["X_own"], test["X_graph"]], axis=1)[m["features"]]
+    iso_te = s["iforest"]
+
+    def holdout(t: str) -> tuple[str, dict]:
+        keep = typ_tr != t
+        g = _gbm(seed).fit(X_tr[keep], tr["y"][keep])
+        mask = (typ_te == t) | (y == 0)
+        p = g.predict_proba(X_te[mask])[:, 1]
+        ens = m["meta"].predict_proba(_meta_x(p, test["ppr"][mask], iso_te[mask], test["rules"][mask]))[:, 1]
+        yy = y[mask]
+        pos = int(yy.sum())
+        if pos == 0:
+            return t, {"positives": 0}
+        return t, {"positives": pos, "ensemble_auc": round(float(roc_auc_score(yy, ens)), 4),
+                   "ensemble_recall_at_thr": round(float((ens[yy == 1] >= thr).mean()), 4),
+                   "rules_only_auc": round(float(roc_auc_score(yy, test["rules"][mask])), 4),
+                   "rules_only_recall_at_0.5": round(float((test["rules"][mask][yy == 1] >= 0.5).mean()), 4)}
+
+    typologies = [] if quick else sorted({t for t in typ_te if t})    # quick: fără tipologiile ținute deoparte
+    typ_holdout = {}
+    if typologies:
+        with ThreadPoolExecutor(max_workers=min(8, len(typologies))) as ex:
+            typ_holdout = dict(ex.map(holdout, typologies))
+    # 3. validare încrucișată pe grupuri de tipar, pe toate instantaneele (comparabil cu metricile vechi)
+    allf = _concat(frames)
+    X_all = pd.concat([allf["X_own"], allf["X_graph"]], axis=1)
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f_all = ex.submit(_cv_scores, X_all, allf["y"], allf["groups"], seed, 3 if quick else 5)
+        f_own = ex.submit(_cv_scores, allf["X_own"], allf["y"], allf["groups"], seed, 3 if quick else 5)
+        oof_all, oof_own = f_all.result(), f_own.result()
+    thr_all = best_f1_threshold(allf["y"], oof_all)
+    final = fit_stack(allf, seed)
+    thr_final = best_f1_threshold(allf["y"], final["meta"].predict_proba(
+        _meta_x(final["oof"], allf["ppr"], final["iso_train"], allf["rules"]))[:, 1])
+    final["gbm"].booster_.save_model(str(out_dir / MODEL_FILE))
+    version = version_tag("m5-stack-graph", seed, final["features"], temporal["ensemble"]["auc"])
+    save_pickle({"iforest": final["iforest"], "meta": final["meta"], "version": version}, out_dir / STACK_FILE)
+    write_json({"version": version, "features": final["features"], "threshold_best_f1": thr_final,
                 "label_high": LABEL_HIGH, "label_mid": LABEL_MID, "hub_degree": HUB_DEGREE, "seed": seed,
-                "trained_on": "generate_world(seed) @ WORLD_NOW, fereastra 30 zile"}, out_dir / META_FILE)
-    metrics["model_version"] = version
+                "meta_inputs": META_INPUTS, "meta_coef": [round(float(c), 4) for c in final["meta"].coef_[0]],
+                "trained_on": f"generate_world(seed): {len(frames)} snapshots of 30 days ending at WORLD_NOW - "
+                              f"{[0] + [30 + LABEL_DELAY_DAYS + 30 * k for k in range(N_TRAIN_SNAPSHOTS)]} days"},
+               out_dir / META_FILE)
+    metrics = {
+        "temporal_split": {**temporal, "train_snapshots_as_of": [a.isoformat() for a in train_as_of],
+                           "test_window": [cutoff.isoformat(), test_as_of.isoformat()],
+                           "label_delay_days": LABEL_DELAY_DAYS,
+                           "max_train_flow_ts": max(f["max_flow_ts"] for f in trains).isoformat(),
+                           "n_train": int(len(tr["y"])), "n_test": int(len(y)), "test_mules": int(y.sum()),
+                           "false_positive_rate_hard_negatives": fpr_hard},
+        "typology_holdout": typ_holdout,
+        # aceleași chei ca înainte (validare încrucișată pe grupuri de tipar, toate instantaneele)
+        "rules_only": binary_metrics(allf["y"], allf["rules"], threshold=0.5),
+        "gbdt_no_graph": binary_metrics(allf["y"], oof_own, threshold=best_f1_threshold(allf["y"], oof_own)),
+        "gbdt_graph": binary_metrics(allf["y"], oof_all, threshold=thr_all),
+        "gbdt_graph_at_0.5": binary_metrics(allf["y"], oof_all, threshold=0.5),
+        "ensemble": temporal["ensemble"],
+        "cv": "StratifiedGroupKFold(5), grupuri = tiparul de spălare (cărăușii aceluiași tipar stau în același fold); "
+              f"{len(frames)} instantanee de 30 de zile",
+        "window_days": 30, "n_accounts": int(len(allf["y"])), "mule_rate": round(float(allf["y"].mean()), 4),
+        "false_positive_rate_hard_negatives": fpr_hard, "model_version": version, "meta_inputs": META_INPUTS,
+        "meta_coef": [round(float(c), 4) for c in final["meta"].coef_[0]],
+        "note": "PPR seeds = accounts with incoming payments reported as fraud in the window (an observable fact); "
+                "ground-truth labels never reach the features",
+    }
     update_metrics(out_dir, "m5_mule", metrics)
     _CACHE.pop(str(out_dir), None)
     return metrics
@@ -320,10 +510,10 @@ def train_m5(world: Any = None, *, seed: int = 7, models_dir: str | Path | None 
 
 # ---------------------------------------------------------------- inferență
 
-_CACHE: dict[str, tuple[Any, dict]] = {}
+_CACHE: dict[str, tuple[Any, dict, dict | None]] = {}
 
 
-def _load(models_dir: str | Path | None = None) -> tuple[Any, dict]:
+def _load(models_dir: str | Path | None = None) -> tuple[Any, dict, dict | None]:
     import lightgbm as lgb
 
     d = _models_dir(models_dir)
@@ -331,7 +521,8 @@ def _load(models_dir: str | Path | None = None) -> tuple[Any, dict]:
     if key not in _CACHE:
         if not (d / MODEL_FILE).exists():
             train_m5(models_dir=d)
-        _CACHE[key] = (lgb.Booster(model_file=str(d / MODEL_FILE)), read_json(d / META_FILE))
+        stack = load_pickle(d / STACK_FILE) if (d / STACK_FILE).exists() else None
+        _CACHE[key] = (lgb.Booster(model_file=str(d / MODEL_FILE)), read_json(d / META_FILE), stack)
     return _CACHE[key]
 
 
@@ -350,17 +541,25 @@ def score_accounts(graph: dict, *, models_dir: str | Path | None = None, top_k: 
                    include_external: bool = False) -> list[AccountScore]:
     """Scorul de cont-cărăuș pentru conturile Băncii Demo din graf (modelul e antrenat pe conturi interne).
 
+    Scorul e al ansamblului (meta LR peste GBDT, PageRank personalizat din conturile raportate, anomalia
+    IsolationForest și scorul doar-reguli); `top_features` sunt contribuțiile TreeSHAP ale GBDT-ului.
     Cu `include_external=True` se punctează și conturile de la alte bănci, dar banca vede doar fluxurile lor cu
     conturile interne, deci scorul lor e orientativ. Nodurile exchange și numerar nu se punctează."""
-    booster, meta = _load(models_dir)
+    booster, meta, stack = _load(models_dir)
     g, feats, kinds, nodes = _graph_inputs(graph)
     allowed = ("internal", "external") if include_external else ("internal",)
     scored = [n["id"] for n in nodes if kinds[n["id"]] in allowed and feats.get(n["id"])]
     if not scored:
         return []
-    X = pd.concat([own_frame(feats, scored), graph_features(g, feats, kinds, nodes=scored)], axis=1)[meta["features"]]
+    X_own = own_frame(feats, scored)
+    X = pd.concat([X_own, graph_features(g, feats, kinds, nodes=scored)], axis=1)[meta["features"]]
     prob = booster.predict(X)
     contrib = booster.predict(X, pred_contrib=True)
+    if stack is not None:
+        ppr = ppr_from_seeds(g, kinds, feats)
+        iso = -stack["iforest"].score_samples(_iso_matrix(X_own))
+        rules = np.array([rules_score(feats[n]) for n in scored])
+        prob = stack["meta"].predict_proba(_meta_x(prob, np.array([ppr.get(n, 0.0) for n in scored]), iso, rules))[:, 1]
     comm = communities(graph)
     names = meta["features"]
     out = []

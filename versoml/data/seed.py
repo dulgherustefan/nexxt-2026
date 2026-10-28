@@ -20,11 +20,48 @@ from typing import Any
 from versoml.data import aml_world, ids
 from versoml.data import artifacts as art
 from versoml.data.calendar_ro import iso, parse_ts
-from versoml.data.repos import connect, epoch, insert, table_columns
+from versoml.data.repos import _sqlval, connect, epoch, table_columns
 from versoml.data.scenarios import SCENARIOS, ScenarioBundle, build_case, build_scenario
 from versoml.data.schema import AML_DDL, CLIENT_DDL, CLIENT_TABLES
 from versoml.data.text import fmt_ron
 from versoml.data.world import World, generate_world, static_catalogs
+
+
+_PLAIN = {str, int, float, type(None)}
+
+
+def insert(conn, table: str, records: list[dict], columns: list[str]) -> int:
+    """Ca `repos.insert`, dar convertește doar valorile care nu sunt deja tipuri SQLite (lumea are ~10^7 valori)."""
+    if not records:
+        return 0
+    sql = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})"
+    plain = _PLAIN
+    conn.executemany(sql, [tuple([v if type(v) in plain else _sqlval(v) for v in map(r.get, columns)])
+                           for r in records])
+    return len(records)
+
+
+def _split_ddl(ddl: str) -> tuple[str, str]:
+    """Tabelele întâi, indexurile după încărcare (mai rapid pe sute de mii de rânduri)."""
+    stmts = [x.strip() for x in ddl.split(";") if x.strip()]
+    idx = [x for x in stmts if x.upper().startswith("CREATE INDEX")]
+    rest = [x for x in stmts if x not in idx]
+    return ";\n".join(rest) + ";\n", (";\n".join(idx) + ";\n") if idx else ""
+
+
+def _bulk_mode(conn) -> None:
+    # baza e nouă: fără jurnal cât timp o umplem (un seed întrerupt se reface de la zero)
+    conn.execute("PRAGMA journal_mode=OFF")
+    conn.execute("PRAGMA synchronous=OFF")
+    conn.execute("PRAGMA temp_store=MEMORY")
+    conn.execute("PRAGMA cache_size=-200000")
+
+
+def _serve_mode(conn, indexes: str) -> None:
+    if indexes:
+        conn.executescript(indexes)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
 
 
 def _reset(path: Path) -> None:
@@ -97,9 +134,9 @@ def _notifications(txs: list[dict], customer_ref: str, now_iso: str, prefix: str
 
 def write_client(path: Path, world: World, bundles: list[ScenarioBundle], seed: int) -> dict[str, int]:
     conn = connect(path)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=OFF")
-    conn.executescript(CLIENT_DDL)
+    tables, indexes = _split_ddl(CLIENT_DDL)
+    _bulk_mode(conn)
+    conn.executescript(tables)
     data: dict[str, list[dict]] = {t: [] for t in CLIENT_TABLES}
     data["customers"] += world.customers
     data["accounts"] += world.accounts
@@ -159,7 +196,7 @@ def write_client(path: Path, world: World, bundles: list[ScenarioBundle], seed: 
             "demo_customers": json.dumps(["CUST-DEMO-01", "CUST-DEMO-02"])}
     insert(conn, "meta", [{"key": k, "value": v} for k, v in meta.items()], ["key", "value"])
     conn.execute("COMMIT")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    _serve_mode(conn, indexes)
     conn.close()
     return counts
 
@@ -189,9 +226,9 @@ def _dedupe(table: str, recs: list[dict]) -> list[dict]:
 
 def write_aml(path: Path, world: World, bundles: list[ScenarioBundle], seed: int) -> dict[str, int]:
     conn = connect(path)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=OFF")
-    conn.executescript(AML_DDL)
+    tables, indexes = _split_ddl(AML_DDL)
+    _bulk_mode(conn)
+    conn.executescript(tables)
     flows = list(world.flows)
     extra_accounts: list[dict] = []
     labels = list(world.labels)
@@ -248,7 +285,7 @@ def write_aml(path: Path, world: World, bundles: list[ScenarioBundle], seed: int
             "note_labels": "synthetic_labels and patterns are the ground truth, for training and evaluation only"}
     insert(conn, "meta", [{"key": k, "value": v} for k, v in meta.items()], ["key", "value"])
     conn.execute("COMMIT")
-    conn.execute("PRAGMA synchronous=NORMAL")
+    _serve_mode(conn, indexes)
     conn.close()
     return counts
 

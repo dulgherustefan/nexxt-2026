@@ -293,7 +293,7 @@ const SCENARIO: Record<Scenario, string> = {
   frauda_client: "Customer fraud",
   reclamatie_tardiva: "Reported after 13 months",
   plata_dubla: "Duplicate charge",
-  inel_carausi: "Mule ring",
+  inel_carausi: "One scam, several victims",
   injectie_document: "Hidden instructions",
   marfa_nelivrata: "Goods not delivered",
 };

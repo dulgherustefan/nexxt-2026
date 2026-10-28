@@ -1,12 +1,12 @@
 # VersoML evaluation report
 
-Generated: 2026-10-28T19:25:26.848552+00:00 · LLM mode: live
+Generated: 2026-10-28T20:32:50.213708+00:00 · LLM mode: live
 
 | Metric | Value | Target |
 |---|---|---|
-| Rules: T+1 verdict on the golden set (40) | 100.0% | 100% |
+| Rules: refund verdict on the golden set (40) | 100.0% | 100% |
 | Rules: verdict on 300 generated cases | 100.0% | 100% |
-| Correct T+1 deadlines | 100.0% | 100% |
+| Correct refund deadlines | 100.0% | 100% |
 | Recall of escalations to a person | 100.0% | ≥ 0.95 |
 | Non-interference: leaks across the wall | 0 | 0 |
 | Non-interference: decisions changed by the AML zone | 0 | 0 |
@@ -32,7 +32,7 @@ Generated: 2026-10-28T19:25:26.848552+00:00 · LLM mode: live
   "escalation_recall": 1.0,
   "deadline_accuracy": 1.0,
   "recovery_accuracy": 1.0,
-  "ms_per_case": 1.114,
+  "ms_per_case": 1.233,
   "failures": []
  },
  "rules_generated": {
@@ -42,7 +42,7 @@ Generated: 2026-10-28T19:25:26.848552+00:00 · LLM mode: live
   "escalation_recall": 1.0,
   "deadline_accuracy": 1.0,
   "recovery_accuracy": 1.0,
-  "ms_per_case": 0.163,
+  "ms_per_case": 0.176,
   "failures": []
  },
  "privacy": {
@@ -68,13 +68,13 @@ Generated: 2026-10-28T19:25:26.848552+00:00 · LLM mode: live
  },
  "ml": {
   "seed": 7,
-  "generated_at": "2026-10-28T21:20:54+02:00",
-  "seconds_total": 9.25,
+  "generated_at": "2026-10-28T22:14:57+02:00",
+  "seconds_total": 9.75,
   "seconds": {
-   "world": 1.19,
-   "m1": 6.07,
+   "world": 1.23,
+   "m1": 6.44,
    "m2": 0.22,
-   "m5": 1.64,
+   "m5": 1.72,
    "m6_m7": 0.13
   },
   "m1_classifier": {
@@ -127,7 +127,7 @@ Generated: 2026-10-28T19:25:26.848552+00:00 · LLM mode: live
     "dispute_type": 1.0,
     "scenario": 0.9333
    },
-   "held_out": "corpus generat cu alt seed (seed+1000): aceleași șabloane, alte persoane, stiluri și fapte; acuratețea pe reclamații reale va fi mai mică"
+   "held_out": "a corpus generated with another seed (seed+1000): the same templates, other people, styles and facts; accuracy on real complaints will be lower"
   },
   "m2_client_fraud": {
    "held_out": {
@@ -144,7 +144,7 @@ Generated: 2026-10-28T19:25:26.848552+00:00 · LLM mode: live
    "n_train": 3750,
    "n_test": 1250,
    "fraud_rate": 0.17,
-   "note": "semnal pentru om; distribuții sintetice suprapuse, nu date reale",
+   "note": "a signal for a person; overlapping synthetic distributions, not real data",
    "model_version": "m2-lgbm-234c294a"
   },
   "m5_mule": {
@@ -228,7 +228,7 @@ Generated: 2026-10-28T19:25:26.848552+00:00 · LLM mode: live
   },
   "m7_counterfactual": {
    "case": "demo_t1",
-   "decide": "oracle.expected_outcome (tabelul comun cu motorul de reguli)",
+   "decide": "oracle.expected_outcome (the table shared with the rules engine)",
    "change_rate": 0.3529,
    "fragile_fields": [
     "amount",
@@ -241,10 +241,10 @@ Generated: 2026-10-28T19:25:26.848552+00:00 · LLM mode: live
    "n_variants": 17
   },
   "synthetic": true,
-  "note": "Toate metricile sunt pe date sintetice; pe date reale vor fi mai mici."
+  "note": "Every metric is on synthetic data; on real data they will be lower."
  },
  "noninterference": {
-  "at": "2026-10-28T19:25:26.835963+00:00",
+  "at": "2026-10-28T20:32:50.202275+00:00",
   "scenarios": [
    "demo_t1",
    "card_visa_secure",
@@ -259,7 +259,7 @@ Generated: 2026-10-28T19:25:26.848552+00:00 · LLM mode: live
   "letters_failing_filter": 0,
   "canaries_planted": 5,
   "canary_hits_in_client_zone": 0,
-  "bytes_scanned": 1451561,
+  "bytes_scanned": 2121165,
   "leaks": 0,
   "statuses": {
    "demo_t1": [

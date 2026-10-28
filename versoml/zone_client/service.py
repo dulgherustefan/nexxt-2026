@@ -32,7 +32,7 @@ SCENARIO_TITLES = {
     "frauda_client": ("Possible first-party fraud", "Known device, repeated claims"),
     "reclamatie_tardiva": ("Claim after 14 months", "Past the 13-month limit"),
     "plata_dubla": ("Double charge", "Processing error at the merchant"),
-    "inel_carausi": ("Money mule ring", "Several victims, the same IBAN"),
+    "inel_carausi": ("One scam, several victims", "Several customers paid the same IBAN"),
     "injectie_document": ("Complaint with hidden instructions", "Instructions to the system hidden in the text"),
     "marfa_nelivrata": ("Goods not delivered", "Dispute with the merchant"),
 }

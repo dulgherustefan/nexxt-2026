@@ -79,8 +79,8 @@ export const SCENARIOS: ScenarioInfo[] = [
   },
   {
     id: "inel_carausi",
-    title: "Money mule ring: three victims, one IBAN",
-    description: "The money moves on to crypto in under 24 hours. The graph links the cases; a draft STR waits in the AML zone.",
+    title: "One scam, several victims",
+    description: "Three customers paid the same IBAN after the same fake page.",
     channel: "transfer",
     expected_verdict: "RAMBURSEAZA_CU_APROBARE",
   },

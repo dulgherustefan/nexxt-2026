@@ -1,4 +1,5 @@
 import NumberFlow from "@number-flow/react";
+import { usePageTheme } from "../../ui/ThemeToggle";
 import {
   ArrowCounterClockwise,
   ArrowDownLeft,
@@ -81,6 +82,7 @@ type SheetState = { tx: BankTransaction; mode: "details" | "confirm" } | null;
 const APP_BG = "#f7f7f8";
 
 export default function BankPage() {
+  usePageTheme("light");
   const api = useApi();
   const { mode, mockReason } = useRuntime();
   const [search] = useSearchParams();

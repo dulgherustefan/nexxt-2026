@@ -1,4 +1,5 @@
 import { ArrowRight, Check, CircleNotch, CreditCard, Package, Warning, WarningCircle, WarningOctagon, X } from "@phosphor-icons/react";
+import { usePageTheme } from "../../ui/ThemeToggle";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useApi } from "../../api/runtime";
@@ -24,6 +25,7 @@ const FEE = "RON 2.99";
 const DEMO_RED = "#c4321d";
 
 export default function FakePage() {
+  usePageTheme("light");
   const api = useApi();
   const [search] = useSearchParams();
   const ref = clientFrom(search);

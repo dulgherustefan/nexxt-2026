@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { cx } from "./kit";
 
@@ -20,6 +20,18 @@ function savedTheme(): Theme | null {
   }
 }
 
+/** Pages with a fixed look: the homepage is always dark, the customer's bank app and the fake courier page always light. */
+export function pageTheme(path: string): Theme | null {
+  if (path === "/") return "dark";
+  if (/^\/(bank|banca|demo)(\/|$)/.test(path)) return "light";
+  return null;
+}
+
+/** The console's theme: the saved choice, else the system setting. */
+function preferredTheme(): Theme {
+  return savedTheme() ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+}
+
 function applyTheme(theme: Theme) {
   const root = document.documentElement;
   root.dataset.theme = theme;
@@ -33,7 +45,7 @@ export function useTheme(): [Theme, (t: Theme) => void] {
   useEffect(() => {
     const sync = () => setThemeState(readTheme());
     const media = matchMedia("(prefers-color-scheme: dark)");
-    const onSystem = () => { if (!savedTheme()) applyTheme(media.matches ? "dark" : "light"); };
+    const onSystem = () => { if (!savedTheme() && !pageTheme(location.pathname)) applyTheme(media.matches ? "dark" : "light"); };
     window.addEventListener(EVENT, sync);
     media.addEventListener("change", onSystem);
     return () => {
@@ -47,6 +59,17 @@ export function useTheme(): [Theme, (t: Theme) => void] {
     applyTheme(t);
   };
   return [theme, setTheme];
+}
+
+/**
+ * Pins a page to one theme while it is mounted (`null`: follow the console preference).
+ * Leaving the page puts the console preference back, so the toggle only ever affects the console.
+ */
+export function usePageTheme(theme: Theme | null) {
+  useLayoutEffect(() => {
+    applyTheme(theme ?? preferredTheme());
+    return () => applyTheme(preferredTheme());
+  }, [theme]);
 }
 
 /** Sun and moon in one shape: the moon's bite slides in, the rays fold away. */

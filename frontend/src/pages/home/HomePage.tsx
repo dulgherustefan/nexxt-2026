@@ -7,7 +7,7 @@ import { TUNNEL_HEADERS } from "../../api/sse";
 import { AnimatedGridPattern } from "../../components/fx/AnimatedGridPattern";
 import { NumberTicker } from "../../components/fx/NumberTicker";
 import { Logo } from "../../ui/Logo";
-import { ThemeToggle } from "../../ui/ThemeToggle";
+import { usePageTheme } from "../../ui/ThemeToggle";
 import { cx } from "../../ui/kit";
 import EvidenceSeal from "./EvidenceSeal";
 import FlowDiagram from "./FlowDiagram";
@@ -17,6 +17,7 @@ const loadFeatures = () => import("./motionFeatures").then((mod) => mod.default)
 const EASE = [0.22, 1, 0.36, 1] as const;
 
 export default function HomePage() {
+  usePageTheme("dark");
   useEffect(() => {
     document.title = "VersoML · Disputed payments, refunded on time";
   }, []);
@@ -117,10 +118,7 @@ function Nav() {
           <a href="#recovery" className="transition-colors hover:text-night-text">Recovery</a>
           <a href="#results" className="transition-colors hover:text-night-text">Results</a>
         </nav>
-        <div className="flex items-center gap-1.5">
-          <ThemeToggle className="text-night-muted hover:bg-glass/[0.06] hover:text-night-text" />
-          <YellowLink to="/cases" size="md">Open console</YellowLink>
-        </div>
+        <YellowLink to="/cases" size="md">Open console</YellowLink>
       </div>
     </header>
   );

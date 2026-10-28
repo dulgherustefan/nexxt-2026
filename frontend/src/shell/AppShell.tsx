@@ -19,7 +19,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { useApi, useResource, useRuntime } from "../api/runtime";
 import { cx, Dot } from "../ui/kit";
 import { Logo, LogoMark } from "../ui/Logo";
-import { ThemeToggle } from "../ui/ThemeToggle";
+import { ThemeToggle, usePageTheme } from "../ui/ThemeToggle";
 import { PhoneDemoDialog } from "./PhoneDemo";
 
 interface NavItem {
@@ -164,6 +164,7 @@ const PAGE_TITLES: Record<string, string> = {
 };
 
 export function AppShell() {
+  usePageTheme(null);
   const [open, setOpen] = useState(false);
   // `?qr=1` opens the QR codes directly, so the presenter can put them on the projector from a link
   const [phones, setPhones] = useState(() => new URLSearchParams(window.location.search).has("qr"));

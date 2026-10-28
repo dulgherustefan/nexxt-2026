@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 from hypothesis import given, settings
@@ -14,6 +14,7 @@ from versoml.shared.rules.calendar_ro import (
     BusinessCalendar, add_banking_days, add_business_days, add_months, business_days_between,
     end_of_next_business_day, is_business_day, months_between, next_business_day, roll_same_hour,
 )
+from versoml.shared.rules.facts import fmt_d, fmt_dt, fmt_money, fmt_num
 
 RO_HOLIDAYS_2026 = [
     date(2026, 1, 1), date(2026, 1, 2), date(2026, 1, 6), date(2026, 1, 7), date(2026, 1, 24),
@@ -26,6 +27,12 @@ RO_HOLIDAYS_2026 = [
 def test_sarbatorile_legale_2026_nu_sunt_zile_lucratoare(d):
     assert not is_business_day(d)
     assert cal.holiday_name(d)
+
+
+def test_numele_sarbatorilor_sunt_in_engleza():
+    assert cal.holiday_name(date(2026, 12, 1)) == "National Day"
+    assert cal.holiday_name(date(2026, 12, 25)) == "Christmas Day"
+    assert cal.holiday_name(date(2026, 10, 28)) is None
 
 
 def test_paste_si_rusalii_ortodoxe_2027():
@@ -155,6 +162,27 @@ def test_months_between():
     assert months_between(date(2025, 9, 15), date(2026, 10, 14)) == 12
     assert months_between(date(2026, 10, 15), date(2025, 9, 15)) == -13
     assert months_between(date(2026, 1, 31), date(2026, 2, 28)) == 1
+
+
+# ---------------------------------------------------------------- formatarea textelor (engleză)
+
+
+def test_sumele_au_codul_monedei_intai_virgula_la_mii_si_punct_la_zecimale():
+    assert fmt_money(3200, "RON") == "RON 3,200.00"
+    assert fmt_money(1234567.891, "EUR") == "EUR 1,234,567.89"
+    assert fmt_money(0.5, "RON") == "RON 0.50"
+    assert fmt_num(0.7) == "0.70" and fmt_num(1.5, 1) == "1.5" and fmt_num(12000, 0) == "12,000"
+
+
+def test_datele_sunt_zi_luna_an_si_ora_romaniei_pe_24h():
+    assert fmt_d(date(2026, 10, 29)) == "29 Oct 2026"
+    assert fmt_d(date(2026, 12, 2)) == "2 Dec 2026"                     # ziua fără zero în față
+    assert fmt_dt(ts(2026, 10, 29, 23, 59, 59)) == "29 Oct 2026, 23:59"
+    assert fmt_dt(ts(2027, 1, 4, 9, 5, 0)) == "4 Jan 2027, 09:05"
+    # 26.10.2026 22:30 UTC = 27.10.2026 00:30 ora României
+    utc = datetime(2026, 10, 26, 22, 30, tzinfo=UTC)
+    assert fmt_dt(utc) == "27 Oct 2026, 00:30" and fmt_d(utc) == "27 Oct 2026"
+    assert fmt_dt(datetime(2026, 6, 15, 21, 0, tzinfo=UTC)) == "16 Jun 2026, 00:00"   # ora de vară, +3
 
 
 # ---------------------------------------------------------------- proprietăți

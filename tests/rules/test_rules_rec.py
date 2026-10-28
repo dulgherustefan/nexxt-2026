@@ -34,7 +34,7 @@ def test_REC01_REC02_sct_inst_eur_camt056_frad_si_15_zile_bancare():
     assert outcome(out, "REC-01") == "camt056_FRAD"
     due = deadline(out, "REC-02").due_at
     assert due == eod(2026, 12, 15)                     # 30.11 și 1.12 nu sunt zile bancare în calendarul RO
-    assert "rechem" in deadline(out, "REC-02").name.lower()
+    assert "recall" in deadline(out, "REC-02").name.lower()
     esc = decision(out, ESCROC)
     assert esc.decision == Verdict.RECHEMARE and esc.requires_human and esc.deadline == due
     assert any("camt.056" in a for a in esc.next_actions)
@@ -45,7 +45,7 @@ def test_REC01_REC02_sct_inst_eur_camt056_frad_si_15_zile_bancare():
 def test_REC02_sct_non_instant_foloseste_parametrul_U():
     ctx = make_ctx(amount=Money(value=900.0, currency="EUR"), notified_at=ts(2026, 11, 20, 10),
                    executed_at=ts(2026, 11, 19, 9))
-    assert "[U]" in hit(evaluate(ctx), "REC-02").explanation
+    assert "an assumption" in hit(evaluate(ctx), "REC-02").explanation
     out = evaluate(ctx, {"sct_recall_answer_banking_days": 10})
     assert deadline(out, "REC-02").due_at == eod(2026, 12, 8)
 
@@ -56,7 +56,7 @@ def test_REC03_beneficiar_la_banca_demo_blocare_interna():
     assert hit(out, "REC-01") is None and hit(out, "REC-04") is None
     esc = decision(out, ESCROC)
     assert esc.decision == Verdict.RECHEMARE and esc.deadline is None
-    assert any("blochează intern" in a for a in esc.next_actions)
+    assert any("Block the amount in the beneficiary's account internally" in a for a in esc.next_actions)
     other = evaluate(make_ctx(beneficiary_iban=XBNK), {"same_bank_codes": ["BDEM", "XBNK"]})
     assert outcome(other, "REC-03") == "rechemare_interna"
 

@@ -1,10 +1,10 @@
 import type { CaseStatus, Channel, DisputeType, Money, Question, Scenario, Verdict } from "./types";
 
-/** Ora României, oricare ar fi fusul calculatorului de pe care rulează demo-ul. */
+/** Bucharest time, whatever time zone the demo laptop is set to. */
 export const TZ = "Europe/Bucharest";
+const LOCALE = "en-GB";
 
-const nf0 = new Intl.NumberFormat("ro-RO", { maximumFractionDigits: 0 });
-const nf2 = new Intl.NumberFormat("ro-RO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const nf0 = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
 
 export function toMoney(v: number | Money | null | undefined, currency = "RON"): Money | null {
   if (v === null || v === undefined) return null;
@@ -13,22 +13,25 @@ export function toMoney(v: number | Money | null | undefined, currency = "RON"):
   return null;
 }
 
-/** 3200 → „3.200 lei"; 1249.9 → „1.249,90 lei". */
+/** 3200 → "RON 3,200.00"; with `{ decimals: 0 }` → "RON 3,200". The code goes first, as in EU style. */
+/** False while the payment hasn't been loaded yet (the API sends a zero amount until then). */
+export function hasAmount(v: number | Money | null | undefined): boolean {
+  const m = toMoney(v);
+  return Boolean(m && m.value > 0);
+}
+
 export function money(v: number | Money | null | undefined, opts: { decimals?: "auto" | 0 | 2 } = {}): string {
   const m = toMoney(v);
   if (!m) return "—";
-  const decimals = opts.decimals ?? "auto";
-  const useTwo = decimals === 2 || (decimals === "auto" && Math.round(m.value * 100) % 100 !== 0);
-  const n = useTwo ? nf2.format(m.value) : nf0.format(m.value);
-  const cur = (m.currency ?? "RON").toUpperCase();
-  if (cur === "RON") return `${n} lei`;
-  if (cur === "EUR") return `${n} €`;
-  return `${n} ${cur}`;
+  const decimals = opts.decimals ?? 2;
+  const digits = decimals === "auto" ? (Math.round(m.value * 100) % 100 !== 0 ? 2 : 0) : decimals;
+  const n = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(m.value);
+  return `${(m.currency ?? "RON").toUpperCase()} ${n}`;
 }
 
 export function num(v: number | null | undefined, digits = 0): string {
   if (v === null || v === undefined || Number.isNaN(v)) return "—";
-  return new Intl.NumberFormat("ro-RO", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(v);
+  return digits === 0 ? nf0.format(v) : new Intl.NumberFormat(LOCALE, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(v);
 }
 
 export function pct(v: number | null | undefined, digits = 0): string {
@@ -52,28 +55,30 @@ export function isValidDate(v: unknown): boolean {
   return !Number.isNaN(t);
 }
 
-/** „29 oct., 23:59" */
+/** "29 Oct, 23:59" */
 export function dateTime(v: string | number | Date | null | undefined): string {
   if (!v || !isValidDate(v)) return "—";
-  return new Intl.DateTimeFormat("ro-RO", {
-    timeZone: TZ,
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
+  return new Intl.DateTimeFormat(LOCALE, { timeZone: TZ, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(d(v));
+}
+
+/** "29 October 2026" */
+export function dateLong(v: string | number | Date | null | undefined): string {
+  if (!v || !isValidDate(v)) return "—";
+  return new Intl.DateTimeFormat(LOCALE, { timeZone: TZ, day: "numeric", month: "long", year: "numeric" }).format(d(v));
+}
+
+/** "Thursday 29 October 2026, 23:59" for tooltips next to a countdown. */
+export function dateFull(v: string | number | Date | null | undefined): string {
+  if (!v || !isValidDate(v)) return "—";
+  return new Intl.DateTimeFormat(LOCALE, {
+    timeZone: TZ, weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(d(v));
 }
 
-/** „29 octombrie 2026" */
-export function dateLong(v: string | number | Date | null | undefined): string {
-  if (!v || !isValidDate(v)) return "—";
-  return new Intl.DateTimeFormat("ro-RO", { timeZone: TZ, day: "numeric", month: "long", year: "numeric" }).format(d(v));
-}
-
-/** „14:02:11" */
+/** "14:02:11" */
 export function clock(v: string | number | Date | null | undefined, seconds = true): string {
   if (!v || !isValidDate(v)) return "—";
-  return new Intl.DateTimeFormat("ro-RO", {
+  return new Intl.DateTimeFormat(LOCALE, {
     timeZone: TZ,
     hour: "2-digit",
     minute: "2-digit",
@@ -82,11 +87,25 @@ export function clock(v: string | number | Date | null | undefined, seconds = tr
   }).format(d(v));
 }
 
-/** „29.10 · 23:59:59" pentru linia conturată de sub ceas. */
+/** "29 Oct 23:59:59" */
 export function deadlineStamp(v: string | number | Date | null | undefined): string {
   if (!v || !isValidDate(v)) return "—";
-  const date = new Intl.DateTimeFormat("ro-RO", { timeZone: TZ, day: "2-digit", month: "2-digit" }).format(d(v));
-  return `${date.replace(/\.$/, "")} ${clock(v)}`;
+  const date = new Intl.DateTimeFormat(LOCALE, { timeZone: TZ, day: "numeric", month: "short" }).format(d(v));
+  return `${date} ${clock(v)}`;
+}
+
+/** "Due tomorrow, 23:59" / "Due today, 18:00" / "Due 31 Oct, 23:59". */
+export function dueLabel(v: string | number | Date | null | undefined, now = Date.now()): string {
+  if (!v || !isValidDate(v)) return "—";
+  const dayKey = (t: Date | number) => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(t);
+  const target = d(v);
+  const today = dayKey(now);
+  const tomorrow = dayKey(now + 86_400_000);
+  const day = dayKey(target);
+  const time = clock(target, false);
+  if (day === today) return `Due today, ${time}`;
+  if (day === tomorrow) return `Due tomorrow, ${time}`;
+  return `Due ${dateTime(target)}`;
 }
 
 export function relative(v: string | number | Date | null | undefined, now = Date.now()): string {
@@ -94,12 +113,12 @@ export function relative(v: string | number | Date | null | undefined, now = Dat
   const diff = Math.round((now - d(v).getTime()) / 1000);
   const abs = Math.abs(diff);
   const future = diff < 0;
-  const wrap = (s: string) => (future ? `peste ${s}` : `acum ${s}`);
-  if (abs < 45) return future ? "în câteva secunde" : "acum câteva secunde";
+  const wrap = (s: string) => (future ? `in ${s}` : `${s} ago`);
+  if (abs < 45) return future ? "in a few seconds" : "just now";
   if (abs < 3600) return wrap(`${Math.round(abs / 60)} min`);
   if (abs < 86400) return wrap(`${Math.round(abs / 3600)} h`);
   const days = Math.round(abs / 86400);
-  return wrap(days === 1 ? "o zi" : `${days} zile`);
+  return wrap(days === 1 ? "1 day" : `${days} days`);
 }
 
 export interface Countdown {
@@ -126,15 +145,15 @@ export function countdownParts(totalSeconds: number): Countdown {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** 81234 s → „22:33:54"; 31 h → „31:05:42"; peste 100 h → „4 zile 03 h". */
+/** 81234 s → "22:33:54"; over 100 h → "4 d 03 h". */
 export function hms(totalSeconds: number): string {
   const c = countdownParts(totalSeconds);
   const hours = c.days * 24 + c.hours;
-  if (hours >= 100) return `${c.days} zile ${pad(c.hours)} h`;
+  if (hours >= 100) return `${c.days} d ${pad(c.hours)} h`;
   return `${pad(hours)}:${pad(c.minutes)}:${pad(c.seconds)}`;
 }
 
-/** 92 → „1 min 32 s". */
+/** 92 → "1 min 32 s". */
 export function duration(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return "—";
   const s = Math.round(seconds);
@@ -152,9 +171,7 @@ export function shortHash(h: string | null | undefined, n = 10): string {
   return clean.length > n ? `${clean.slice(0, n)}…` : clean;
 }
 
-// ------------------------------------------------------------------ texte în română
-
-/** Normalizează cedila la virgulă (ş→ș, ţ→ț), cum cer regulile proiectului la intrare. */
+/** Customers may still write in Romanian: normalize cedilla letters to comma-below (ş→ș, ţ→ț). */
 export function normalizeRo(text: string): string {
   return text
     .replace(/ş/g, "ș")
@@ -164,7 +181,7 @@ export function normalizeRo(text: string): string {
     .normalize("NFC");
 }
 
-/** Pentru potriviri tolerante (ID-uri de pași, nume de agenți). */
+/** Loose matching for step IDs and agent names. */
 export function slug(s: string | null | undefined): string {
   return (s ?? "")
     .normalize("NFD")
@@ -174,14 +191,14 @@ export function slug(s: string | null | undefined): string {
 }
 
 const STATUS: Record<CaseStatus, string> = {
-  NOU: "Nou",
-  IN_ANALIZA: "În analiză",
-  ASTEAPTA_APROBARE: "Așteaptă aprobare",
-  RAMBURSAT: "Rambursat",
-  EXCEPTIE: "Excepție",
-  RESPINS: "Respins",
-  TRASEU_APP: "Traseu APP",
-  INCHIS: "Închis",
+  NOU: "New",
+  IN_ANALIZA: "In progress",
+  ASTEAPTA_APROBARE: "Needs approval",
+  RAMBURSAT: "Refunded",
+  EXCEPTIE: "Exception",
+  RESPINS: "Rejected",
+  TRASEU_APP: "APP fraud review",
+  INCHIS: "Closed",
 };
 
 export function statusLabel(s: string | null | undefined): string {
@@ -190,24 +207,29 @@ export function statusLabel(s: string | null | undefined): string {
 }
 
 const VERDICT: Record<Verdict, string> = {
-  RAMBURSEAZA: "Rambursează",
-  RAMBURSEAZA_CU_APROBARE: "Rambursează cu aprobare",
-  EXCEPTIE_FRAUDA_CLIENT: "Excepție: frauda clientului",
-  RESPINGE_TARDIV: "Respinge: peste 13 luni",
-  NU_SE_APLICA_T1: "T+1 nu se aplică",
+  RAMBURSEAZA: "Refund",
+  RAMBURSEAZA_CU_APROBARE: "Refund after approval",
+  EXCEPTIE_FRAUDA_CLIENT: "Exception: customer fraud",
+  RESPINGE_TARDIV: "Reject: reported after 13 months",
+  NU_SE_APLICA_T1: "Next-day refund doesn't apply",
   CHARGEBACK: "Chargeback",
-  RECHEMARE: "Rechemare",
-  RECUPERARE_PROPUSA: "Recuperare propusă",
-  NU_RECOMANDAM_RECUPERARE: "Nu recomandăm recuperarea",
-  INFORMATII_SUPLIMENTARE: "Cere informații",
-  RTS_PROPUS: "RTS propus",
-  MONITORIZARE: "Monitorizare",
-  INCHIDE: "Închide",
+  RECHEMARE: "Recall",
+  RECUPERARE_PROPUSA: "Recovery proposed",
+  NU_RECOMANDAM_RECUPERARE: "Don't ask the customer to repay",
+  INFORMATII_SUPLIMENTARE: "Ask for more information",
+  RTS_PROPUS: "Report proposed",
+  MONITORIZARE: "Monitor",
+  INCHIDE: "Close",
 };
 
-export function verdictLabel(v: string | null | undefined): string {
-  if (!v) return "Fără verdict";
-  return VERDICT[v as Verdict] ?? v;
+// The engine reuses one code for both recovery questions; the words depend on who would repay.
+const VERDICT_BY_QUESTION: Record<string, Record<string, string>> = {
+  recuperare_escroc: { NU_RECOMANDAM_RECUPERARE: "No recovery to start" },
+};
+
+export function verdictLabel(v: string | null | undefined, question?: string): string {
+  if (!v) return "No decision yet";
+  return (question && VERDICT_BY_QUESTION[question]?.[v]) ?? VERDICT[v as Verdict] ?? v;
 }
 
 export type Tone = "ink" | "yellow" | "alert" | "fog" | "outline" | "paper" | "pink";
@@ -248,12 +270,12 @@ export function statusTone(s: string | null | undefined): Tone {
 }
 
 const QUESTION: Record<Question, string> = {
-  rambursare_t1: "Rambursăm acum?",
-  recuperare_client: "Cerem banii de la client?",
-  recuperare_escroc: "Recuperăm de la escroc?",
-  raspuns_reclamatie: "Răspunsul la reclamație",
-  pista_aml: "Pistă AML",
-  rts: "Raport de tranzacție suspectă",
+  rambursare_t1: "Refund now?",
+  recuperare_client: "Ask the customer to repay?",
+  recuperare_escroc: "Recover from the fraudster?",
+  raspuns_reclamatie: "Reply to the customer",
+  pista_aml: "AML lead",
+  rts: "Suspicious transaction report",
 };
 
 export function questionLabel(q: string | null | undefined): string {
@@ -262,18 +284,18 @@ export function questionLabel(q: string | null | undefined): string {
 }
 
 const SCENARIO: Record<Scenario, string> = {
-  phishing_link: "Link fals (curier)",
-  card_ecom_fara_3ds: "Card online fără 3DS",
-  card_visa_secure: "Card cu Visa Secure",
-  vishing_securitate: "Apel „de la securitate”",
-  cont_sigur: "„Cont sigur”",
+  phishing_link: "Fake delivery link",
+  card_ecom_fara_3ds: "Card online, no 3-D Secure",
+  card_visa_secure: "Card with Visa Secure",
+  vishing_securitate: "Fake bank security call",
+  cont_sigur: "“Safe account” scam",
   sim_swap: "SIM swap",
-  frauda_client: "Frauda clientului",
-  reclamatie_tardiva: "Reclamație după 13 luni",
-  plata_dubla: "Plată dublă",
-  inel_carausi: "Inel de cărăuși",
-  injectie_document: "Instrucțiuni ascunse",
-  marfa_nelivrata: "Marfă nelivrată",
+  frauda_client: "Customer fraud",
+  reclamatie_tardiva: "Reported after 13 months",
+  plata_dubla: "Duplicate charge",
+  inel_carausi: "One scam, several victims",
+  injectie_document: "Hidden instructions",
+  marfa_nelivrata: "Goods not delivered",
 };
 
 export function scenarioLabel(s: string | null | undefined): string {
@@ -284,7 +306,7 @@ export function scenarioLabel(s: string | null | undefined): string {
 const CHANNEL: Record<Channel, string> = {
   card: "Card",
   transfer: "Transfer",
-  transfer_instant: "Transfer instant",
+  transfer_instant: "Instant transfer",
 };
 
 export function channelLabel(c: string | null | undefined): string {
@@ -293,10 +315,10 @@ export function channelLabel(c: string | null | undefined): string {
 }
 
 const DISPUTE: Record<DisputeType, string> = {
-  neautorizata: "Neautorizată",
-  app: "Autorizată sub manipulare (APP)",
-  disputa_comerciant: "Dispută cu comerciantul",
-  eroare_procesare: "Eroare de procesare",
+  neautorizata: "Unauthorized",
+  app: "Authorized under manipulation (APP)",
+  disputa_comerciant: "Merchant dispute",
+  eroare_procesare: "Processing error",
 };
 
 export function disputeLabel(t: string | null | undefined): string {

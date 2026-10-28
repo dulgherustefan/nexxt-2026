@@ -55,24 +55,24 @@ def is_test_cnp(cnp: str) -> bool:
 def validate_cnp(cnp: str, *, allow_test_counties: bool = True, today: date | None = None) -> list[str]:
     """Lista de erori (goală = valid). Cu `allow_test_counties=False` se comportă ca un validator strict."""
     if len(cnp) != 13 or not cnp.isdigit():
-        return ["format: sunt necesare exact 13 cifre"]
+        return ["format: exactly 13 digits are required"]
     errors: list[str] = []
     if cnp[0] not in _CENTURY:
-        errors.append(f"S={cnp[0]} nepermis")
+        errors.append(f"S={cnp[0]} is not allowed")
     county = cnp_county(cnp)
     if county not in REAL_COUNTIES and not (allow_test_counties and county in TEST_COUNTIES):
-        errors.append(f"cod județ JJ={county:02d} nepermis")
+        errors.append(f"county code JJ={county:02d} is not allowed")
     if cnp[9:12] == "000":
-        errors.append("NNN=000 (interval 001-999)")
+        errors.append("NNN=000 (the range is 001-999)")
     year = _CENTURY.get(cnp[0], 1900) + int(cnp[1:3])
     try:
         born = date(year, int(cnp[3:5]), int(cnp[5:7]))
         if born > (today or date.today()):
-            errors.append("data nașterii este în viitor")
+            errors.append("the birth date is in the future")
     except ValueError:
-        errors.append("data nașterii inexistentă")
+        errors.append("the birth date does not exist")
     if cnp_check_digit(cnp[:12]) != int(cnp[12]):
-        errors.append("cifra de control greșită")
+        errors.append("wrong check digit")
     return errors
 
 
@@ -99,13 +99,13 @@ def cui_checksum_ok(value: str) -> bool:
 def validate_cui(value: str) -> list[str]:
     cui = normalize_cui(value)
     if not cui.isdigit():
-        return ["format: doar cifre (după eliminarea prefixului RO)"]
+        return ["format: digits only (after removing the RO prefix)"]
     if not 2 <= len(cui) <= 10:
-        return ["lungime în afara intervalului 2-10"]
+        return ["length outside the 2-10 range"]
     if cui[0] == "0":
-        return ["începe cu 0"]
+        return ["starts with 0"]
     if cui_check_digit(cui[:-1]) != int(cui[-1]):
-        return ["cifra de control greșită"]
+        return ["wrong check digit"]
     return []
 
 
@@ -127,10 +127,10 @@ def generate_invalid_cui(rng: random.Random, length: int = 8) -> str:
 
 OWN_BANK = "BDEM"
 FICTIVE_BANKS: dict[str, str] = {
-    "BDEM": "Banca Demo (fictivă)",
-    "XBNK": "Banca X (fictivă)",
-    "YBNK": "Banca Y (fictivă)",
-    "ZBNK": "Banca Z (fictivă)",
+    "BDEM": "Demo Bank (fictitious)",
+    "XBNK": "Bank X (fictitious)",
+    "YBNK": "Bank Y (fictitious)",
+    "ZBNK": "Bank Z (fictitious)",
 }
 OTHER_BANKS = ("XBNK", "YBNK", "ZBNK")
 
@@ -146,7 +146,7 @@ def iban_check_digits(country: str, bban: str) -> str:
 def make_iban(bank: str, account16: str) -> str:
     account16 = account16.upper()
     if len(account16) != 16 or len(bank) != 4:
-        raise ValueError("IBAN RO: cod bancă de 4 litere + 16 caractere")
+        raise ValueError("RO IBAN: a 4-letter bank code + 16 characters")
     return "RO" + iban_check_digits("RO", bank + account16) + bank + account16
 
 
@@ -161,9 +161,9 @@ def normalize_iban(iban: str) -> str:
 def validate_iban_ro(iban: str) -> list[str]:
     s = normalize_iban(iban)
     if not re.fullmatch(r"RO\d{2}[A-Z]{4}[0-9A-Z]{16}", s):
-        return ["format: RO + 2 cifre + 4 litere (cod bancă) + 16 alfanumerice = 24"]
+        return ["format: RO + 2 digits + 4 letters (bank code) + 16 letters or digits = 24"]
     if _numeric(s[4:] + s[:4]) % 97 != 1:
-        return ["cifre de control (mod 97) greșite"]
+        return ["wrong check digits (mod 97)"]
     return []
 
 

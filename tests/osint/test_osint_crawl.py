@@ -43,7 +43,7 @@ async def test_fetch_page_blocks_ssrf_without_any_request(url, settings_with, mo
     with settings_with(versoml_osint_mode="live"):
         result = await crawl.fetch_page(url)
     assert result.ok is False and result.error.startswith("ssrf")
-    assert "garda SSRF" in result.summary
+    assert "SSRF guard" in result.summary
     assert not [c for c in no_network.calls if c.startswith("http")]
 
 
@@ -54,16 +54,16 @@ async def test_guarded_backend_blocks_private_ip_at_connect(monkeypatch):
     async def rebind(host, port):
         return ["10.0.0.1"]
 
-    with pytest.raises(httpx.ConnectError, match="nepublică"):
+    with pytest.raises(httpx.ConnectError, match="non-public"):
         await base.http_request("GET", "http://127.0.0.1:8080/", retries=0)
     monkeypatch.setattr(netguard, "resolver", rebind)
-    with pytest.raises(httpx.ConnectError, match="nepublică"):
+    with pytest.raises(httpx.ConnectError, match="non-public"):
         await base.http_request("GET", "http://rebind.invalid/", retries=0)
 
 
 async def test_fetch_page_refuses_bad_scheme(no_network):
     result = await crawl.fetch_page("file:///C:/Windows/win.ini")
-    assert result.ok is False and "URL refuzat" in result.summary
+    assert result.ok is False and "URL refused" in result.summary
 
 
 async def test_redirect_chain_is_recorded_and_private_hop_blocked(mock_http, public_resolver, settings_with):
@@ -79,7 +79,7 @@ async def test_redirect_chain_is_recorded_and_private_hop_blocked(mock_http, pub
     calls = mock_http(handler)
     with settings_with(versoml_osint_mode="live"):
         result = await crawl.fetch_page("https://scurt.invalid/a1")
-    assert result.ok is False and "blocat" in result.error
+    assert result.ok is False and "blocked" in result.error
     assert [hop["status"] for hop in result.data["redirects"]] == [302, 301]
     assert result.data["redirects"][-1]["location"] == "http://intern.invalid/admin"
     assert len(calls) == 2
@@ -93,7 +93,7 @@ async def test_more_than_three_redirects_stop(mock_http, public_resolver, settin
     mock_http(handler)
     with settings_with(versoml_osint_mode="live"):
         result = await crawl.fetch_page("https://bucla.invalid/0")
-    assert result.ok is False and "prea multe redirecționări" in result.error
+    assert result.ok is False and "too many redirects" in result.error
     assert len(result.data["redirects"]) == 4
 
 
@@ -134,10 +134,10 @@ async def test_fixture_fake_page_analysis(no_network):
     for keyword in ("plată", "confirmă", "taxă", "colet", "livrare", "card", "cod", "verificare", "urgent"):
         assert keyword in data["keywords"], keyword
     assert data["redirects"][0]["status"] == 302
-    assert "Banca Demo" in result.summary and "sub brandurile" in result.summary
+    assert "Demo Bank" in result.summary and "under the Demo Bank and Demo Courier brands" in result.summary
     assert "html" not in data  # HTML-ul nu intră în rezultat; M4 vine deja calculat
     assert data["similarity"]["reference"] == "bancademo_login" and data["similarity"]["score"] >= 0.7
-    assert "Seamănă" in result.summary
+    assert "similar to the Demo Bank sign-in page" in result.summary
     assert not no_network.calls
 
 
@@ -149,8 +149,8 @@ async def test_fixture_legit_page_is_green(no_network):
 
 async def test_courier_fake_page_and_obfuscated_js(no_network):
     result = await crawl.fetch_page("https://confirmare-colet-demo.example/taxa")
-    assert result.signal == "rosu" and "Curier Demo" in result.summary
-    assert "cod ascuns (atob/eval/escape)" in result.data["js_redirect_hints"]
+    assert result.signal == "rosu" and "Demo Courier" in result.summary
+    assert "hidden code (atob/eval/escape)" in result.data["js_redirect_hints"]
     kinds = {f["kind"] for form in result.data["forms"] for f in form["inputs"]}
     assert {"card_holder", "card_number", "expiry", "cvv", "otp"} <= kinds
 

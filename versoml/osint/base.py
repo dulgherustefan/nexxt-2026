@@ -229,6 +229,48 @@ def fmt_dt(value: datetime | None) -> str:
     return value.astimezone(RO_TZ).strftime("%d.%m.%Y, %H:%M")
 
 
+# ---------------------------------------------------------------- English, for what the website shows
+
+MONTHS_EN = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def en_count(n: int, singular: str, plural: str | None = None) -> str:
+    """'1 hour', '5 hours'."""
+    return f"{n} {singular if n == 1 else (plural or singular + 's')}"
+
+
+def en_join(items: Sequence[str]) -> str:
+    """'a', 'a and b', 'a, b and c'."""
+    items = [i for i in items if i]
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def en_ago(hours: float | None) -> str:
+    """'6 hours ago', '3 days ago', '2 years ago'."""
+    if hours is None:
+        return "at an unknown time"
+    if hours < 0:
+        return "with a date in the future (inconsistent)"
+    if hours < 48:
+        return en_count(max(int(round(hours)), 0), "hour") + " ago"
+    days = hours / 24
+    if days < 60:
+        return en_count(int(days), "day") + " ago"
+    if days < 730:
+        return en_count(int(days // 30), "month") + " ago"
+    return en_count(int(days // 365), "year") + " ago"
+
+
+def en_dt(value: datetime | None) -> str:
+    """'29 Oct 2026, 23:59' (Bucharest time, 24-hour)."""
+    if value is None:
+        return "unknown"
+    local = value.astimezone(RO_TZ)
+    return f"{local.day} {MONTHS_EN[local.month - 1]} {local.year}, {local:%H:%M}"
+
+
 # ---------------------------------------------------------------- HTTP
 
 USER_AGENT = "VersoMLBot/0.1 (hackathon NEXXT 2026)"
@@ -335,7 +377,7 @@ def _retry_after(response: httpx.Response) -> float:
 
 
 def _retryable(exc: Exception) -> bool:
-    if isinstance(exc, httpx.ConnectError) and ("nepublic" in str(exc) or "nepermis" in str(exc)):
+    if isinstance(exc, httpx.ConnectError) and any(m in str(exc) for m in ("non-public", "not allowed", "nepublic", "nepermis")):
         return False
     return isinstance(exc, (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError))
 
@@ -676,12 +718,12 @@ def _safe_build(build: Builder, raw: Any, ctx: Ctx, label: str) -> Interp:
     try:
         return build(raw, ctx)
     except Exception as exc:  # noqa: BLE001 - un răspuns ciudat nu oprește investigația
-        log.warning("osint %s: format neașteptat (%s)", label, exc.__class__.__name__)
+        log.warning("osint %s: unexpected format (%s)", label, exc.__class__.__name__)
         return Interp(
             data={},
-            summary=f"{label}: răspuns într-un format neașteptat.",
+            summary=f"{label}: the response came in an unexpected format.",
             ok=False,
-            error=f"format neașteptat: {exc.__class__.__name__}: {str(exc)[:120]}",
+            error=f"unexpected format: {exc.__class__.__name__}: {str(exc)[:120]}",
         )
 
 
@@ -717,9 +759,9 @@ async def run_source(
         found = from_fixture()
         if found is not None:
             return found
-        why = "țintă sintetică" if synthetic else "modul fixture"
-        return failure(tool, args, f"{label}: nu există o înregistrare locală pentru {key} ({why}).",
-                       error="fixture lipsă", started=started)
+        why = "synthetic target" if synthetic else "fixture mode"
+        return failure(tool, args, f"{label}: there is no local record for {key} ({why}).",
+                       error="missing fixture", started=started)
 
     cache = get_cache()
     hit = cache.get(tool, key)
@@ -733,14 +775,14 @@ async def run_source(
             found = from_fixture()
             if found is not None:
                 return found
-        return failure(tool, args, f"{label}: necesită cheie {missing_key} (nu e configurată).",
-                       error=f"lipsește cheia {missing_key}", started=started)
+        return failure(tool, args, f"{label}: needs the {missing_key} key, which is not configured.",
+                       error=f"missing key {missing_key}", started=started)
 
     try:
         raw, source_url = await fetch()
     except Exception as exc:  # noqa: BLE001 - orice eroare a sursei devine rezultat, nu excepție
         err = describe_error(exc)
-        log.info("osint %s: sursa a eșuat (%s)", tool, err)
+        log.info("osint %s: the source failed (%s)", tool, err)
         if mode == "auto":
             stale = cache.get(tool, key, allow_stale=True)
             if stale is not None:
@@ -751,7 +793,7 @@ async def run_source(
             if found is not None:
                 found.data["live_error"] = err
                 return found
-        return failure(tool, args, f"{label} nu a răspuns ({err}).", error=err, mode="live", started=started)
+        return failure(tool, args, f"{label} did not respond ({err}).", error=err, mode="live", started=started)
 
     retrieved = now_ro()
     interp = _safe_build(build, raw, Ctx("live", retrieved, args), label)
@@ -851,7 +893,7 @@ def list_tools() -> list[dict[str, Any]]:
 def get_tool(name: str) -> ToolSpec:
     _ensure_loaded()
     if name not in _REGISTRY:
-        raise KeyError(f"tool OSINT necunoscut: {name}")
+        raise KeyError(f"unknown OSINT tool: {name}")
     return _REGISTRY[name]
 
 
@@ -861,16 +903,16 @@ async def call_tool(name: str, args: dict[str, Any] | None = None) -> ToolResult
     try:
         spec = get_tool(name)
     except KeyError as exc:
-        return failure(name, args, f"Tool necunoscut: {name}.", error=str(exc))
+        return failure(name, args, f"Unknown tool: {name}.", error=str(exc))
     try:
         params = spec.input_model.model_validate(args)
     except ValidationError as exc:
-        return failure(name, args, f"Argumente invalide pentru {name}.", error=str(exc)[:300])
+        return failure(name, args, f"Invalid arguments for {name}.", error=str(exc)[:300])
     kwargs = {k: getattr(params, k) for k in type(params).model_fields}
     try:
         value = spec.fn(**kwargs)
         if inspect.isawaitable(value):
             value = await value
     except Exception as exc:  # noqa: BLE001 - tool-urile nu au voie să rupă agentul
-        return failure(name, args, f"{name} a eșuat neașteptat.", error=describe_error(exc))
+        return failure(name, args, f"{name} failed unexpectedly.", error=describe_error(exc))
     return value

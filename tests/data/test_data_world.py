@@ -70,7 +70,7 @@ def test_companies_have_invalid_cui(world):
     assert world.companies
     for c in world.companies:
         assert c["cui_checksum_valid"] is False
-        assert ids.validate_cui(c["cui"]) == ["cifra de control greșită"], c
+        assert ids.validate_cui(c["cui"]) == ["wrong check digit"], c
 
 
 def test_ips_domains_phones(world):

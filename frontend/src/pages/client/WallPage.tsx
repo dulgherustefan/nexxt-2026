@@ -1,9 +1,9 @@
-import { Ban, ShieldAlert, ShieldCheck, X } from "lucide-react";
+import { ArrowRightLeft, Ban, Check, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { clock, dateTime, relative } from "../../api/format";
 import { useApi, useResource } from "../../api/runtime";
 import type { AttackKind, AttackResult, PolicyDecision, WallLayer, WallState } from "../../api/types";
-import { Banner, Button, cx, Dot, EmptyState, ErrorNote, IdTag, PageHeader, SectionBoundary, Skeleton, useNowTick } from "../../ui/kit";
+import { Banner, cx, Dot, EmptyState, ErrorNote, IdTag, PageHeader, Panel, SectionBoundary, Skeleton, useNowTick } from "../../ui/kit";
 import { InlineCode, ro, TABLE, fold } from "./trustUi";
 
 // ------------------------------------------------------------------ controalele
@@ -333,100 +333,218 @@ export default function WallPage() {
     <>
       <PageHeader
         title="Zidul"
-        description="Zidul ține investigația AML departe de client: avertizarea beneficiarului e infracțiune (Legea 129/2019, art. 38 alin. 2). Încearcă să treci de el."
-      />
+        description="Separă zona client de zona AML: nimic din investigația AML nu ajunge la client, pentru că avertizarea beneficiarului (tipping-off) e infracțiune (Legea 129/2019, art. 38 alin. 2)."
+      >
+        <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1" aria-live="polite">
+          {!wall.data ? (
+            wall.error ? (
+              <span className="text-muted">Starea zidului nu e disponibilă acum.</span>
+            ) : (
+              <Skeleton className="h-6 w-80" />
+            )
+          ) : (
+            <>
+              {allActive ? (
+                <ShieldCheck aria-hidden className="size-5 text-ok" />
+              ) : (
+                <ShieldAlert aria-hidden className="size-5 text-danger" />
+              )}
+              <span className={cx("font-semibold", !allActive && "text-danger")}>
+                {active}/{controls.length} controale active
+              </span>
+              <span aria-hidden className="text-subtle">·</span>
+              <span>{ro(blocked, "încercare blocată", "încercări blocate")}</span>
+              {passed > 0 && (
+                <>
+                  <span aria-hidden className="text-subtle">·</span>
+                  <span className="font-semibold text-danger">{ro(passed, "încercare a trecut", "încercări au trecut")}</span>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </PageHeader>
 
-      <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.9333rem]" aria-live="polite">
-        {!wall.data ? (
-          wall.error ? <span className="text-muted">Starea zidului nu e disponibilă acum.</span> : <Skeleton className="h-5 w-72" />
-        ) : (
-          <>
-            {allActive ? <ShieldCheck aria-hidden className="size-4 text-ok" /> : <ShieldAlert aria-hidden className="size-4 text-danger" />}
-            <span className={cx("font-semibold", !allActive && "text-danger")}>{active} din {controls.length} straturi active</span>
-            <span aria-hidden className="text-subtle">·</span>
-            <span className="text-muted">{ro(blocked, "încercare oprită", "încercări oprite")}</span>
-            {passed > 0 && <span className="font-semibold text-danger">· {ro(passed, "încercare a trecut", "încercări au trecut")}</span>}
-          </>
+      <div
+        className={cx(
+          "grid gap-4",
+          "md:grid-cols-2 md:[grid-template-areas:'client_aml'_'wall_wall']",
+          "xl:grid-cols-[minmax(0,1fr)_minmax(0,1.75fr)_minmax(0,1fr)] xl:[grid-template-areas:'client_wall_aml']",
         )}
+      >
+        <div className="md:[grid-area:client]">
+          <ZonePanel
+            title="Zona client"
+            who="Operatorul de contestații și agenții lui."
+            can={[
+              "Citește tranzacția, autentificările și dispozitivul",
+              "Decide cu motorul de reguli, cu ID de regulă pe fiecare decizie",
+              "Redactează scrisoarea către client, după filtrul zidului",
+            ]}
+            sends="Trimite spre AML doar faptele contestației, semnate."
+            gets="Primește din AML doar HOLD: da sau nu, aprobat de un om."
+          />
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-4 md:[grid-area:wall]">
+          <SectionBoundary label="Controalele zidului">
+            <Panel title="Cele șase controale" bodyClassName="p-0">
+              {wall.error && !wall.data ? (
+                <div className="p-4"><ErrorNote error={wall.error} what="starea zidului" onRetry={wall.reload} /></div>
+              ) : !wall.data ? (
+                <div className="flex flex-col gap-3 p-4">{ORDER.map((k) => <Skeleton key={k} className="h-16" />)}</div>
+              ) : controls.length === 0 ? (
+                <div className="p-4"><EmptyState title="Serverul nu a trimis niciun control.">Pornește zona client din nou, apoi reîncarcă pagina.</EmptyState></div>
+              ) : (
+                <ul className="flex flex-col gap-2 p-3">
+                  {controls.map((c) => {
+                    const hit = latest?.blocked ? latest.stoppers.some((s) => s.key && s.key === c.key) : false;
+                    return (
+                      <ControlRow
+                        key={c.id}
+                        control={c}
+                        active={isActive(c)}
+                        ni={c.key === "neinterferenta" ? ni : undefined}
+                        last={c.key ? log.find((r) => r.blocked && r.controlKey === c.key) : undefined}
+                        hit={hit && latest ? latest : null}
+                        now={now}
+                      />
+                    );
+                  })}
+                  {latest?.blocked &&
+                    latest.stoppers
+                      .filter((s) => !s.key || !controls.some((c) => c.key === s.key))
+                      .map((s) => (
+                        <li key={`extra-${latest.id}-${s.label}`} className="relative rounded-md border-2 border-danger bg-paper px-3 py-2.5 animate-flash">
+                          <p className="font-semibold">{s.label}</p>
+                          <StoppedNote attempt={latest} />
+                        </li>
+                      ))}
+                </ul>
+              )}
+              {wall.error && wall.data && (
+                <p className="border-t border-line px-4 py-2 text-[0.8667rem] text-danger">
+                  Nu mai primesc actualizări de la server; afișez starea primită la {lastOk ? clock(lastOk) : "ultima citire"}. Reîncerc automat.
+                </p>
+              )}
+            </Panel>
+          </SectionBoundary>
+
+          <Panel title="Testează zidul">
+            <p className="text-muted">Fiecare buton trimite o încercare reală spre server. Controlul care o oprește se marchează mai sus.</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {TESTS.map((t) => (
+                <button
+                  key={t.kind}
+                  type="button"
+                  onClick={() => runTest(t.kind)}
+                  disabled={running !== null}
+                  aria-busy={running === t.kind || undefined}
+                  className={cx(
+                    "flex min-h-[4.25rem] flex-col items-start justify-center gap-0.5 rounded-md border border-line-strong bg-paper px-3 py-2.5 text-left hover:bg-hover",
+                    "disabled:cursor-not-allowed disabled:opacity-60",
+                  )}
+                >
+                  <span className="font-semibold">{running === t.kind ? "Se trimite…" : t.label}</span>
+                  <span className="text-[0.8667rem] text-muted">{t.tries}</span>
+                </button>
+              ))}
+            </div>
+            {testError && (
+              <div className="mt-3">
+                <Banner
+                  tone="danger"
+                  icon={<ShieldAlert aria-hidden className="size-5 text-danger" />}
+                  title="Testul nu a rulat."
+                  actions={<button type="button" className="h-8 rounded-md border border-line-strong bg-paper px-3 text-[0.8667rem] font-semibold hover:bg-hover" onClick={() => runTest(testError.kind)}>Încearcă din nou</button>}
+                >
+                  Motiv: {testError.message} Zidul nu s-a schimbat; încercarea nu a ajuns la server.
+                </Banner>
+              </div>
+            )}
+            {latest && !latest.blocked && (
+              <div className="mt-3">
+                <Banner tone="danger" icon={<ShieldAlert aria-hidden className="size-5 text-danger" />} title="Încercarea nu a fost oprită.">
+                  {TESTS.find((t) => t.kind === latest.kind)?.label}: {latest.detail}
+                </Banner>
+              </div>
+            )}
+            {latest?.blocked && (
+              <p className="mt-3 flex items-start gap-2 text-[0.9333rem]" aria-live="polite">
+                <Ban aria-hidden className="mt-0.5 size-4 shrink-0 text-danger" />
+                <span>
+                  Ultimul test, la {clock(latest.at)}: oprit de <span className="font-semibold">{latest.controlLabel ?? "zid"}</span>
+                  {wall.data ? ", marcat mai sus." : `. ${latest.detail}`}
+                </span>
+              </p>
+            )}
+          </Panel>
+        </div>
+
+        <div className="md:[grid-area:aml]">
+          <ZonePanel
+            title="Zona AML"
+            aml
+            who="Analistul AML, într-o consolă și un proces separate."
+            can={[
+              "Investighează contul care a primit banii",
+              "Graful banilor, scorul de cont-cărăuș și OSINT pe date publice",
+              "Pregătește ciorna de raport (RTS); decizia o ia analistul",
+            ]}
+            sends="Trimite spre client doar HOLD, după aprobarea unui om."
+            gets="Nu scrie nimic în scrisorile către client."
+          />
+        </div>
       </div>
 
-      <section aria-labelledby="wall-attacks" className="mb-8">
-        <h3 id="wall-attacks" className="mb-3 font-semibold">Atacă zidul</h3>
-        <ul className="divide-y divide-line rounded-lg border border-line">
-          {TESTS.map((t) => {
-            const last = attempts.find((a) => a.kind === t.kind);
-            return (
-              <li key={t.kind} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-                <div className="min-w-[14rem] flex-1">
-                  <p className="text-[0.9333rem] font-medium">{t.label}</p>
-                  <p className="text-[0.8667rem] text-muted">{t.tries}</p>
-                </div>
-                {last && (
-                  <span className={cx("inline-flex items-center gap-1.5 text-[0.8667rem]", last.blocked ? "text-ink-soft" : "font-semibold text-danger")}>
-                    {last.blocked ? <Ban aria-hidden className="size-3.5 text-danger" /> : <X aria-hidden className="size-3.5" />}
-                    {last.blocked ? <>Oprit de <span className="font-semibold text-ink">{last.controlLabel ?? "zid"}</span></> : "A trecut"}
-                  </span>
-                )}
-                <Button size="sm" busy={running === t.kind} disabled={running !== null} onClick={() => runTest(t.kind)}>
-                  {last ? "Atacă din nou" : "Atacă"}
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
-        {testError && (
-          <div className="mt-3">
-            <Banner tone="danger" icon={<ShieldAlert aria-hidden className="size-5 text-danger" />} title="Testul nu a ajuns la server.">
-              Motiv: {testError.message}
-            </Banner>
+      <SectionBoundary label="Jurnalul încercărilor">
+        <section className="mt-6" aria-labelledby="wall-log">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="wall-log" className="text-[1.0667rem] font-semibold">Jurnalul încercărilor</h2>
+            <span className="text-[0.8667rem] text-muted">Testele de pe această pagină și refuzurile înregistrate de server</span>
           </div>
-        )}
-      </section>
-
-      <SectionBoundary label="Straturile zidului">
-        <section aria-labelledby="wall-layers">
-          <h3 id="wall-layers" className="mb-3 font-semibold">Cele șase straturi</h3>
-          {wall.error && !wall.data ? (
-            <ErrorNote error={wall.error} what="starea zidului" onRetry={wall.reload} />
-          ) : !wall.data ? (
-            <div className="flex flex-col gap-2">{ORDER.map((k) => <Skeleton key={k} className="h-14" />)}</div>
-          ) : controls.length === 0 ? (
-            <EmptyState title="Serverul nu a trimis niciun strat.">Pornește din nou zona client, apoi reîncarcă pagina.</EmptyState>
-          ) : (
-            <ol className="divide-y divide-line rounded-lg border border-line">
-              {controls.map((c, i) => {
-                const hit = latest?.blocked ? latest.stoppers.some((s) => s.key && s.key === c.key) : false;
-                return (
-                  <ControlRow key={c.id} n={i + 1} control={c} active={isActive(c)} ni={c.key === "neinterferenta" ? ni : undefined}
-                    last={c.key ? log.find((r) => r.blocked && r.controlKey === c.key) : undefined} hit={hit && latest ? latest : null} now={now} />
-                );
-              })}
-            </ol>
-          )}
-          {wall.error && wall.data && (
-            <p className="mt-2 text-[0.8667rem] text-danger">Nu mai primesc actualizări; afișez starea de la {lastOk ? clock(lastOk) : "ultima citire"}.</p>
-          )}
+          <AttemptLog rows={log} loading={!wall.data && !wall.error} now={now} />
           <NonInterferenceLine ni={ni} loaded={Boolean(wall.data)} />
         </section>
-      </SectionBoundary>
-
-      <SectionBoundary label="Jurnalul încercărilor">
-        <details className="group mt-8 rounded-lg border border-line">
-          <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3">
-            <span className="font-semibold">Jurnalul încercărilor</span>
-            <span className="text-[0.8667rem] text-muted">{ro(log.length, "intrare", "intrări")}</span>
-          </summary>
-          <div className="border-t border-line p-4">
-            <AttemptLog rows={log} loading={!wall.data && !wall.error} now={now} />
-          </div>
-        </details>
       </SectionBoundary>
     </>
   );
 }
 
-function ControlRow({ n, control, active, ni, last, hit, now }: {
-  n: number;
+// ------------------------------------------------------------------ piese
+
+function ZonePanel({ title, who, can, sends, gets, aml }: {
+  title: string; who: string; can: string[]; sends: string; gets: string; aml?: boolean;
+}) {
+  return (
+    <Panel
+      className={cx(aml && "border-ink")}
+      title={
+        <span className="flex items-center gap-2">
+          {title}
+          {aml && <span className="rounded-sm bg-ink px-1.5 py-px text-[0.8667rem] font-semibold text-paper">proces separat</span>}
+        </span>
+      }
+    >
+      <p className="text-[0.9333rem] text-muted">{who}</p>
+      <p className="mt-3 text-[0.8667rem] font-semibold text-muted">Ce poate face</p>
+      <ul className="mt-1.5 flex flex-col gap-1.5">
+        {can.map((c) => (
+          <li key={c} className="flex gap-2 text-[0.9333rem]">
+            <Check aria-hidden className="mt-0.5 size-4 shrink-0" />
+            <span>{c}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-4 flex flex-col gap-1.5 border-t border-line pt-3 text-[0.9333rem]">
+        <p className="flex gap-2"><ArrowRightLeft aria-hidden className="mt-0.5 size-4 shrink-0 text-muted" /><span>{sends}</span></p>
+        <p className="flex gap-2"><Ban aria-hidden className="mt-0.5 size-4 shrink-0 text-muted" /><span>{gets}</span></p>
+      </div>
+    </Panel>
+  );
+}
+
+function ControlRow({ control, active, ni, last, hit, now }: {
   control: Control;
   active: boolean;
   ni?: WallState["noninterference"];
@@ -444,25 +562,40 @@ function ControlRow({ n, control, active, ni, last, hit, now }: {
       : active
         ? { tone: "ok" as const, word: "Activ" }
         : { tone: "danger" as const, word: "Inactiv" };
-  let lastText: ReactNode = null;
+
+  let lastText: ReactNode;
   if (control.key === "neinterferenta") {
-    lastText = ni && ni.runs > 0 ? <>{ro(ni.runs, "rulare", "rulări")}, {ro(ni.leaks, "scurgere", "scurgeri")}{ni.at ? ` · ${dateTime(ni.at)}` : ""}</> : <>Nu a rulat încă: <InlineCode>uv run versoml eval</InlineCode></>;
-  } else if (last) {
-    lastText = <>A oprit {last.short}{last.at ? ` · ${relative(last.at, now)}` : ""}</>;
-  }
-  return (
-    <li key={hit ? hit.id : "idle"} className={cx("grid grid-cols-[1.5rem_minmax(0,1fr)_auto] gap-x-3 px-4 py-3", hit && "animate-flash bg-yellow-tint")}
-      title={`Starea raportată de server: ${control.status || "necunoscută"}`}>
-      <span className="pt-px font-mono text-[0.8rem] text-muted tabular-nums">{n}</span>
-      <div className="min-w-0">
-        <p className="text-[0.9333rem] font-medium">{control.name}</p>
-        {blocks && <p className="mt-0.5 text-[0.8667rem] text-muted">{blocks}</p>}
-        {hit ? <StoppedNote attempt={hit} /> : lastText ? <p className="mt-1 text-[0.8rem] text-subtle">{lastText}</p> : null}
-      </div>
-      <span className="inline-flex items-center gap-1.5 pt-px text-[0.8667rem] font-medium whitespace-nowrap">
-        <Dot tone={status.tone} />
-        {status.word}
+    lastText = ni && ni.runs > 0 ? (
+      <span className={cx(leaks && "font-semibold text-danger")}>
+        {ro(ni.runs, "rulare", "rulări")}, {ro(ni.leaks, "scurgere", "scurgeri")}{ni.at ? ` · ${dateTime(ni.at)}` : ""}
       </span>
+    ) : (
+      <span>Nu a rulat încă: <InlineCode>uv run versoml eval</InlineCode></span>
+    );
+  } else if (last) {
+    lastText = <span>A oprit {last.short}{last.at ? ` · ${relative(last.at, now)}` : ""}</span>;
+  } else {
+    lastText = <span>Nicio încercare oprită încă</span>;
+  }
+
+  return (
+    <li
+      key={hit ? hit.id : "idle"}
+      className={cx(
+        "relative rounded-md border bg-paper px-3 py-2.5",
+        hit ? "border-2 border-danger animate-flash" : "border-line",
+      )}
+      title={`Starea raportată de server: ${control.status || "necunoscută"}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+        <p className="font-semibold">{control.name}</p>
+        <span className="inline-flex items-center gap-1.5 text-[0.8667rem] font-semibold">
+          <Dot tone={status.tone} />
+          {status.word}
+        </span>
+      </div>
+      {blocks && <p className="mt-0.5 text-[0.9333rem] text-ink-soft">{blocks}</p>}
+      {hit ? <StoppedNote attempt={hit} /> : <p className="mt-1 text-[0.8667rem] text-muted">{lastText}</p>}
     </li>
   );
 }
@@ -470,9 +603,9 @@ function ControlRow({ n, control, active, ni, last, hit, now }: {
 function StoppedNote({ attempt }: { attempt: Attempt }) {
   return (
     <div className="mt-1.5">
-      <p className="flex items-center gap-1.5 text-[0.9333rem] font-semibold">
-        <Ban aria-hidden className="size-4 text-danger" />
-        Acest strat a oprit atacul
+      <p className="flex items-center gap-1.5 font-semibold text-danger">
+        <Ban aria-hidden className="size-4" />
+        A oprit încercarea
         <span className="font-normal text-muted">· {clock(attempt.at)}</span>
       </p>
       <p className="mt-0.5 text-[0.9333rem]">{attempt.detail}</p>

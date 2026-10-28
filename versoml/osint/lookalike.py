@@ -25,7 +25,7 @@ from typing import Any
 
 from rapidfuzz.distance import DamerauLevenshtein, JaroWinkler
 
-from versoml.osint.base import ToolResult, failure, fmt_dec, tool
+from versoml.osint.base import ToolResult, en_count, failure, tool
 from versoml.osint.params import param
 from versoml.osint.util import DomainParts, split_domain, to_ascii
 
@@ -96,12 +96,6 @@ RISKY_TLDS = frozenset({
     "top", "xyz", "online", "site", "shop", "icu", "live", "click", "support", "help", "buzz", "cfd", "sbs",
     "rest", "monster", "cyou", "quest", "vip", "work", "store", "website", "space", "fun", "life",
 })
-FUZZER_RO = {
-    "addition": "adăugare", "bitsquatting": "bitsquatting", "homoglyph": "homoglifă", "hyphenation": "cratimă",
-    "insertion": "inserare", "omission": "omisiune", "repetition": "repetare", "replacement": "înlocuire",
-    "transposition": "transpoziție", "vowel-swap": "schimbare de vocală", "plural": "plural",
-    "dictionary": "dicționar", "tld-swap": "schimbare de TLD", "subdomain": "subdomeniu",
-}
 
 
 # ---------------------------------------------------------------- schelet și permutări
@@ -222,45 +216,45 @@ def _features(parts: DomainParts, brand: DomainParts, age_hours: float | None,
     perm = permutations(brand.registered).get(parts.registered) or permutations(brand.registered).get(parts.host)
     feats["permutation"] = perm
     if perm:
-        add("permutation", 1, f"apare în permutările generate pentru {brand.registered} ({FUZZER_RO.get(perm, perm)})")
+        add("permutation", 1, f"appears among the permutations generated for {brand.registered} ({perm.replace('-', ' ')})")
     if label == blabel and parts.suffix != brand.suffix:
-        add("tld_swap", 1, f"eticheta brandului „{blabel}” pe alt TLD (.{parts.suffix} în loc de .{brand.suffix})")
+        add("tld_swap", 1, f"the brand name \"{blabel}\" on another TLD (.{parts.suffix} instead of .{brand.suffix})")
     elif skel == bskel and label != blabel:
-        add("skeleton_equal", 1, f"arată la fel ca „{blabel}” (homoglife, cratime sau rn→m), dar e alt domeniu")
+        add("skeleton_equal", 1, f"looks the same as \"{blabel}\" (homoglyphs, hyphens or rn→m) but is another domain")
     elif blabel in label and label != blabel:
-        add("brand_in_label", 1, f"conține brandul „{blabel}” plus alte cuvinte (combosquatting)")
+        add("brand_in_label", 1, f"contains the brand \"{blabel}\" plus other words (combosquatting)")
     elif bskel in skel and len(bskel) >= 4:
-        add("brand_in_skeleton", 1, f"conține brandul „{blabel}” scris cu caractere înșelătoare")
+        add("brand_in_skeleton", 1, f"contains the brand \"{blabel}\" written with deceptive characters")
     if parts.subdomain and bskel in skeleton(parts.subdomain).replace(".", "") and parts.registered != brand.registered:
-        add("brand_in_subdomain", 1, f"brandul „{blabel}” e pus în subdomeniu, domeniul real fiind {parts.registered}")
+        add("brand_in_subdomain", 1, f"the brand \"{blabel}\" sits in a subdomain; the real domain is {parts.registered}")
     dl = 1 - DamerauLevenshtein.normalized_distance(label, blabel)
     jw = JaroWinkler.normalized_similarity(label, blabel)
     feats.update({"sim_damerau_levenshtein": round(dl, 3), "sim_jaro_winkler": round(jw, 3)})
     if dl >= 0.75 and label != blabel:
-        add("typo", (dl - 0.75) / 0.25, f"diferă de „{blabel}” prin foarte puține caractere (similaritate {fmt_dec(dl)})")
+        add("typo", (dl - 0.75) / 0.25, f"differs from \"{blabel}\" by very few characters (similarity {dl:.2f})")
     if jw >= 0.85 and label != blabel:
-        add("jaro_winkler", (jw - 0.85) / 0.15, f"începe aproape identic cu „{blabel}” (Jaro-Winkler {fmt_dec(jw)})")
+        add("jaro_winkler", (jw - 0.85) / 0.15, f"starts almost exactly like \"{blabel}\" (Jaro-Winkler {jw:.2f})")
     kws = _keywords(label, blabel)
     feats["keywords"] = kws
     if kws:
-        add("keyword", min(len(kws), 3), "cuvinte de risc: " + ", ".join(kws))
+        add("keyword", min(len(kws), 3), "risk words: " + ", ".join(kws))
     hyphens = label.count("-")
     feats["hyphens"] = hyphens
     if hyphens:
-        add("hyphen", min(hyphens, 3), f"{hyphens} cratime" if hyphens > 1 else "o cratimă")
+        add("hyphen", min(hyphens, 3), f"{hyphens} hyphens" if hyphens > 1 else "a hyphen")
     if parts.is_idn:
-        add("idn", 1, f"domeniu IDN (punycode {parts.registered} = {parts.unicode_registered})")
+        add("idn", 1, f"an IDN domain (punycode {parts.registered} = {parts.unicode_registered})")
     if parts.suffix in RISKY_TLDS:
-        add("risky_tld", 1, f"TLD .{parts.suffix}, frecvent în campanii de phishing")
+        add("risky_tld", 1, f"the .{parts.suffix} TLD, common in phishing campaigns")
     if age_hours is not None:
         days = age_hours / 24
         if days < float(param("domain_age_red_days")):
-            add("young_domain", 1, f"domeniu înregistrat acum {age_hours:.0f} ore" if age_hours < 48
-                else f"domeniu înregistrat acum {days:.0f} zile")
+            add("young_domain", 1, f"domain registered {en_count(round(age_hours), 'hour')} ago" if age_hours < 48
+                else f"domain registered {en_count(int(round(days)), 'day')} ago")
         elif days < float(param("domain_age_yellow_days")):
-            add("young_domain", 0.5, f"domeniu înregistrat acum {days:.0f} zile")
+            add("young_domain", 0.5, f"domain registered {en_count(int(round(days)), 'day')} ago")
     if cert_age_hours is not None and cert_age_hours < float(param("cert_age_red_hours")):
-        add("young_cert", 1, f"primul certificat TLS emis acum {cert_age_hours:.0f} ore")
+        add("young_cert", 1, f"first TLS certificate issued {en_count(round(cert_age_hours), 'hour')} ago")
     z = WEIGHTS["bias"] + sum(r["weight"] for r in reasons)
     return z, reasons, feats
 
@@ -271,7 +265,7 @@ def _logistic(z: float) -> float:
 
 
 def _fmt(score: float) -> str:
-    return f"{score:.2f}".replace(".", ",")
+    return f"{score:.2f}"
 
 
 def score_domain(domain: str, protected: list[str] | None = None, age_hours: float | None = None,
@@ -279,7 +273,7 @@ def score_domain(domain: str, protected: list[str] | None = None, age_hours: flo
     """Calculul M3 fără ambalajul ToolResult (folosit și de alte module)."""
     parts = split_domain(domain)
     if parts is None:
-        raise ValueError(f"domeniu invalid: {domain}")
+        raise ValueError(f"invalid domain: {domain}")
     brands = [b for b in (split_domain(p) for p in (protected or param("protected_domains"))) if b]
     allow = {split_domain(a).registered for a in param("allowlist_domains") if split_domain(a)}
     base = {"domain": parts.host, "unicode_domain": parts.unicode_host, "registered": parts.registered,
@@ -288,7 +282,7 @@ def score_domain(domain: str, protected: list[str] | None = None, age_hours: flo
     if own is not None or parts.registered in allow:
         name = own.registered if own else parts.registered
         return {**base, "score": 0.01, "closest_brand": name, "legit": True, "permutation_match": None,
-                "explanations": [{"reason": f"este chiar domeniul protejat {name} (sau un subdomeniu al lui)",
+                "explanations": [{"reason": f"is the protected domain {name} itself (or one of its subdomains)",
                                   "weight": None, "feature": "protected"}], "features": {}}
     best: tuple[float, list[dict[str, Any]], dict[str, Any]] | None = None
     per_brand: dict[str, float] = {}
@@ -327,18 +321,18 @@ def lookalike_score(domain: str, protected: list[str] | None = None, age_hours: 
     try:
         data = score_domain(domain, protected, age_hours, cert_age_hours)
     except ValueError as exc:
-        return failure("lookalike_score", args, f"Domeniu invalid: {domain}.", error=str(exc))
+        return failure("lookalike_score", args, f"Invalid domain: {domain}.", error=str(exc))
     args["domain"] = data["registered"] if data.get("legit") else data["domain"]
     score, brand = data["score"], data.get("closest_brand")
     if data["legit"]:
-        summary, signal = f"{data['domain']} este domeniul protejat {brand} (sau un subdomeniu): nu e sosie.", "verde"
+        summary, signal = f"{data['domain']} is the protected domain {brand} (or a subdomain of it): not a lookalike.", "verde"
     else:
         top = [r["reason"] for r in data["explanations"][:3]]
-        reason = "; ".join(top) if top else "nicio asemănare cu domeniile protejate"
-        summary = f"Scor de sosie {_fmt(score)} față de {brand}: {reason}."
+        reason = "; ".join(top) if top else "no resemblance to the protected domains"
+        summary = f"Lookalike score {_fmt(score)} against {brand}: {reason}."
         kws = data["features"].get("keywords", [])
         if score < float(param("lookalike_yellow")) and len(kws) >= 2:
-            summary = (f"Nu imită direct un domeniu protejat (scor {_fmt(score)}), dar are cuvinte de risc: "
+            summary = (f"It does not directly imitate a protected domain (score {_fmt(score)}), but it has risk words: "
                        f"{', '.join(kws)}.")
         if score >= float(param("lookalike_red")):
             signal = "rosu"

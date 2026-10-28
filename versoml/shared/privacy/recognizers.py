@@ -226,7 +226,33 @@ _NAME_RE = re.compile(
     rf"(?P<name>{_NAME_WORD}(?:[ \t]+{_NAME_WORD}){{0,2}})"
 )
 _NOT_NAMES = {"banca", "bancii", "client", "clientul", "clientului", "operator", "operatorul", "director",
-              "directorul", "judecator", "avocat", "agent", "agentul", "ofiter", "ofiterul", "demo", "urma"}
+              "directorul", "judecator", "avocat", "agent", "agentul", "ofiter", "ofiterul", "demo", "urma",
+              # English words that start a line or follow a cue with a capital letter
+              "please", "thanks", "thank", "hi", "hello", "hey", "dear", "regards", "sincerely", "the", "my", "your",
+              "our", "this", "that", "it", "i", "we", "you", "and", "but", "help", "sir", "madam", "customer", "bank",
+              "card", "account", "money", "yes", "no", "ok", "kind", "best", "sorry", "urgent", "very", "really",
+              "not", "visa", "mastercard", "whatsapp", "facebook", "google", "apple", "romanian", "english"}
+
+# English cues: complaints are written in English now. Each family has its own shape, to keep false hits low.
+_EN_CUE_RE = re.compile(
+    r"(?i:\b(?:my\s+(?:full\s+)?name\s+is|(?:full\s+)?name\s*:|account\s+holder\s*:|card\s*holder\s*:|signed\s*[:,]?"
+    r"|(?:mr|mrs|ms|miss|mx|dr)\.?)\s+)"
+    rf"(?P<name>{_NAME_WORD}(?:[ \t]+{_NAME_WORD}){{0,2}})"
+)
+# "I'm Ana Popescu", "This is Ana Popescu": a first and a last name, so "I'm Very" never counts
+_EN_SELF_RE = re.compile(
+    r"(?i:\b(?:i'?m|i\s+am|this\s+is)\s+)"
+    rf"(?P<name>{_NAME_WORD}(?:[ \t]+{_NAME_WORD}){{1,2}})"
+)
+# a sign-off, then the name alone on the next line ("Kind regards,\nAna Testescu"; "Cu stimă,\nAna Testescu")
+_SIGN_OFF_RE = re.compile(
+    r"(?i:\b(?:kind\s+regards|best\s+regards|warm\s+regards|regards|many\s+thanks|thanks|thank\s+you(?:\s+in\s+advance)?"
+    r"|sincerely|yours\s+(?:sincerely|faithfully|truly)|best\s+wishes|cheers|best|cu\s+stim[ăa]|cu\s+respect"
+    r"|(?:v[ăa]\s+)?mul[țt]umesc(?:\s+anticipat)?))\s*[,.!]?[ \t]*\n[ \t]*"
+    rf"(?P<name>{_NAME_WORD}(?:[ \t]+{_NAME_WORD}){{0,2}})[ \t]*(?=\n|$)"
+)
+# the signature line: two or three name words alone on the last line of a message, even after a mistyped sign-off
+_SIGNATURE_RE = re.compile(rf"(?:^|\n)[ \t]*(?P<name>{_NAME_WORD}(?:[ \t]+{_NAME_WORD}){{1,2}})[ \t]*(?=\n[ \t]*\n|\s*$)")
 
 
 def name_key(name: str) -> str:
@@ -235,11 +261,15 @@ def name_key(name: str) -> str:
 
 
 def find_names(text: str) -> Iterator[Finding]:
-    for m in _NAME_RE.finditer(text):
-        name = m.group("name")
-        if fold(name.split()[0].split("-")[0]) in _NOT_NAMES:
-            continue
-        yield Finding("NUME", m.start("name"), m.end("name"), name, name_key(name), True, source="heuristic")
+    seen: set[tuple[int, int]] = set()
+    for pattern in (_NAME_RE, _EN_CUE_RE, _EN_SELF_RE, _SIGN_OFF_RE, _SIGNATURE_RE):
+        for m in pattern.finditer(text):
+            name = m.group("name")
+            span = (m.start("name"), m.end("name"))
+            if span in seen or fold(name.split()[0].split("-")[0]) in _NOT_NAMES:
+                continue
+            seen.add(span)
+            yield Finding("NUME", span[0], span[1], name, name_key(name), True, source="heuristic")
 
 
 # ---------------------------------------------------------------- entități cunoscute

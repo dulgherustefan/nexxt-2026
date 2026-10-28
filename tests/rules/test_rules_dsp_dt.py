@@ -156,7 +156,7 @@ def test_DT07_scrisoare_pe_hartie_termen_t1_depasit_la_inregistrare():
     out = evaluate(ctx)
     assert outcome(out, "DSP-03") == "DSP_REFUND_SLA_BREACHED"
     assert t1(out).deadline == eod(2026, 10, 20)
-    assert t1(out).next_actions[0].startswith("escaladare imediată")
+    assert t1(out).next_actions[0].startswith("Escalate now")
     assert decision(out, ANSWER).deadline == eod(2026, 11, 9)
     assert outcome(out, "DSP-32") == "DSP_CARDHOLDER_PROOF_MISSING"
     assert outcome(out, "DSP-57") == "suma_de_confirmat"
@@ -178,8 +178,8 @@ def test_DT09_131_nelivrat_fara_dovada_contactarii_comerciantului():
                    merchant_contact_proof=False, amount=Money(value=499.0))
     out = evaluate(ctx)
     assert outcome(out, "DSP-53") == "DSP_EVIDENCE_MISSING"
-    assert deadline(out, "DSP-24", "Cel mai devreme").due_at == eod(2026, 11, 4)
-    assert deadline(out, "DSP-24", "(emitent)").due_at == eod(2027, 2, 17)
+    assert deadline(out, "DSP-24", "Earliest").due_at == eod(2026, 11, 4)
+    assert deadline(out, "DSP-24", "(issuer)").due_at == eod(2027, 2, 17)
     assert t1(out).decision == Verdict.NU_SE_APLICA_T1 and not t1(out).requires_human
     answer = decision(out, ANSWER)
     assert answer.deadline == eod(2026, 11, 16) and answer.decision == Verdict.INFORMATII_SUPLIMENTARE
@@ -191,7 +191,7 @@ def test_DT10a_atm_fara_numerar_139_termen_neverificat():
                    card_present=True, amount=Money(value=500.0), executed_at=ts(2026, 10, 24, 12),
                    notified_at=ts(2026, 10, 26, 9))
     out = evaluate(ctx)
-    assert hit(out, "DSP-20").explanation.startswith("Condiția Visa 13.9")
+    assert hit(out, "DSP-20").explanation.startswith("Visa condition 13.9")
     assert outcome(out, "DSP-24") == "DSP_DEADLINE_UNVERIFIED"
     assert flag(out) == "INCERT" and t1(out).decision == Verdict.NU_SE_APLICA_T1
 
@@ -214,7 +214,7 @@ def test_DT10c_preautorizare_nedeblocata_nu_e_chargeback():
 def test_DT11_mastercard_4837_candidat_omul_alege_ruta():
     out = evaluate(dt01(card_scheme="mastercard"))
     assert outcome(out, "PAY-03") == "PAY_REFUND_DUE" and t1(out).deadline == eod(2026, 10, 27)
-    assert hit(out, "DSP-40").explanation.startswith("Cod Mastercard candidat: 4837")
+    assert hit(out, "DSP-40").explanation.startswith("Candidate Mastercard reason code: 4837")
     assert outcome(out, "DSP-42") == "DSP_RULE_UNVERIFIED" and outcome(out, "DSP-43") == "DSP_RULE_UNVERIFIED"
     assert flag(out) == "INCERT" and hit(out, "DSP-52").params["reason_code"] == "4837"
     esc = decision(out, ESCROC)
@@ -235,7 +235,7 @@ def test_DT12_ce3_indeplinit_retinere_propusa_four_eyes():
     out = evaluate(ctx)
     assert outcome(out, "DSP-30") == "DSP_CE3_MET" and flag(out) == "NU"
     assert t1(out).decision == Verdict.RAMBURSEAZA_CU_APROBARE
-    assert any("notificarea către autoritate" in a for a in t1(out).next_actions)
+    assert any("notice to the authority" in a for a in t1(out).next_actions)
     # omul infirmă: rambursare; notificarea netrimisă: PAY_FRAUD_NOTICE_MISSING; trimisă: excepția
     assert outcome(evaluate(ctx.model_copy(update={"ce3_met": False})), "PAY-03") == "PAY_REFUND_DUE"
     missing = evaluate(ctx.model_copy(update={"hold_signal": True}))
@@ -273,7 +273,7 @@ def test_DT14_prearbitraj_fara_raspuns_termen_in_risc():
 
 def test_DT15_reversarea_creditului():
     ok = validate_reversal("comerciant_a_rambursat")
-    assert ok.allowed and any("aprobare umană" in a for a in ok.next_actions)
+    assert ok.allowed and any("human sign-off" in a for a in ok.next_actions)
     blocked = validate_reversal("neglijenta_grava")
     assert not blocked.allowed and blocked.code == "DSP_REVERSAL_BLOCKED"
     assert any("PAY-06" in a for a in blocked.next_actions)
@@ -303,7 +303,7 @@ def test_DT17a_card_de_credit_pe_numele_victimei():
     out = evaluate(make_ctx(channel=Channel.CARD, credit_fraud=True, notified_at=ts(2026, 11, 2, 10)))
     assert outcome(out, "DSP-16") == "DSP_ROUTE_CREDIT_FRAUD"
     assert decision(out, ANSWER).deadline == eod(2026, 12, 2)
-    assert any("Biroul de Credit" in a for a in t1(out).next_actions)
+    assert any("Credit Bureau" in a for a in t1(out).next_actions)
     assert t1(out).decision == Verdict.NU_SE_APLICA_T1 and t1(out).requires_human
 
 
@@ -312,7 +312,7 @@ def test_DT17b_implicarea_unui_angajat_raspundere_0_si_conformitate():
     assert outcome(out, "PAY-04") == "DSP_STAFF_INVOLVEMENT"
     rec = decision(out, CLIENT)
     assert rec.decision == Verdict.NU_RECOMANDAM_RECUPERARE
-    assert any("conformitatea" in a for a in rec.next_actions)
+    assert any("compliance" in a for a in rec.next_actions)
 
 
 def test_DT18b_raspuns_final_fara_cai_de_sesizare():

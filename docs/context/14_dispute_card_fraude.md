@@ -1,7 +1,7 @@
 # 14 · Dispute card, chargeback și fraude: reguli, flux și teste pentru agent
 
 > **Pentru:** dezvoltatorii echipei NEXXT Summit 2026 (track Raiffeisen „AI for Operational Efficiency”) care construiesc un agent: primește o dispută card sau o cerere de fraudă, aplică regulile legale și de schemă, propune un rezultat sau ridică o excepție, pe date sintetice.
-> **Surse:** `research_notes/Oportunități AI operațiuni Raiffeisen România/carduri_dispute_chargeback_fraude.md` (principală); din `reguli_kyc_aml_credit_plati_reclamatii.md` doar plăți, Legea 209/2019 și reclamații; din `voc_reclamatii_raiffeisen.md` doar fraudele și disputele; comunicatul CURIA nr. 147/26 (C-70/25), deschis în această sesiune.
+> **Surse:** cercetarea echipei despre dispute card, chargeback și fraude (principală); din cea despre reguli doar plăți, Legea 209/2019 și reclamații; din analiza reclamațiilor clienților doar fraudele și disputele; comunicatul CURIA nr. 147/26 (C-70/25).
 > **Redactat:** 28.10.2026. **Nu e aviz juridic.** Regulile [S] și [U] nu devin blocări dure fără verificare în textul oficial.
 
 | Marcaj | Sens |
@@ -93,7 +93,7 @@ Alte tipare: phishing prin fals cumpărător de pe o platformă de anunțuri, ti
 
 Textul general al articolelor e în 11 (PAY-01–PAY-15, CMP-01–CMP-07). Regulile DSP le aplică în fluxul de dispute: ce verifică motorul, pe ce date, ce excepție ridică. Articolele vin din textul original al Legii 209/2019 (L209); consolidările din 20.03.2025 și 05.03.2026 nu au fost revizuite, deci numerotarea trebuie verificată.
 
-**C-70/25 [Tukowiecka], hotărârea din 15.10.2026 (comunicatul CURIA 147/26, recitit în această sesiune) [P]**
+**C-70/25 [Tukowiecka], hotărârea din 15.10.2026 (comunicatul CURIA 147/26) [P]**
 - **Fapte:** o clientă a unei bănci poloneze a urmat linkul unui fals cumpărător spre un site care imita banca și și-a introdus datele de internet banking; terțul a transferat echivalentul a circa 700 EUR. Ea a notificat a doua zi, iar banca a refuzat, invocând neglijența gravă în păstrarea datelor de securitate.
 - **Regula:** PSP-ul rambursează imediat, cel târziu până la sfârșitul zilei lucrătoare care urmează zilei în care a constatat tranzacția sau a fost notificat, dacă clientul a notificat fără întârziere nejustificată. Excepția unică (PSD2 art. 73(1)): motive rezonabile de suspiciune de fraudă comisă de client, comunicate autorității naționale competente. Neglijența gravă presupusă nu permite refuzul.
 - **Recuperarea:** rambursarea și suportarea finală a pierderii sunt separate. Ulterior, PSP-ul poate cere pierderea dacă stabilește intenția sau neglijența gravă a clientului; proba îi revine. Altfel obligația ar fi golită de efect, iar clientul ar trebui să meargă el în instanță.

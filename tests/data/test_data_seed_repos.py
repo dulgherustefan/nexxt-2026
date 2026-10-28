@@ -61,7 +61,7 @@ def test_aml_db_has_no_victim_names_or_cnps(seeded):
 def test_client_repo_customer_and_balance(seeded):
     repo = ClientRepo(seeded["client_db"], clock=lambda: WORLD_NOW)
     c = repo.get_customer("CUST-DEMO-01")
-    assert c["alias"] == "Client Demo" and c["synthetic"] is True and ids.is_test_cnp(c["cnp"])
+    assert c["alias"] == "Demo Customer 01" and c["synthetic"] is True and ids.is_test_cnp(c["cnp"])
     assert repo.balance("CUST-DEMO-01") == pytest.approx(12450.00)
     assert c["primary_iban"].startswith("RO") and ids.iban_bank_code(c["primary_iban"]) == "BDEM"
     assert repo.get_customer("CUST-NU-EXISTA") is None
@@ -77,7 +77,7 @@ def test_client_repo_phishing_records(seeded):
     auths = repo.get_auth_events(tx["tx_id"])
     enroll = [a for a in auths if a["purpose"] == "device_enrollment"]
     assert enroll and enroll[0]["method"] == "sms_otp" and enroll[0]["screen_showed_amount_and_payee"] is False
-    assert "dispozitiv nou" in enroll[0]["otp_text"] and "lei" not in enroll[0]["otp_text"]
+    assert "new device" in enroll[0]["otp_text"] and "RON" not in enroll[0]["otp_text"]
     s = repo.get_session(tx["session_id"])
     assert int((parse_ts(tx["ts"]) - parse_ts(s["clicked_at"])).total_seconds()) == 125
     devs = repo.get_device_history("CUST-SC-01")
@@ -143,7 +143,8 @@ def test_post_transfer_and_refund_idempotent(dbs, clock):
     with pytest.raises(ValueError):
         repo.post_refund("CT-ALT", "CUST-DEMO-01", 3200.0, "refund:CT-2026-900015")
     notes = [n["text"] for n in repo.list_notifications("CUST-DEMO-01", 5)]
-    assert any("returnat" in n for n in notes) and any("dispozitiv nou" in n for n in notes)
+    assert "We refunded RON 3,200.00 for dispute CT-2026-900015." in notes
+    assert any("activated on a new device" in n for n in notes) and any(n.startswith("You sent RON 3,200.00 to ") for n in notes)
 
 
 def test_aml_profile_has_no_demographics(seeded):

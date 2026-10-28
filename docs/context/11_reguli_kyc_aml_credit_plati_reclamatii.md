@@ -1,7 +1,7 @@
 # 11 — Reguli codificabile RO/UE pentru back-office bancar: KYC/AML, sancțiuni, credit, plăți și fraude, reclamații, protecția datelor și guvernanța AI
 
 > **Pentru cine:** dezvoltatori și agenți de cod care implementează motorul de reguli și suita de teste pentru MVP-ul NEXXT Summit 2026 (track Raiffeisen „AI for Operational Efficiency”): agent care primește un document sau date, aplică reguli predefinite și produce un rezultat sau o excepție, pe date sintetice.
-> **Surse:** `research_notes/Oportunități AI operațiuni Raiffeisen România/reguli_kyc_aml_credit_plati_reclamatii.md` (sursa principală, cu starea juridică verificată la 28.10.2026). Din `carduri_dispute_chargeback_fraude.md`, apărut după redactare, s-a preluat doar hotărârea CJUE C‑70/25 (PAY-03, PAY-06, PAY-15, arborele 4.2, testele aferente). Disputele card și chargeback-ul sunt tratate în [14_dispute_card_fraude.md](14_dispute_card_fraude.md).
+> **Surse:** cercetarea echipei despre reguli KYC/AML, credit, plăți și reclamații (sursa principală, cu starea juridică verificată la 28.10.2026). Din cea despre dispute card, apărută după redactare, s-a preluat doar hotărârea CJUE C‑70/25 (PAY-03, PAY-06, PAY-15, arborele 4.2, testele aferente). Disputele card și chargeback-ul sunt tratate în [14_dispute_card_fraude.md](14_dispute_card_fraude.md).
 > **Nu este aviz juridic.** Regulile [S] și [U] nu se folosesc drept blocări dure fără verificare în textul oficial și confirmare umană.
 
 **Taguri de încredere** (preluate din note): **[P]** citit în textul oficial; **[S]** sursă secundară; **[U]** neverificat, contradictoriu sau proiect; **[P-proiect]** proiect oficial citit, neadoptat; **[Inf]** inferență de design din secțiunile „Inferences” ale notelor (nu e regulă juridică).
@@ -280,7 +280,7 @@ Plafonul DAE pentru IFN (27 pp peste rata facilității de creditare BNR; 8 pp l
 | Data | Schimbare | Tag |
 |---|---|---|
 | 20.11.2026 | CCD2 art. 18 aplicabil, fără transpunere RO găsită | [S] |
-| 2.12.2027 | AI Act: obligațiile pentru Anexa III (inclusiv evaluarea bonității) amânate de la 2.08.2026 prin Digital Omnibus, adoptat ca Regulamentul (UE) 2026/1744 (acord 7.05.2026, Parlament 16.06.2026, Consiliu 29.06.2026; publicat în JO pe 24.07.2026, în vigoare din 27.07.2026). Anexa I: 2.08.2028. Confirmat din mai multe surse juridice secundare ([Mondaq](https://www.mondaq.com/eu-digital-omnibus-on-ai-enters-into-force/1825722), [Gibson Dunn](https://www.gibsondunn.com/eu-ai-act-omnibus-agreement)) și din `ai_operatiuni_bancare_benchmark_reglementare.md`; textul din JO nu a fost citit | [S] |
+| 2.12.2027 | AI Act: obligațiile pentru Anexa III (inclusiv evaluarea bonității) amânate de la 2.08.2026 prin Digital Omnibus, adoptat ca Regulamentul (UE) 2026/1744 (acord 7.05.2026, Parlament 16.06.2026, Consiliu 29.06.2026; publicat în JO pe 24.07.2026, în vigoare din 27.07.2026). Anexa I: 2.08.2028. Confirmat din mai multe surse juridice secundare ([Mondaq](https://www.mondaq.com/eu-digital-omnibus-on-ai-enters-into-force/1825722), [Gibson Dunn](https://www.gibsondunn.com/eu-ai-act-omnibus-agreement)) și din cercetarea echipei despre AI în operațiunile bancare; textul din JO nu a fost citit | [S] |
 | 2.08.2028 | AI Act: sisteme încorporate în produse (Anexa I) | [S/U] |
 | în lucru | Proiectul de ordin ANAF pentru consimțământ prin SPV | [S/U] |
 
@@ -777,7 +777,7 @@ Argumentul calitativ, tot din note: campaniile de actualizare KYC duc la conturi
 
 **Plăți și fraude**
 - Legea 209/2019 (text 2019, copie CSALB): https://csalb.ro/wp-content/uploads/2020/01/legea-nr-209-2019-privind-serviciile-de-plata-si-pentru-modificarea-unor-acte-normative.pdf · pagina legislatie.just.ro: https://legislatie.just.ro/Public/DetaliiDocument/219736
-- CJUE C‑70/25 (Tukowiecka), comunicatul de presă 147/26: https://curia.europa.eu/site/upload/docs/application/pdf/2026-10/cp260147en.pdf · opinia AG Rantos, comunicatul 31/26: https://curia.europa.eu/site/upload/docs/application/pdf/2026-03/cp260031en.pdf (ambele preluate din `carduri_dispute_chargeback_fraude.md`)
+- CJUE C‑70/25 (Tukowiecka), comunicatul de presă 147/26: https://curia.europa.eu/site/upload/docs/application/pdf/2026-10/cp260147en.pdf · opinia AG Rantos, comunicatul 31/26: https://curia.europa.eu/site/upload/docs/application/pdf/2026-03/cp260031en.pdf
 - Practica din RO înainte de C‑70/25 (CSALB, 9.09.2026): https://csalb.ro/wp-content/uploads/2026/09/Credite-fraudate_Comunicat-de-presa-CSALB_09.09.2026.pdf
 - APP scam: https://www.bitdefender.com/ro-ro/blog/hotforsecurity/frauda-autorizata-vs-neautorizata
 - Chargeback: https://www.chargeflow.io/fr/blog/chargeback-time-limit · https://www.infocontact.ro/recuperare-bani-chargeback-comanda-online/

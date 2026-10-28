@@ -24,8 +24,8 @@ from versoml.osint.base import (
     ToolResult,
     configured_mode,
     describe_error,
-    ro_count,
-    ro_join,
+    en_count,
+    en_join,
     failure,
     get_client,
     http_request,
@@ -46,11 +46,11 @@ REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 # Termenii de brand căutați în pagină, pe eticheta domeniului protejat
 BRAND_TERMS: dict[str, tuple[str, ...]] = {
-    "bancademo": ("banca demo", "bancademo", "bancii demo"),
-    "curierdemo": ("curier demo", "curierdemo"),
+    "bancademo": ("banca demo", "bancademo", "bancii demo", "demo bank", "demobank"),
+    "curierdemo": ("curier demo", "curierdemo", "demo courier"),
     "raiffeisen": ("raiffeisen",),
 }
-BRAND_NAMES: dict[str, str] = {"bancademo": "Banca Demo", "curierdemo": "Curier Demo", "raiffeisen": "Raiffeisen"}
+BRAND_NAMES: dict[str, str] = {"bancademo": "Demo Bank", "curierdemo": "Demo Courier", "raiffeisen": "Raiffeisen"}
 
 # Clasa unui câmp de formular, după nume, id, placeholder, autocomplete, etichetă (text pliat)
 FIELD_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
@@ -230,12 +230,12 @@ def analyze_html(html: str, url: str) -> dict[str, Any]:
         else:
             code = script.string or script.get_text() or ""
             if JS_REDIRECT.search(code):
-                js_hints.add("redirecționare JS (location/window.open)")
+                js_hints.add("JS redirect (location/window.open)")
             if JS_OBFUSCATION.search(code):
-                js_hints.add("cod ascuns (atob/eval/escape)")
+                js_hints.add("hidden code (atob/eval/escape)")
     for el in soup.find_all(attrs={"onload": True}):
         if JS_REDIRECT.search(el.get("onload") or ""):
-            js_hints.add("redirecționare JS în onload")
+            js_hints.add("JS redirect in onload")
     refresh = None
     for meta in soup.find_all("meta"):
         if (meta.get("http-equiv") or "").lower() == "refresh":
@@ -281,30 +281,30 @@ def interpret_page(data: dict[str, Any]) -> tuple[str, str]:
     asks = data.get("asks", [])
     wants = []
     if data.get("asks_card"):
-        wants.append("datele cardului")
+        wants.append("card details")
     if data.get("asks_otp"):
-        wants.append("codul primit prin SMS")
+        wants.append("the code sent by SMS")
     if data.get("asks_password"):
-        wants.append("parola")
-    wanted = ro_join(wants) or "date sensibile"
-    under = (f"sub brandul {brands[0]}, deși nu e pe domeniul acestuia" if len(brands) == 1
-             else f"sub brandurile {ro_join(brands)}, deși nu e pe domeniile lor")
+        wants.append("the password")
+    wanted = en_join(wants) or "sensitive data"
+    under = (f"under the {brands[0]} brand, although it is not on that brand's domain" if len(brands) == 1
+             else f"under the {en_join(brands)} brands, although it is not on their domains")
     if on_brand:
-        return f"Pagina e pe domeniul protejat {domain}.", "verde"
+        return f"The page is on the protected domain {domain}.", "verde"
     if (data.get("asks_card") or data.get("asks_otp")) and brands:
-        extra = "; formularul trimite datele pe alt domeniu" if data.get("external_form_action") else ""
-        return f"Pagina de pe {domain} cere {wanted}, {under}{extra}.", "rosu"
+        extra = "; the form sends the data to another domain" if data.get("external_form_action") else ""
+        return f"The page on {domain} asks for {wanted}, {under}{extra}.", "rosu"
     if data.get("asks_card") or data.get("asks_otp"):
-        return f"Pagina de pe {domain} cere {wanted}, fără brand protejat vizibil.", "galben"
+        return f"The page on {domain} asks for {wanted}, with no protected brand in sight.", "galben"
     if data.get("asks_password") and brands:
-        return f"Pagina de pe {domain} cere {wanted}, {under}.", "galben"
+        return f"The page on {domain} asks for {wanted}, {under}.", "galben"
     if data.get("injection_suspected"):
-        return f"Pagina de pe {domain} conține text care pare o instrucțiune pentru un sistem AI.", "galben"
+        return f"The page on {domain} contains text that looks like an instruction to an AI system.", "galben"
     if data.get("meta_refresh") or data.get("js_redirect_hints"):
-        return f"Pagina de pe {domain} redirecționează automat vizitatorul.", "galben"
+        return f"The page on {domain} redirects the visitor automatically.", "galben"
     if asks:
-        return f"Pagina de pe {domain} are câmpuri sensibile ({', '.join(asks)}).", "neutru"
-    return f"Pagina de pe {domain} nu cere date sensibile.", "neutru"
+        return f"The page on {domain} has sensitive fields ({', '.join(asks)}).", "neutru"
+    return f"The page on {domain} does not ask for sensitive data.", "neutru"
 
 
 # ---------------------------------------------------------------- fetch
@@ -341,7 +341,7 @@ async def _fetch_live(url: str) -> dict[str, Any]:
             try:
                 await netguard.assert_url_allowed(current)
             except netguard.BlockedAddressError as exc:
-                return {"url": url, "final_url": current, "redirects": chain, "error": f"blocat: {exc}"}
+                return {"url": url, "final_url": current, "redirects": chain, "error": f"blocked: {exc}"}
             request = client.build_request("GET", current, headers={
                 "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
                 "Accept-Language": "ro-RO,ro;q=0.9,en;q=0.6",
@@ -354,7 +354,7 @@ async def _fetch_live(url: str) -> dict[str, Any]:
                     chain.append({"url": current, "status": response.status_code, "location": target})
                     if hop >= MAX_REDIRECTS:
                         return {"url": url, "final_url": current, "redirects": chain,
-                                "error": f"prea multe redirecționări (peste {MAX_REDIRECTS})"}
+                                "error": f"too many redirects (more than {MAX_REDIRECTS})"}
                     current = target
                     continue
                 body, truncated = await _read_capped(response)
@@ -393,26 +393,25 @@ def _build_page(raw: dict[str, Any], ctx: Ctx, holder: dict[str, Any]) -> Interp
     base = {"url": url, "final_url": final_url, "status": raw.get("status"), "redirects": raw.get("redirects", []),
             "content_type": raw.get("content_type", "text/html"), "truncated": bool(raw.get("truncated"))}
     if raw.get("error"):
-        hops = ro_count(len(base["redirects"]), "redirecționare", "redirecționări")
-        return Interp(base, f"Pagina nu a fost descărcată: {raw['error']} (după {hops}).",
-                      "galben" if "blocat" in raw["error"] else "neutru", ok=False, error=raw["error"])
+        hops = en_count(len(base["redirects"]), "redirect")
+        return Interp(base, f"The page was not downloaded: {raw['error']} (after {hops}).",
+                      "galben" if raw["error"].startswith(("blocked", "blocat")) else "neutru", ok=False, error=raw["error"])
     html = raw.get("html") or ""
     holder["html"] = html
     holder["final_url"] = final_url
     encoded = html.encode("utf-8", "ignore")
     base.update({"html_bytes": raw.get("bytes", len(encoded)), "html_sha256": hashlib.sha256(encoded).hexdigest()})
     if "html" not in (base["content_type"] or "html") and "xml" not in (base["content_type"] or ""):
-        return Interp(base, f"Resursa nu e o pagină HTML ({base['content_type']}).", "neutru")
+        return Interp(base, f"The resource is not an HTML page ({base['content_type']}).", "neutru")
     data = {**base, **analyze_html(html, final_url)}
     summary, signal = interpret_page(data)
     data["similarity"] = _similarity(html)
     score = (data["similarity"] or {}).get("score")
     if score is not None and score >= float(param("page_similarity_red")) and not data["on_protected_domain"]:
-        summary += f" Seamănă {round(score * 100)}% cu pagina de autentificare Banca Demo."
+        summary += f" It is {round(score * 100)}% similar to the Demo Bank sign-in page."
         signal = "rosu"
     if base["redirects"]:
-        hops = ro_count(len(base["redirects"]), "redirecționare", "redirecționări")
-        summary += f" {hops[0].upper()}{hops[1:]} înainte de pagină."
+        summary += f" {en_count(len(base['redirects']), 'redirect')} before the page."
     return Interp(data, summary, signal)
 
 
@@ -455,7 +454,7 @@ async def fetch_with_html(url: str, reader: bool = False) -> tuple[ToolResult, s
         parsed = httpx.URL(url)
         netguard.check_scheme_port(parsed.scheme, parsed.port)
     except (netguard.BlockedAddressError, httpx.InvalidURL, ValueError) as exc:
-        return failure("fetch_page", args, f"URL refuzat: {exc}.", error=f"url refuzat: {exc}"), None
+        return failure("fetch_page", args, f"URL refused: {exc}.", error=f"url refused: {exc}"), None
     synthetic = is_synthetic_target(url)
     if not synthetic and configured_mode() != "fixture":
         try:
@@ -463,7 +462,7 @@ async def fetch_with_html(url: str, reader: bool = False) -> tuple[ToolResult, s
         except netguard.UnresolvableHostError:
             pass  # lăsăm sursa să încerce; în modul auto cade pe cache
         except netguard.BlockedAddressError as exc:
-            return failure("fetch_page", args, f"Adresa a fost blocată de garda SSRF: {exc}.",
+            return failure("fetch_page", args, f"The SSRF guard blocked the address: {exc}.",
                            error=f"ssrf: {exc}", signal="galben"), None
     holder: dict[str, Any] = {}
 
@@ -473,7 +472,7 @@ async def fetch_with_html(url: str, reader: bool = False) -> tuple[ToolResult, s
 
     page = await run_source("fetch_page", args, key=url, fetch=fetch,
                             build=lambda raw, ctx: _build_page(raw, ctx, holder),
-                            ttl_s=PAGE_TTL_S, label="Pagina", synthetic=synthetic, fixture_keys=_url_keys(url))
+                            ttl_s=PAGE_TTL_S, label="Page", synthetic=synthetic, fixture_keys=_url_keys(url))
     if reader and page.ok and page.mode in ("live", "cache") and not synthetic:
         try:
             page.data["markdown"] = await jina_markdown(url)

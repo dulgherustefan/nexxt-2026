@@ -147,11 +147,11 @@ def compare(html: str, reference: str) -> dict[str, Any]:
 
 
 def _label(reference: str) -> str:
-    return {"bancademo_login": "pagina de autentificare Banca Demo"}.get(reference, f"pagina de referință {reference}")
+    return {"bancademo_login": "the Demo Bank sign-in page"}.get(reference, f"the reference page {reference}")
 
 
 def _fmt(value: float) -> str:
-    return f"{value:.2f}".replace(".", ",")
+    return f"{value:.2f}"
 
 
 @tool("page_similarity", group="domain-intel")
@@ -162,25 +162,25 @@ def page_similarity(html: str, reference: str = "bancademo_login", url: str | No
     if url:
         args["url"] = url
     if not (html or "").strip():
-        return failure("page_similarity", args, "HTML gol: nu am ce compara.", error="html gol")
+        return failure("page_similarity", args, "Empty HTML: there is nothing to compare.", error="empty html")
     try:
         data = compare(html, reference)
     except KeyError:
-        return failure("page_similarity", args, f"Pagina de referință „{reference}” nu există.",
-                       error=f"referință necunoscută: {reference}")
+        return failure("page_similarity", args, f"The reference page \"{reference}\" does not exist.",
+                       error=f"unknown reference: {reference}")
     score = data["score"]
     domain = registered_domain(url) if url else ""
     data["candidate_domain"] = domain or None
     label = _label(reference)
     if domain and domain in _protected_registered():
-        summary, signal = f"Pagina e pe domeniul protejat {domain} (similaritate {_fmt(score)} cu {label}).", "verde"
+        summary, signal = f"The page is on the protected domain {domain} (similarity {_fmt(score)} to {label}).", "verde"
     elif score >= float(param("page_similarity_red")):
-        where = f" de pe {domain}" if domain else ""
-        summary, signal = f"Pagina{where} seamănă {round(score * 100)}% cu {label}: o imită.", "rosu"
+        where = f" on {domain}" if domain else ""
+        summary, signal = f"The page{where} is {round(score * 100)}% similar to {label}: it imitates it.", "rosu"
     elif score >= float(param("page_similarity_yellow")):
-        summary, signal = f"Pagina seamănă parțial ({round(score * 100)}%) cu {label}.", "galben"
+        summary, signal = f"The page is partly similar ({round(score * 100)}%) to {label}.", "galben"
     else:
-        summary, signal = f"Pagina nu seamănă cu {label} (similaritate {_fmt(score)}).", "neutru"
+        summary, signal = f"The page does not resemble {label} (similarity {_fmt(score)}).", "neutru"
     return ToolResult(tool="page_similarity", args=args, ok=True, data=data, summary=summary, signal=signal,
                       mode="offline", latency_ms=int((time.perf_counter() - started) * 1000))
 
@@ -191,7 +191,7 @@ async def page_similarity_url(url: str, reference: str = "bancademo_login") -> T
     page, html = await fetch_with_html(url)
     if not html:
         return failure("page_similarity_url", {"url": url, "reference": reference},
-                       f"Pagina nu a putut fi comparată: {page.summary}", error=page.error or "fără HTML",
+                       f"The page could not be compared: {page.summary}", error=page.error or "no HTML",
                        mode=page.mode)
     result = page_similarity(html, reference, url=page.data.get("final_url") or url)
     result.tool = "page_similarity_url"

@@ -2,7 +2,7 @@
 
 > Context pentru motorul de reguli și suita de teste (NEXXT Summit 2026, Raiffeisen Bank, „AI for Operational Efficiency”). Stare: 28.10.2026. Toate datele din exemple sunt fictive.
 
-**Surse:** `reguli_popriri_mosteniri_autoritati.md` (principală), `perplexity_verificare.md` (Q1), `date_sintetice_formate_tooling.md` (partea e-Popriri). Conflictul de oră a fost verificat pe 28.10.2026 în OPANAF 878/2022, OPANAF 626/2023 și notificarea ProCredit.
+**Surse:** cercetarea echipei despre popriri, moșteniri și cererile autorităților (principală), o verificare încrucișată în Perplexity (Q1) și cercetarea despre date sintetice (partea e-Popriri). Conflictul de oră a fost verificat pe 28.10.2026 în OPANAF 878/2022, OPANAF 626/2023 și notificarea ProCredit.
 
 **Etichete:** **[P]** citit în textul oficial (legislatie.just.ro, static.anaf.ro, senat.ro) · **[S]** sursă secundară citită (bănci, aviz CES, presă, bloguri juridice) · **[U]** neverificat (rezumat de căutare, Perplexity, estimare) sau în conflict între surse.
 

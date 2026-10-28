@@ -23,7 +23,7 @@ from faker import Faker
 from versoml.data import artifacts as art
 from versoml.data import ids
 from versoml.data.calendar_ro import TZ, iso
-from versoml.data.text import LUNI, fmt_lei, normalize_ro, strip_diacritics
+from versoml.data.text import MONTHS, fmt_ron, normalize_ro, strip_diacritics
 
 WORLD_NOW = datetime(2026, 10, 28, 10, 0, 0, tzinfo=TZ)
 HISTORY_DAYS = 120
@@ -45,47 +45,47 @@ ATTACKER_DEVICES = [("Samsung Galaxy A15", "Android 14"), ("Xiaomi Redmi 13C", "
 
 # nume, MCC, tip achiziție, canal, sumă min, sumă max, țară, pondere, domeniu
 MERCHANT_CATALOG: list[tuple] = [
-    ("Supermarket Demo Nord", "5411", "goods", "pos", 25, 380, "RO", 10, None),
-    ("Mega Exemplu Market", "5411", "goods", "pos", 30, 520, "RO", 8, None),
-    ("Mini Market Fictiv 24", "5411", "goods", "pos", 8, 90, "RO", 7, None),
-    ("Benzinăria Demo A1", "5541", "goods", "pos", 120, 420, "RO", 5, None),
-    ("Farmacia Exemplu", "5912", "goods", "pos", 15, 260, "RO", 4, None),
-    ("Bistro Fictiv", "5812", "services", "pos", 35, 240, "RO", 4, None),
-    ("Pizzeria Demo", "5812", "services", "pos", 40, 180, "RO", 3, None),
-    ("Cafeneaua Exemplu", "5814", "services", "pos", 9, 45, "RO", 5, None),
-    ("Moda Demo Store", "5691", "goods", "both", 80, 650, "RO", 2, "modademo.example"),
-    ("Brico Demo", "5200", "goods", "pos", 40, 900, "RO", 2, None),
-    ("Librăria Fictivă", "5942", "goods", "both", 25, 160, "RO", 1, "librariafictiva.example"),
-    ("Cinema Exemplu", "7832", "services", "both", 28, 90, "RO", 1, "cinemaexemplu.example"),
-    ("Transport Urban Demo", "4111", "services", "both", 3, 80, "RO", 4, "transporturban.example"),
-    ("Taxi Exemplu", "4121", "services", "both", 15, 95, "RO", 2, "taxiexemplu.example"),
-    ("TelcoDemo Abonament", "4814", "services", "ecommerce", 35, 120, "RO", 2, "telcodemo.example"),
-    ("StreamDemo (sintetic)", "4899", "services", "ecommerce", 29, 69, "IE", 2, "streamdemo.example"),
-    ("ElectroDemo Online (sintetic)", "5732", "goods", "ecommerce", 150, 4200, "RO", 2, "electrodemo.example"),
-    ("PiațaDemo Online", "5999", "goods", "ecommerce", 30, 1600, "RO", 3, "piatademo.example"),
-    ("LivrareMâncare Demo", "5814", "services", "ecommerce", 35, 160, "RO", 3, "mancaredemo.example"),
-    ("Agenția Demo Travel", "4722", "services", "ecommerce", 400, 3800, "RO", 1, "demotravel.example"),
-    ("Exemplu Electro SRL (fictiv)", "5732", "goods", "ecommerce", 300, 3000, "DE", 1, "exempluelectro.example"),
-    ("GADGETWORLD SHOP (sintetic)", "5732", "goods", "ecommerce", 60, 900, "US", 1, "gadgetworld-shop.example"),
-    ("GlobalApps Store (sintetic)", "5818", "services", "ecommerce", 5, 60, "US", 1, "globalapps.example"),
-    ("Sală Fitness Demo", "7997", "services", "pos", 90, 220, "RO", 1, None),
-    ("Florăria Exemplu", "5992", "goods", "pos", 40, 300, "RO", 1, None),
+    ("North Demo Supermarket", "5411", "goods", "pos", 25, 380, "RO", 10, None),
+    ("Mega Example Market", "5411", "goods", "pos", 30, 520, "RO", 8, None),
+    ("24h Mini Market Demo", "5411", "goods", "pos", 8, 90, "RO", 7, None),
+    ("Demo Fuel A1", "5541", "goods", "pos", 120, 420, "RO", 5, None),
+    ("Example Pharmacy", "5912", "goods", "pos", 15, 260, "RO", 4, None),
+    ("Example Bistro", "5812", "services", "pos", 35, 240, "RO", 4, None),
+    ("Demo Pizzeria", "5812", "services", "pos", 40, 180, "RO", 3, None),
+    ("Example Coffee House", "5814", "services", "pos", 9, 45, "RO", 5, None),
+    ("Demo Fashion Store", "5691", "goods", "both", 80, 650, "RO", 2, "modademo.example"),
+    ("Demo DIY Store", "5200", "goods", "pos", 40, 900, "RO", 2, None),
+    ("Example Bookshop", "5942", "goods", "both", 25, 160, "RO", 1, "librariafictiva.example"),
+    ("Example Cinema", "7832", "services", "both", 28, 90, "RO", 1, "cinemaexemplu.example"),
+    ("Demo City Transit", "4111", "services", "both", 3, 80, "RO", 4, "transporturban.example"),
+    ("Example Taxi", "4121", "services", "both", 15, 95, "RO", 2, "taxiexemplu.example"),
+    ("TelcoDemo Subscription", "4814", "services", "ecommerce", 35, 120, "RO", 2, "telcodemo.example"),
+    ("StreamDemo (synthetic)", "4899", "services", "ecommerce", 29, 69, "IE", 2, "streamdemo.example"),
+    ("ElectroDemo Online (synthetic)", "5732", "goods", "ecommerce", 150, 4200, "RO", 2, "electrodemo.example"),
+    ("DemoMarket Online", "5999", "goods", "ecommerce", 30, 1600, "RO", 3, "piatademo.example"),
+    ("Demo Food Delivery", "5814", "services", "ecommerce", 35, 160, "RO", 3, "mancaredemo.example"),
+    ("Demo Travel Agency", "4722", "services", "ecommerce", 400, 3800, "RO", 1, "demotravel.example"),
+    ("Example Electro SRL (fictitious)", "5732", "goods", "ecommerce", 300, 3000, "DE", 1, "exempluelectro.example"),
+    ("GADGETWORLD SHOP (synthetic)", "5732", "goods", "ecommerce", 60, 900, "US", 1, "gadgetworld-shop.example"),
+    ("GlobalApps Store (synthetic)", "5818", "services", "ecommerce", 5, 60, "US", 1, "globalapps.example"),
+    ("Demo Fitness Club", "7997", "services", "pos", 90, 220, "RO", 1, None),
+    ("Example Florist", "5992", "goods", "pos", 40, 300, "RO", 1, None),
 ]
 EEA = {"RO", "DE", "IE", "FR", "IT", "NL", "AT", "ES"}
 
-# angajatori: nume, pondere, intern (cont la Banca Demo)
+# angajatori: nume, pondere, intern (cont la Demo Bank)
 EMPLOYER_CATALOG = [
-    ("ALFA DEMO SRL", 12, False), ("BETA EXEMPLU SRL", 8, False), ("GAMA FICTIV SA", 6, False),
-    ("DELTA SOFT DEMO SRL", 5, True), ("OMEGA LOGISTIC DEMO SRL", 4, False), ("SIGMA RETAIL EXEMPLU SA", 7, False),
-    ("NOVA CONSTRUCT FICTIV SRL", 3, False), ("ORIZONT MEDICAL DEMO SRL", 3, True),
-    ("PRIMĂRIA EXEMPLU (sintetic)", 4, False), ("ȘCOALA GIMNAZIALĂ DEMO NR. 1", 2, False),
-    ("SPITALUL EXEMPLU (sintetic)", 4, False), ("TEHNO SERVICE DEMO SRL", 2, True),
-    ("AGRO VEST FICTIV SRL", 2, True), ("CREATIV MEDIA DEMO SRL", 2, True), ("TRANSPORT RAPID EXEMPLU SRL", 2, False),
+    ("ALFA DEMO SRL", 12, False), ("BETA EXAMPLE SRL", 8, False), ("GAMMA SAMPLE SA", 6, False),
+    ("DELTA SOFT DEMO SRL", 5, True), ("OMEGA LOGISTICS DEMO SRL", 4, False), ("SIGMA RETAIL EXAMPLE SA", 7, False),
+    ("NOVA CONSTRUCT SAMPLE SRL", 3, False), ("HORIZON MEDICAL DEMO SRL", 3, True),
+    ("EXAMPLE CITY HALL (synthetic)", 4, False), ("DEMO SCHOOL NO. 1", 2, False),
+    ("EXAMPLE HOSPITAL (synthetic)", 4, False), ("TECHNO SERVICE DEMO SRL", 2, True),
+    ("AGRO WEST SAMPLE SRL", 2, True), ("CREATIVE MEDIA DEMO SRL", 2, True), ("RAPID TRANSPORT EXAMPLE SRL", 2, False),
 ]
-UTILITY_CATALOG = [("Energie Demo SA", 90, 320), ("Apă Exemplu SA", 40, 140), ("Gaz Fictiv SA", 60, 450),
-                   ("Internet Demo SRL", 45, 85), ("Asociația de Proprietari Demo", 150, 420)]
-PENSION_PAYER = "Casa de Pensii (sintetic)"
-TAX_OFFICE = "Trezoreria Demo (sintetic)"
+UTILITY_CATALOG = [("Demo Energy SA", 90, 320), ("Example Water SA", 40, 140), ("Sample Gas SA", 60, 450),
+                   ("Internet Demo SRL", 45, 85), ("Demo Homeowners Association", 150, 420)]
+PENSION_PAYER = "Pension Fund (synthetic)"
+TAX_OFFICE = "Demo Treasury (synthetic)"
 SEGMENTS = [("salariat", 0.62), ("pensionar", 0.16), ("student", 0.10), ("liber_profesionist", 0.12)]
 
 
@@ -231,10 +231,10 @@ def static_catalogs(seed: int = 7) -> dict:
             "merchant_id": f"M-SYN-{i:04d}", "name": name, "mcc": mcc, "purchase_type": ptype, "channel": channel,
             "amount_lo": lo, "amount_hi": hi, "country": country, "eea": country in EEA, "weight": weight,
             "domain": domain, "cui": c["cui"], "settlement_iban": c["iban"], "city": c["city"], "synthetic": True})
-    atm_own = {"merchant_id": "M-SYN-ATM1", "name": "ATM Banca Demo", "mcc": "6011", "purchase_type": "atm_cash",
+    atm_own = {"merchant_id": "M-SYN-ATM1", "name": "Demo Bank ATM", "mcc": "6011", "purchase_type": "atm_cash",
                "channel": "atm", "amount_lo": 50, "amount_hi": 2000, "country": "RO", "eea": True, "weight": 0,
                "domain": None, "cui": None, "settlement_iban": art.CASH_NODE, "city": "București", "synthetic": True}
-    atm_other = dict(atm_own, merchant_id="M-SYN-ATM2", name="ATM altă bancă")
+    atm_other = dict(atm_own, merchant_id="M-SYN-ATM2", name="Other bank ATM")
     merchants += [atm_own, atm_other]
 
     employers = []
@@ -255,27 +255,27 @@ def static_catalogs(seed: int = 7) -> dict:
                        iban=art.CRYPTO_EXCHANGE_IBAN)
     # furnizori pentru micii comercianți și firme-client pentru liber-profesioniști și IMM-uri
     suppliers = [company(f"{w} {s} SRL", "furnizor", rng.choice(ids.OTHER_BANKS), "4690")
-                 for w, s in [("ANGRO", "DEMO"), ("DISTRIB", "EXEMPLU"), ("MARFA", "FICTIV"), ("PROD", "DEMO"),
-                              ("ECHIPAMENTE", "EXEMPLU"), ("AMBALAJE", "DEMO"), ("LOGISTIC", "FICTIV"),
-                              ("CARMANGERIE", "EXEMPLU"), ("PANIFICAȚIE", "DEMO"), ("TEXTILE", "FICTIV")]]
+                 for w, s in [("WHOLESALE", "DEMO"), ("DISTRIB", "EXAMPLE"), ("GOODS", "SAMPLE"), ("PROD", "DEMO"),
+                              ("EQUIPMENT", "EXAMPLE"), ("PACKAGING", "DEMO"), ("LOGISTICS", "SAMPLE"),
+                              ("BUTCHERY", "EXAMPLE"), ("BAKERY", "DEMO"), ("TEXTILES", "SAMPLE")]]
     clients = [company(f"{w} {s}", "client corporativ", rng.choice(ids.OTHER_BANKS), "7022")
-               for w, s in [("VECTOR", "CONSULTING DEMO SRL"), ("PRISMA", "IT EXEMPLU SRL"),
-                            ("ATLAS", "IMPEX FICTIV SRL"), ("ZENIT", "PROIECT DEMO SRL"),
-                            ("ARCADIA", "SERVICII EXEMPLU SRL"), ("FOCUS", "MARKETING FICTIV SRL"),
-                            ("PLATFORMA", "FREELANCE (sintetic) LTD"), ("CARPAȚI", "INDUSTRIAL DEMO SA"),
-                            ("DUNĂREA", "TRADING EXEMPLU SRL"), ("MERIDIAN", "LOGISTICS FICTIV SRL"),
-                            ("SOLARIS", "ENERGY DEMO SRL"), ("HORIZON", "EVENTS EXEMPLU SRL")]]
+               for w, s in [("VECTOR", "CONSULTING DEMO SRL"), ("PRISMA", "IT EXAMPLE SRL"),
+                            ("ATLAS", "IMPEX SAMPLE SRL"), ("ZENITH", "PROJECT DEMO SRL"),
+                            ("ARCADIA", "SERVICES EXAMPLE SRL"), ("FOCUS", "MARKETING SAMPLE SRL"),
+                            ("PLATFORM", "FREELANCE (synthetic) LTD"), ("CARPATHIA", "INDUSTRIAL DEMO SA"),
+                            ("DANUBE", "TRADING EXAMPLE SRL"), ("MERIDIAN", "LOGISTICS SAMPLE SRL"),
+                            ("SOLARIS", "ENERGY DEMO SRL"), ("HORIZON", "EVENTS EXAMPLE SRL")]]
     big_ticket = [company(n, "furnizor", rng.choice(ids.OTHER_BANKS), c)
-                  for n, c in [("AUTO DEMO SRL", "4511"), ("CONSTRUCT RENOVARE EXEMPLU SRL", "4120"),
-                               ("MOBILĂ FICTIV SRL", "4759"), ("UNIVERSITATEA DEMO (sintetic)", "8542"),
-                               ("CLINICA DENTARĂ EXEMPLU SRL", "8623"), ("ELECTROCASNICE DEMO SRL", "4754")]]
+                  for n, c in [("AUTO DEMO SRL", "4511"), ("RENOVATION EXAMPLE SRL", "4120"),
+                               ("FURNITURE SAMPLE SRL", "4759"), ("DEMO UNIVERSITY (synthetic)", "8542"),
+                               ("EXAMPLE DENTAL CLINIC SRL", "8623"), ("HOME APPLIANCES DEMO SRL", "4754")]]
     domains = _domains(rng)
     phones = [
-        {"phone": art.SCAM_PHONE_SECURITATE, "kind": "scam_vishing", "label": "„departamentul de securitate”",
+        {"phone": art.SCAM_PHONE_SECURITATE, "kind": "scam_vishing", "label": "the \"security department\"",
          "scenario": "vishing_securitate", "first_seen": "2026-10-19", "synthetic": True},
-        {"phone": art.SCAM_PHONE_CONT_SIGUR, "kind": "scam_cont_sigur", "label": "„cont sigur”",
+        {"phone": art.SCAM_PHONE_CONT_SIGUR, "kind": "scam_cont_sigur", "label": "the \"safe account\"",
          "scenario": "cont_sigur", "first_seen": "2026-10-24", "synthetic": True},
-        {"phone": art.BANK_OFFICIAL_PHONE, "kind": "bank_official", "label": "linia Băncii Demo",
+        {"phone": art.BANK_OFFICIAL_PHONE, "kind": "bank_official", "label": "Demo Bank helpline",
          "scenario": None, "first_seen": "2019-01-01", "synthetic": True},
     ]
     return {"merchants": merchants, "employers": employers, "utilities": utilities, "companies": companies,
@@ -285,7 +285,7 @@ def static_catalogs(seed: int = 7) -> dict:
 
 def _domains(rng: random.Random) -> list[dict]:
     def d(domain, kind, registered_at, scenario=None, target=None):
-        return {"domain": domain, "kind": kind, "registered_at": registered_at, "registrar": "Registrar Demo (sintetic)",
+        return {"domain": domain, "kind": kind, "registered_at": registered_at, "registrar": "Demo Registrar (synthetic)",
                 "ip": ids.test_ip(rng, "attacker" if kind == "scam" else "home"), "target_brand": target,
                 "scenario": scenario, "synthetic": True}
     return [
@@ -415,7 +415,7 @@ def make_session(idg: IdGen, cb: dict, device: dict, ip: str, started: datetime,
                  session_id: str | None = None) -> dict:
     return {"session_id": session_id or idg("SES"), "customer_ref": cb["customer"]["customer_ref"],
             "device_id": device["device_id"], "ip": ip, "channel": channel, "started_at": iso(started),
-            "ended_at": iso(ended), "user_agent": f"BancaDemo/{device['app_version']} ({device['os']}; {device['model']})",
+            "ended_at": iso(ended), "user_agent": f"DemoBank/{device['app_version']} ({device['os']}; {device['model']})",
             "clicked_url": clicked_url, "clicked_at": iso(clicked_at), "referrer": None,
             "geo": "RO", "synthetic": True}
 
@@ -495,29 +495,29 @@ def make_history(rng: random.Random, cb: dict, *, start: datetime, end: datetime
         ts = at(pay, rng.randint(6, 11), rng.randint(0, 59))
         if not (start <= ts < end):
             continue
-        luna = LUNI[m - 1]
+        month = MONTHS[m - 1]
         if seg == "salariat" and prof.get("employer"):
             e = prof["employer"]
             amt = prof["income"] * rng.uniform(0.97, 1.03)
-            txs.append(tx_record(idg, cb, "credit", "salary", "transfer", amt, ts, f"Salariu {luna} {y} - {e['name']}",
+            txs.append(tx_record(idg, cb, "credit", "salary", "transfer", amt, ts, f"Salary {month} {y} - {e['name']}",
                                  counterparty_name=e["name"], counterparty_iban=e["iban"], disputable=False))
             if prof.get("forwarder"):
                 own = prof.setdefault("own_external", ids.generate_iban(rng, rng.choice(ids.OTHER_BANKS)))
                 tf = ts + timedelta(hours=rng.uniform(0.5, 6))
                 if tf < end:
-                    transfer_out(tf, own, cust["full_name"], amt * rng.uniform(0.6, 0.9), "Transfer între conturi proprii",
+                    transfer_out(tf, own, cust["full_name"], amt * rng.uniform(0.6, 0.9), "Transfer between own accounts",
                                  instant=rng.random() < 0.5)
                     txs[-1]["_optional"] = False
         elif seg == "pensionar":
             p = catalogs["pension"]
             txs.append(tx_record(idg, cb, "credit", "pension", "transfer", prof["income"], ts,
-                                 f"Pensie {luna} {y}", counterparty_name=p["name"], counterparty_iban=p["iban"],
+                                 f"Pension {month} {y}", counterparty_name=p["name"], counterparty_iban=p["iban"],
                                  disputable=False))
         elif seg == "student" and not prof.get("no_allowance"):
-            fam = prof.get("family") or {"name": "Familie (extern)", "iban": ids.generate_iban(rng, rng.choice(ids.OTHER_BANKS))}
+            fam = prof.get("family") or {"name": "Family (external)", "iban": ids.generate_iban(rng, rng.choice(ids.OTHER_BANKS))}
             prof["family"] = fam
             txs.append(tx_record(idg, cb, "credit", "p2p_in", "transfer", prof["income"] * rng.uniform(0.9, 1.1), ts,
-                                 f"Transfer primit de la {fam['name']}", counterparty_name=fam["name"],
+                                 f"Transfer from {fam['name']}", counterparty_name=fam["name"],
                                  counterparty_iban=fam["iban"], disputable=False))
         elif seg == "liber_profesionist":
             for _ in range(rng.randint(1, 3)):
@@ -527,25 +527,25 @@ def make_history(rng: random.Random, cb: dict, *, start: datetime, end: datetime
                 if start <= ts2 < end:
                     txs.append(tx_record(idg, cb, "credit", "invoice", "transfer",
                                          prof["income"] / 2 * rng.uniform(0.5, 1.6), ts2,
-                                         f"Plată factură - {cl['name']}", counterparty_name=cl["name"],
+                                         f"Invoice payment - {cl['name']}", counterparty_name=cl["name"],
                                          counterparty_iban=cl["iban"], disputable=False))
-        # utilități (debit direct, fără sesiune)
+        # utilities (direct debit, no session)
         for ui in prof["utilities"]:
             u = catalogs["utilities"][ui]
             du = date(y, m, 18 + ui)
             tsu = at(du, 3, rng.randint(0, 59))
             if start <= tsu < end:
                 txs.append(tx_record(idg, cb, "debit", "utility", "transfer", rng.uniform(u["lo"], u["hi"]), tsu,
-                                     f"Debit direct {u['name']}", counterparty_name=u["name"],
+                                     f"Direct debit {u['name']}", counterparty_name=u["name"],
                                      counterparty_iban=u["iban"], _optional=False))
         if prof["rent"]:
-            landlord = prof.setdefault("landlord", {"name": "Proprietar (extern)",
+            landlord = prof.setdefault("landlord", {"name": "Landlord (external)",
                                                     "iban": ids.generate_iban(rng, rng.choice(ids.OTHER_BANKS)),
                                                     "amount": rng.randrange(1200, 3200, 50)})
             dr = date(y, m, 2)
             tsr = rand_time(rng, dr, 9, 20)
             if start <= tsr < end:
-                transfer_out(tsr, landlord["iban"], landlord["name"], landlord["amount"], "Chirie " + luna)
+                transfer_out(tsr, landlord["iban"], landlord["name"], landlord["amount"], f"Rent {month}")
                 txs[-1]["_optional"] = False
 
     # ---------------- evenimente mari, legitime (intrare mare urmată de o plată mare)
@@ -554,15 +554,15 @@ def make_history(rng: random.Random, cb: dict, *, start: datetime, end: datetime
             ts = start + timedelta(seconds=rng.uniform(0, (end - start).total_seconds() - 6 * 86400))
             ts = rand_time(rng, ts.date(), 9, 19)
             src = rng.choice([f for f in prof["friends"] if not f.get("internal_ref")] or
-                             [{"name": "Familie (extern)", "iban": ids.generate_iban(rng, rng.choice(ids.OTHER_BANKS))}])
+                             [{"name": "Family (external)", "iban": ids.generate_iban(rng, rng.choice(ids.OTHER_BANKS))}])
             amt = log_uniform(rng, 1500, 9000)
             txs.append(tx_record(idg, cb, "credit", "p2p_in", rng.choice(["transfer", "transfer_instant"]), amt, ts,
-                                 f"Transfer primit de la {src['name']}", counterparty_name=src["name"],
+                                 f"Transfer from {src['name']}", counterparty_name=src["name"],
                                  counterparty_iban=src["iban"], disputable=False))
             co = rng.choice(catalogs["big_ticket"])
             t2 = ts + timedelta(hours=rng.uniform(4, 120))
             if t2 < end:
-                transfer_out(t2, co["iban"], co["name"], amt * rng.uniform(0.7, 1.0), f"Plată {co['name']}",
+                transfer_out(t2, co["iban"], co["name"], amt * rng.uniform(0.7, 1.0), f"Payment to {co['name']}",
                              instant=rng.random() < 0.3)
                 txs[-1]["_optional"] = False
 
@@ -589,7 +589,7 @@ def make_history(rng: random.Random, cb: dict, *, start: datetime, end: datetime
             amt = log_uniform(rng, m["amount_lo"], min(m["amount_hi"], 1800 if seg != "salariat" else m["amount_hi"]))
             three_ds = m["eea"] or rng.random() < 0.2
             eci, cavv = ("05", fake_cavv(rng)) if three_ds else ("07", None)
-            t = tx_record(idg, cb, "debit", "card_ecom", "card", amt, ts, f"Plată online {m['name']}",
+            t = tx_record(idg, cb, "debit", "card_ecom", "card", amt, ts, f"Online payment {m['name']}",
                           counterparty_name=m["name"], counterparty_iban=m["settlement_iban"],
                           merchant_id=m["merchant_id"], mcc=m["mcc"], card_id=card["card_id"],
                           pos_entry_mode="ecommerce", eci=eci, cavv_present=cavv is not None,
@@ -605,7 +605,8 @@ def make_history(rng: random.Random, cb: dict, *, start: datetime, end: datetime
             if start <= ts < end:
                 atm = by_id["M-SYN-ATM1"] if rng.random() < 0.7 else by_id["M-SYN-ATM2"]
                 amt = rng.choice([100, 200, 200, 300, 400, 500, 500, 1000])
-                txs.append(tx_record(idg, cb, "debit", "card_atm", "card", amt, ts, f"Retragere {atm['name']}",
+                where = "Demo Bank" if atm["merchant_id"] == "M-SYN-ATM1" else "other bank"
+                txs.append(tx_record(idg, cb, "debit", "card_atm", "card", amt, ts, f"ATM withdrawal, {where}",
                                      counterparty_name=atm["name"], counterparty_iban=art.CASH_NODE,
                                      merchant_id=atm["merchant_id"], mcc="6011", card_id=card["card_id"],
                                      pos_entry_mode="atm", merchant_country="RO"))
@@ -616,27 +617,27 @@ def make_history(rng: random.Random, cb: dict, *, start: datetime, end: datetime
                 ts = rand_time(rng, day, 9, 22)
                 if start <= ts < end:
                     txs.append(tx_record(idg, cb, "credit", "p2p_in", "transfer", log_uniform(rng, 40, 700), ts,
-                                         f"Transfer primit de la {fr['name']}", counterparty_name=fr["name"],
+                                         f"Transfer from {fr['name']}", counterparty_name=fr["name"],
                                          counterparty_iban=fr["iban"], disputable=False))
         if rng.random() < 0.15 / 30:  # retur de la un comerciant (credit pe card)
             m = weighted_choice(rng, ecom_pool)
             ts = rand_time(rng, day, 9, 20)
             if start <= ts < end:
                 txs.append(tx_record(idg, cb, "credit", "card_refund", "card", log_uniform(rng, 20, 400), ts,
-                                     f"Retur {m['name']}", counterparty_name=m["name"], counterparty_iban=m["settlement_iban"],
+                                     f"Refund from {m['name']}", counterparty_name=m["name"], counterparty_iban=m["settlement_iban"],
                                      merchant_id=m["merchant_id"], mcc=m["mcc"], card_id=card["card_id"], disputable=False))
         if prof["friends"] and rng.random() < prof["p2p_per_month"] / 30:
             fr = rng.choice(prof["friends"])
             ts = rand_time(rng, day, 9, 22)
             if start <= ts < end:
-                t = transfer_out(ts, fr["iban"], fr["name"], log_uniform(rng, 40, 900), f"Transfer către {fr['name']}",
+                t = transfer_out(ts, fr["iban"], fr["name"], log_uniform(rng, 40, 900), f"Transfer to {fr['name']}",
                                  instant=rng.random() < 0.35, kind="transfer")
                 t["_friend"] = fr
         if prof.get("crypto") and rng.random() < 2.5 / 30:
             ts = rand_time(rng, day, 9, 23)
             if start <= ts < end:
                 transfer_out(ts, art.CRYPTO_EXCHANGE_IBAN, art.CRYPTO_EXCHANGE_NAME, log_uniform(rng, 100, 3000),
-                             "Alimentare cont CryptoX", instant=True)
+                             "CryptoX account top-up", instant=True)
         day += timedelta(days=1)
     return {"transactions": txs, "sessions": sessions, "auth_events": auths, "payees": list(payees.values())}
 
@@ -708,8 +709,8 @@ def client_tx_to_flows(txs: list[dict], idg: IdGen) -> list[dict]:
             channel = "direct_debit"
         else:
             channel = t["channel"]
-        reference = {"card": "Plată card", "atm": "Retragere numerar", "salary": "Salariu", "pension": "Pensie",
-                     "direct_debit": "Debit direct"}.get(channel, "Transfer")
+        reference = {"card": "Card payment", "atm": "Cash withdrawal", "salary": "Salary", "pension": "Pension",
+                     "direct_debit": "Direct debit"}.get(channel, "Transfer")
         flows.append({"flow_id": idg("FL", 7), "ts": t["ts"], "from_iban": frm, "to_iban": to, "amount": t["amount"],
                       "currency": "RON", "channel": channel, "reference": reference, "reported_fraud": 0,
                       "report_source": None, "case_id": None, "feed": "core_feed", "synthetic": True,
@@ -720,11 +721,11 @@ def client_tx_to_flows(txs: list[dict], idg: IdGen) -> list[dict]:
 # ---------------------------------------------------------------- istoric de dispute (zona client)
 
 DISPUTE_TEMPLATES = [
-    ("card", "neautorizata", "card_ecom_fara_3ds", "nu recunosc plata online", "rambursat"),
-    ("card", "disputa_comerciant", "marfa_nelivrata", "produs nelivrat", "chargeback_castigat"),
-    ("card", "eroare_procesare", "plata_dubla", "plată dublă", "corectat"),
-    ("transfer", "neautorizata", "phishing_link", "transfer după link fals", "rambursat"),
-    ("card", "neautorizata", "frauda_client", "nu recunosc tranzacția", "respins_dovezi_livrare"),
+    ("card", "neautorizata", "card_ecom_fara_3ds", "does not recognize the online payment", "rambursat"),
+    ("card", "disputa_comerciant", "marfa_nelivrata", "goods not delivered", "chargeback_castigat"),
+    ("card", "eroare_procesare", "plata_dubla", "charged twice", "corectat"),
+    ("transfer", "neautorizata", "phishing_link", "transfer after a fake link", "rambursat"),
+    ("card", "neautorizata", "frauda_client", "does not recognize the transaction", "respins_dovezi_livrare"),
 ]
 
 
@@ -771,7 +772,7 @@ def generate_world(seed: int = 7, n_customers: int = 400) -> World:
     cbs = []
     for i in range(1, n_customers + 1):
         ref = f"CUST-{i:04d}"
-        cbs.append(make_customer(rng, fake, ref, f"Client {i:04d}", now=now, catalogs=cat))
+        cbs.append(make_customer(rng, fake, ref, f"Customer {i:04d}", now=now, catalogs=cat))
     ext_fake = new_fake("world-external-persons", seed)
     for cb in cbs:
         nf = rng.randint(1, 4)
@@ -805,7 +806,7 @@ def generate_world(seed: int = 7, n_customers: int = 400) -> World:
                 src = by_ref[ref]["customer"]
                 hist[fr["internal_ref"]]["transactions"].append(tx_record(
                     idg, dest, "credit", "p2p_in", t["channel"], t["amount"], t["_dt"],
-                    f"Transfer primit de la {src['full_name']}", counterparty_name=src["full_name"],
+                    f"Transfer from {src['full_name']}", counterparty_name=src["full_name"],
                     counterparty_iban=t["account_iban"], disputable=False, end_to_end_id=t["end_to_end_id"]))
 
     # ---------------- lumea AML (populații suplimentare, cărăuși, victime interne)
@@ -831,8 +832,8 @@ def generate_world(seed: int = 7, n_customers: int = 400) -> World:
         if rng.random() < 0.03:   # înlocuire legitimă de SIM (telefon nou), fără fraudă
             world.sim_events.append({"event_id": idg("SIM", 5), "customer_ref": ref, "phone": cb["customer"]["phone"],
                                      "ts": iso(now - timedelta(days=rng.randint(5, 100), hours=rng.randint(0, 12))),
-                                     "kind": "sim_swap", "operator": "Operator Demo Mobil",
-                                     "channel": rng.choice(["magazin", "online"]), "synthetic": True})
+                                     "kind": "sim_swap", "operator": "Demo Mobile Operator",
+                                     "channel": rng.choice(["store", "online"]), "synthetic": True})
     prior += aml["extra_prior_disputes"]
     world.prior_disputes = prior
 
@@ -853,9 +854,9 @@ def generate_world(seed: int = 7, n_customers: int = 400) -> World:
             (world.card_transactions if t["channel"] == "card" else world.transfers).append(t)
         for t in h["transactions"][-200:]:
             if t["_dt"] >= now - timedelta(days=10):
-                verb = "Ai plătit" if t["direction"] == "debit" else "Ai primit"
+                verb = "You paid" if t["direction"] == "debit" else "You received"
                 world.notifications.append({"notification_id": idg("NTF", 6), "customer_ref": ref, "ts": t["ts"],
-                                            "kind": "tranzactie", "text": f"{verb} {fmt_lei(t['amount'], 1)} — {t['description']}",
+                                            "kind": "tranzactie", "text": f"{verb} {fmt_ron(t['amount'])}: {t['description']}",
                                             "read": True, "synthetic": True})
 
     # ---------------- fluxuri AML: oglinda tranzacțiilor clienților + populațiile suplimentare

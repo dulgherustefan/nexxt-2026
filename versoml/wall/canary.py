@@ -1,9 +1,8 @@
-"""Tokenuri-canary plantate în dosarele AML (zidul, stratul 5).
+"""Canary tokens planted in the AML files (the wall, layer 5).
 
-Registrul ține DOAR hash-urile SHA-256 ale tokenurilor (`var/wall/canary_hashes.json`), așa că
-scannerul din zona client recunoaște un token scurs fără să dețină vreun conținut AML.
-Detectarea e robustă la majuscule, spații, punctuație, cratime Unicode, caractere invizibile,
-omoglife chirilice/grecești, 0/1/8 în loc de O/I/B și text inversat.
+The registry keeps ONLY the SHA-256 hashes of the tokens (`var/wall/canary_hashes.json`), so the client-zone
+scanner recognizes a leaked token without holding any AML content. Detection survives capitals, spaces,
+punctuation, Unicode hyphens, invisible characters, Cyrillic and Greek lookalikes, 0/1/8 for O/I/B and reversed text.
 """
 
 from __future__ import annotations
@@ -33,7 +32,7 @@ BODY_LEN = 10
 BASE32 = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
 _HASH_DOMAIN = "versoml:canary:v1:"
 
-# Omoglife frecvente → litera latină (chirilice și grecești)
+# Common lookalikes -> the Latin letter (Cyrillic and Greek)
 _CONFUSABLES = str.maketrans({
     "\u0410": "A", "\u0412": "B", "\u0415": "E", "\u041a": "K", "\u041c": "M", "\u041d": "H", "\u041e": "O",
     "\u0420": "P", "\u0421": "C", "\u0422": "T", "\u0423": "Y", "\u0425": "X", "\u0430": "a", "\u0435": "e",
@@ -46,13 +45,13 @@ _DIGIT_FIX = str.maketrans({"0": "O", "1": "I", "8": "B"})
 
 
 def _compact(text: str) -> str:
-    """Doar literele și cifrele, majuscule, după NFKC și omoglife."""
+    """Letters and digits only, in capitals, after NFKC and the lookalike map."""
     norm = unicodedata.normalize("NFKC", text).translate(_CONFUSABLES).upper()
     return "".join(ch for ch in norm if ch.isascii() and ch.isalnum())
 
 
 def token_hash(token: str) -> str:
-    """Hash-ul unui token, după normalizare (forma stocată în registru)."""
+    """The hash of a token, after normalization (the form stored in the registry)."""
     compact = _compact(token)
     body = compact[len(PREFIX):].translate(_DIGIT_FIX)
     return hashlib.sha256(f"{_HASH_DOMAIN}{PREFIX}{body}".encode("ascii")).hexdigest()
@@ -79,10 +78,10 @@ def _file_lock(path: Path, timeout: float = 5.0) -> Iterator[None]:
         try:
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             break
-        except (FileExistsError, PermissionError):  # pe Windows: PermissionError cât timp blocajul se șterge
+        except (FileExistsError, PermissionError):  # on Windows: PermissionError while the lock is being deleted
             if time.monotonic() > deadline:
                 with suppress(FileNotFoundError, PermissionError):
-                    lock.unlink()  # blocaj rămas de la un proces oprit
+                    lock.unlink()  # a lock left behind by a stopped process
                 deadline = time.monotonic() + timeout
             time.sleep(_PAUSE)
     try:
@@ -100,7 +99,7 @@ def _file_lock(path: Path, timeout: float = 5.0) -> Iterator[None]:
 
 
 def _retry(operation: Callable[[], T]) -> T:
-    """Reîncearcă operațiile pe care Windows le refuză temporar (fișier mutat sau șters de alt fir)."""
+    """Retries the operations Windows refuses for a moment (a file moved or deleted by another thread)."""
     for attempt in range(_RETRIES):
         try:
             return operation()
@@ -118,7 +117,7 @@ def default_path() -> Path:
 
 
 class CanaryRegistry:
-    """`mint(lead_id)` în zona AML; `scan(text)` oriunde. Fișierul conține doar hash-uri."""
+    """`mint(lead_id)` in the AML zone; `scan(text)` anywhere. The file holds only hashes."""
 
     def __init__(self, path: Path | str | None = None, *, secret: bytes | None = None):
         self.path = Path(path) if path else default_path()
@@ -127,10 +126,10 @@ class CanaryRegistry:
         self._hashes: frozenset[str] = frozenset()
         self._stamp: tuple[float, int] | None = None
 
-    # ------------------------------------------------------------ fișierul
+    # ------------------------------------------------------------ the file
 
     def _read_file(self) -> set[str]:
-        """Hash-urile din fișier (gol dacă nu există). Erorile de citire se ridică: nu ghicim un registru gol."""
+        """The hashes in the file (empty if there is no file). Read errors are raised: an empty registry is never guessed."""
         try:
             raw = _retry(lambda: self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -150,17 +149,17 @@ class CanaryRegistry:
                     self._hashes = frozenset(self._read_file())
                     self._stamp = stamp
                 except (OSError, ValueError):
-                    log.warning("Canary: registrul nu a putut fi recitit; folosesc ultimele hash-uri cunoscute")
+                    log.warning("Canary: could not reload the registry; using the last known hashes")
             return self._hashes
 
     def register_hash(self, digest: str) -> None:
-        """Adaugă un hash (fără să cunoască tokenul)."""
+        """Adds a hash (without knowing the token)."""
         digest = digest.strip().lower()
         if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
-            raise ValueError("hash SHA-256 invalid")
+            raise ValueError("not a SHA-256 hash")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock, _file_lock(self.path):
-            hashes = self._read_file()  # o eroare aici oprește scrierea: nu rescriem registrul pe jumătate
+            hashes = self._read_file()  # an error here stops the write: the registry is never half rewritten
             if digest in hashes:
                 return
             hashes.add(digest)
@@ -176,10 +175,10 @@ class CanaryRegistry:
         self.register_hash(digest)
         return digest
 
-    # ------------------------------------------------------------ API public
+    # ------------------------------------------------------------ public API
 
     def mint(self, lead_id: str) -> str:
-        """Un token nou pentru o pistă AML, de forma ZX-XXXXXXXXXX (base32). Se stochează doar hash-ul."""
+        """A new token for an AML lead, shaped ZX-XXXXXXXXXX (base32). Only its hash is stored."""
         if self._secret:
             raw = hmac.new(self._secret, f"canary:{lead_id}".encode("utf-8"), hashlib.sha256).digest()
         else:
@@ -190,7 +189,7 @@ class CanaryRegistry:
         return token
 
     def scan(self, text: str) -> int:
-        """Câte apariții ale unor tokenuri cunoscute conține textul."""
+        """How many occurrences of known tokens the text contains."""
         hashes = self._load()
         if not hashes or not text:
             return 0
@@ -206,5 +205,5 @@ class CanaryRegistry:
         return len(self._load())
 
     def __bool__(self) -> bool:
-        # un registru gol e tot un registru: `registry or CanaryRegistry()` nu trebuie să-l înlocuiască
+        # an empty registry is still a registry: `registry or CanaryRegistry()` must not replace it
         return True

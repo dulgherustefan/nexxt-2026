@@ -1,88 +1,124 @@
-import { lazy, Suspense, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router";
-import { ApiScope, RuntimeProvider, useRuntime } from "./api/runtime";
+import { probeMeta } from "./api/client";
+import { RuntimeProvider, useRuntime } from "./api/runtime";
 import { AppShell, BootScreen } from "./shell/AppShell";
-import { EmptyState, Loading, SectionBoundary } from "./ui/kit";
+import { Loading, SectionBoundary } from "./ui/kit";
 import NotFound from "./pages/NotFound";
+import HomePage from "./pages/home/HomePage";
 
-const QueuePage = lazy(() => import("./pages/client/QueuePage"));
-const CaseRoomPage = lazy(() => import("./pages/client/CaseRoom"));
-const GuidedDemo = lazy(() => import("./pages/demo/GuidedDemo"));
-const SystemPage = lazy(() => import("./pages/system/SystemPage"));
+const CasesPage = lazy(() => import("./pages/client/CasesPage"));
+const CasePage = lazy(() => import("./pages/client/CasePage"));
+const RulesPage = lazy(() => import("./pages/client/RulesPage"));
+const EvalPage = lazy(() => import("./pages/client/EvalPage"));
+const McpPage = lazy(() => import("./pages/client/McpPage"));
 const BankPage = lazy(() => import("./pages/demo/BankPage"));
 const FakePage = lazy(() => import("./pages/demo/FakePage"));
 const LeadsPage = lazy(() => import("./pages/aml/LeadsPage"));
 const LeadPage = lazy(() => import("./pages/aml/LeadPage"));
 const OsintPage = lazy(() => import("./pages/aml/OsintPage"));
+const AccessLogPage = lazy(() => import("./pages/aml/AccessLogPage"));
 
-/** Fiecare pagină are limita ei de eroare: o pagină căzută nu dărâmă navigarea. */
+// Fetch the console pages once the browser is idle, so the first click never waits on a chunk.
+if (typeof window !== "undefined") {
+  const warm = () => {
+    void import("./pages/client/CasesPage");
+    void import("./pages/client/CasePage");
+    void import("./pages/client/RulesPage");
+    void import("./pages/client/EvalPage");
+  };
+  if ("requestIdleCallback" in window) window.requestIdleCallback(warm, { timeout: 4000 });
+  else setTimeout(warm, 2500);
+}
+
+/** Each page has its own error boundary: one broken page never takes the navigation down. */
 const S = ({ children, label }: { children: ReactNode; label: string }) => (
   <SectionBoundary label={label}>
     <Suspense fallback={<Loading />}>{children}</Suspense>
   </SectionBoundary>
 );
 
-/** Vederea AML: tot ce e dedesubt vorbește doar cu procesul AML (alt port, altă bază de date). */
-export function AmlScope({ children }: { children: ReactNode }) {
-  const { amlApi } = useRuntime();
-  if (!amlApi) {
-    return (
-      <EmptyState title="Procesul AML nu e configurat.">
-        Serverul zonei client nu a trimis adresa zonei AML (urls.aml în /api/meta). Pornește ambele procese cu „versoml up”.
-      </EmptyState>
-    );
-  }
-  return <ApiScope api={amlApi}>{children}</ApiScope>;
+/** Old Romanian paths keep working, query string included (the QR codes printed for the jury use `?client=`). */
+function Moved({ to }: { to: string }) {
+  return <Navigate to={{ pathname: to, search: window.location.search }} replace />;
 }
 
-/** Rolul de operator nu are API pe portul zonei AML: îl trimitem la consola client. */
-function OperatorOnly({ children }: { children: ReactNode }) {
-  const { clientApi } = useRuntime();
-  if (!clientApi) return <Navigate to="/aml" replace />;
-  return <ApiScope api={clientApi}>{children}</ApiScope>;
-}
-
-function OldLeadLink() {
-  const { leadId = "" } = useParams();
-  return <Navigate to={`/aml/piste/${encodeURIComponent(leadId)}`} replace />;
+function LegacyCase() {
+  const { id } = useParams();
+  return <Navigate to={`/cases/${id ?? ""}`} replace />;
 }
 
 function ZoneRoutes() {
+  const { zone } = useRuntime();
+  if (zone === "aml") {
+    return (
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route index element={<S label="Leads"><LeadsPage /></S>} />
+          <Route path="piste/:leadId" element={<S label="Lead"><LeadPage /></S>} />
+          <Route path="osint" element={<S label="OSINT"><OsintPage /></S>} />
+          <Route path="zid" element={<S label="Access log"><AccessLogPage /></S>} />
+          <Route path="*" element={<NotFound />} />
+        </Route>
+      </Routes>
+    );
+  }
   return (
     <Routes>
-      <Route path="banca" element={<OperatorOnly><S label="Banca Demo"><BankPage /></S></OperatorOnly>} />
-      <Route path="demo/livrare" element={<OperatorOnly><S label="Pagina falsă"><FakePage /></S></OperatorOnly>} />
-      <Route element={<AppShell wide />}>
-        <Route path="demo" element={<OperatorOnly><S label="Demo ghidat"><GuidedDemo /></S></OperatorOnly>} />
-      </Route>
+      <Route path="bank" element={<S label="Demo Bank"><BankPage /></S>} />
+      <Route path="demo/delivery" element={<S label="Demo courier page"><FakePage /></S>} />
       <Route element={<AppShell />}>
-        <Route index element={<OperatorOnly><S label="Contestații"><QueuePage /></S></OperatorOnly>} />
-        <Route path="cazuri" element={<Navigate to="/" replace />} />
-        <Route path="cazuri/:id" element={<OperatorOnly><S label="Caz"><CaseRoomPage /></S></OperatorOnly>} />
-        <Route path="sistem/:tab?" element={<OperatorOnly><S label="Sistem"><SystemPage role="operator" /></S></OperatorOnly>} />
-        <Route path="zid" element={<Navigate to="/sistem/zid" replace />} />
-        <Route path="reguli" element={<Navigate to="/sistem/reguli" replace />} />
-        <Route path="evaluare" element={<Navigate to="/sistem/evaluare" replace />} />
-        <Route path="mcp" element={<Navigate to="/sistem/mcp" replace />} />
-        <Route path="aml" element={<AmlScope><S label="Piste"><LeadsPage /></S></AmlScope>} />
-        <Route path="aml/piste/:leadId" element={<AmlScope><S label="Pistă"><LeadPage /></S></AmlScope>} />
-        <Route path="aml/osint" element={<AmlScope><S label="Verificare OSINT"><OsintPage /></S></AmlScope>} />
-        <Route path="aml/sistem/:tab?" element={<S label="Sistem"><SystemPage role="aml" /></S>} />
-        <Route path="aml/jurnal" element={<Navigate to="/aml/sistem/jurnal" replace />} />
-        <Route path="piste/:leadId" element={<OldLeadLink />} />
-        <Route path="osint" element={<Navigate to="/aml/osint" replace />} />
+        <Route path="cases" element={<S label="Cases"><CasesPage /></S>} />
+        <Route path="cases/:id" element={<S label="Case"><CasePage /></S>} />
+        <Route path="rules" element={<S label="Rules"><RulesPage /></S>} />
+        <Route path="evaluation" element={<S label="Evaluation"><EvalPage /></S>} />
+        <Route path="mcp" element={<S label="MCP"><McpPage /></S>} />
         <Route path="*" element={<NotFound />} />
       </Route>
+      {/* old Romanian paths, kept so printed QR codes and bookmarks still work */}
+      <Route path="banca" element={<Moved to="/bank" />} />
+      <Route path="demo/livrare" element={<Moved to="/demo/delivery" />} />
+      <Route path="cazuri" element={<Navigate to="/cases" replace />} />
+      <Route path="cazuri/:id" element={<LegacyCase />} />
+      <Route path="reguli" element={<Navigate to="/rules" replace />} />
+      <Route path="evaluare" element={<Navigate to="/evaluation" replace />} />
+      <Route path="zid" element={<Navigate to="/cases" replace />} />
     </Routes>
   );
 }
 
-export default function App() {
+function Console() {
   return (
     <RuntimeProvider fallback={<BootScreen />}>
-      <BrowserRouter>
-        <ZoneRoutes />
-      </BrowserRouter>
+      <ZoneRoutes />
     </RuntimeProvider>
+  );
+}
+
+/**
+ * "/" is the homepage and paints without waiting for the server. The AML zone serves the same
+ * bundle, so a quiet background check swaps in its console when this page is served from there.
+ */
+function Root() {
+  const [aml, setAml] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void probeMeta(1500).then((m) => alive && setAml(m?.zone === "aml"));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (aml) return <Console />;
+  return <HomePage />;
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route index element={<Root />} />
+        <Route path="*" element={<Console />} />
+      </Routes>
+    </BrowserRouter>
   );
 }

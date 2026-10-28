@@ -1,4 +1,4 @@
-"""Tot ce folosește procesul zonei client. Zona client nu are calea spre baza AML."""
+"""Everything the client zone process uses. The client zone has no path to the AML database."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ class ClientRuntime:
         return self.settings.client_url
 
     def authorize(self, who: str, action: str, zone: Zone = Zone.CLIENT, context: dict | None = None) -> PolicyDecision:
-        """Punctul de control Cedar pentru fiecare tool. Refuzurile se păstrează pentru UI."""
+        """The Cedar checkpoint for every tool. Denials are kept for the website."""
         from versoml.shared.policy import authorize
 
         principal = PRINCIPALS.get(who, who)

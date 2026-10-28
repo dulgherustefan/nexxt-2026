@@ -17,7 +17,7 @@ async def test_openphish_synthetic_feed(no_network):
     assert by_domain.signal == "rosu" and by_domain.data["listed"]
     fresh = await threatintel.openphish_check("https://livrare-bancademo.example/confirmare?id=7731")
     assert fresh.signal == "neutru" and fresh.data["listed"] is False
-    assert "absența nu dovedește" in fresh.summary
+    assert "does not prove it is safe" in fresh.summary
     assert not no_network.calls
 
 
@@ -51,7 +51,7 @@ async def test_openphish_falls_back_to_github_mirror(mock_http):
 async def test_missing_keys_are_offline(call, key_name, no_network):
     result = await call()
     assert result.ok is False and result.mode == "offline"
-    assert f"necesită cheie {key_name}" in result.summary
+    assert f"needs the {key_name} key" in result.summary
     assert not no_network.calls
 
 

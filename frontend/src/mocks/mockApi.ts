@@ -1,8 +1,9 @@
 /**
- * Implementarea mock a `Api`. Aceleași forme ca backend-ul (docs/06 §6); zona se alege cu `?zone=aml`.
- * Ca în producție, zona client nu „vede" endpoint-urile AML și invers (răspund 404).
+ * The mock implementation of `Api`. The same shapes as the backend (docs/06 §6); `?zone=aml` picks the zone.
+ * As in production, the client zone can't "see" the AML endpoints and the other way around (they answer 404).
  */
 import { ApiError, type Api } from "../api/client";
+import { money } from "../api/format";
 import type {
   AgentEvent,
   AmlStats,
@@ -26,8 +27,8 @@ import { isoRo } from "./calendar";
 import { advance, PUBLIC_KEY, type MockCase } from "./engine";
 import { MCP, RULES, SCENARIOS, evalReport } from "./fixtures";
 import { canonical, merkleRoot, sha256 } from "./sha256";
-import { ATTACKS, caseEventSource, createMockCase, leadEventSource, read, startDriver, startRun, tickerSource, transact } from "./store";
-import { MULE_IBAN_SHORT } from "./stories";
+import { ATTACKS, caseEventSource, createMockCase, leadEventSource, read, startDriver, startRun, transact } from "./store";
+import { MULE_IBAN_SHORT, RUBRIC } from "./stories";
 import type { StreamSource } from "../api/sse";
 
 const ZONE_KEY = "versoml.mock.zone";
@@ -42,14 +43,14 @@ export function mockZoneFromUrl(): Zone {
     const s = sessionStorage.getItem(ZONE_KEY);
     if (s === "aml" || s === "client") return s;
   } catch {
-    /* fără sessionStorage */
+    /* no sessionStorage */
   }
   return "client";
 }
 
 const clone = <T>(v: T): T => (v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T));
 const delay = <T>(v: T, ms = 120): Promise<T> => new Promise((res) => setTimeout(() => res(clone(v)), ms));
-const notFound = (what: string, path: string) => new ApiError(`${what} nu există.`, 404, path);
+const notFound = (what: string, path: string) => new ApiError(`${what} not found.`, 404, path);
 
 function slaLeft(deadline: string | null | undefined): number | null {
   if (!deadline) return null;
@@ -67,14 +68,18 @@ function detailOf(c: MockCase): CaseDetail {
   return d;
 }
 
+/** Tipping-off terms, in English and in Romanian (customers and staff may still write either). */
 const FORBIDDEN: Array<[RegExp, string]> = [
   [/\bONPCSB\b/gi, "ONPCSB"],
-  [/\bRTS\b/g, "RTS"],
+  [/\b(?:RTS|STR|SAR)\b/g, "STR"],
   [/\braport\p{L}*/giu, "raport"],
+  [/\breport(?:ed|ing|s)?\s+(?:\p{L}+\s+){0,3}?to\s+(?:the\s+)?(?:ONPCSB|authorit\p{L}*|police|prosecutors?|FIU)\b/giu, "reported to the authorities"],
   [/\bsp[ăa]l\p{L}*/giu, "spălare"],
-  [/\bsuspec\p{L}*/giu, "suspect"],
-  [/\binvestig\p{L}*/giu, "investigație"],
+  [/\b(?:money[\s-]+)?launder\p{L}*/giu, "money laundering"],
+  [/\bsuspec\p{L}*|\bsuspici\p{L}*/giu, "suspicion"],
+  [/\binvestig\p{L}*/giu, "investigation"],
   [/\bAML\b/gi, "AML"],
+  [/\b(?:money[\s-]+)?mules?\b/giu, "money mule"],
 ];
 
 export function filterLetter(body: string): FilterResult {
@@ -85,15 +90,17 @@ export function filterLetter(body: string): FilterResult {
   }
   const canaries = body.match(/versoml-cn-[0-9a-f]{6,}/gi)?.length ?? 0;
   const pii: string[] = [];
-  if (/\bRO\d{2}\s?[A-Z]{4}(\s?[0-9A-Z]{4}){4}\b/.test(body)) pii.push("IBAN complet");
-  if (/\b[1-8]\d{12}\b/.test(body)) pii.push("CNP");
-  if (/\b(?:\d[ -]?){15,18}\d\b/.test(body)) pii.push("număr de card");
-  const classifier = /\b(urmărit|monitoriz\p{L}*|dosar penal|poliți\p{L}*|blocat pentru verificări)\b/iu.test(body);
+  if (/\bRO\d{2}\s?[A-Z]{4}(\s?[0-9A-Z]{4}){4}\b/.test(body)) pii.push("full IBAN");
+  if (/\b[1-8]\d{12}\b/.test(body)) pii.push("personal ID number (CNP)");
+  if (/\b(?:\d[ -]?){15,18}\d\b/.test(body)) pii.push("card number");
+  const classifier =
+    /\b(urmărit|monitoriz\p{L}*|dosar penal|poliți\p{L}*|blocat pentru verificări)\b/iu.test(body) ||
+    /\b(monitor\p{L}*|watch[\s-]?list\p{L}*|under (?:review|watch|surveillance)|criminal case|police|blocked for checks)\b/iu.test(body);
   const reasons: string[] = [];
-  if (blocked.size) reasons.push("termeni interziși: scrisoarea ar putea avertiza beneficiarul (tipping-off)");
-  if (canaries) reasons.push("token canary din dosarul AML: o scurgere peste zid");
-  if (pii.length) reasons.push("date personale care nu aparțin scrisorii");
-  if (classifier) reasons.push("clasificatorul Haiku a semnalat o aluzie la verificări asupra beneficiarului");
+  if (blocked.size) reasons.push("banned terms: the letter could warn the payee (tipping-off)");
+  if (canaries) reasons.push("a canary token from the AML file: a leak across the wall");
+  if (pii.length) reasons.push("personal data that doesn't belong in the letter");
+  if (classifier) reasons.push("the classifier flagged a hint that someone is checking the payee");
   return {
     passed: !blocked.size && !canaries && !pii.length && !classifier,
     blocked_terms: Array.from(blocked),
@@ -118,19 +125,19 @@ function verifyDossier(d: unknown): VerifyResult {
     if ((f.prev_hash ?? null) !== prev) chainOk = false;
     prev = typeof f.sha256 === "string" ? f.sha256 : null;
   }
-  checks.push({ name: "Hash-ul fiecărei probe", ok: hashOk, detail: hashOk ? `${facts.length} probe recalculate, toate potrivite` : "conținutul unei probe nu se potrivește cu hash-ul ei" });
-  checks.push({ name: "Lanțul de hash-uri", ok: chainOk, detail: chainOk ? "fiecare probă trimite la cea dinainte" : "lanțul e rupt" });
+  checks.push({ name: "Each evidence hash", ok: hashOk, detail: hashOk ? `${facts.length} evidence items recomputed, all match` : "an evidence item's content doesn't match its hash" });
+  checks.push({ name: "Hash chain", ok: chainOk, detail: chainOk ? "each item points to the one before it" : "the chain is broken" });
   const seal = obj.seal;
   if (!seal) {
-    checks.push({ name: "Sigiliul", ok: false, detail: "dosarul nu e sigilat încă" });
+    checks.push({ name: "Seal", ok: false, detail: "the case file isn't sealed yet" });
   } else {
     const root = merkleRoot(facts.map((f) => String(f.sha256)));
     const rootOk = root === seal.root;
-    checks.push({ name: "Rădăcina Merkle", ok: rootOk, detail: rootOk ? `rădăcina ${root.slice(0, 16)}… se potrivește` : "rădăcina recalculată diferă de cea sigilată" });
+    checks.push({ name: "Merkle root", ok: rootOk, detail: rootOk ? `root ${root.slice(0, 16)}… matches` : "the recomputed root differs from the sealed one" });
     const sigOk = seal.signature === `${sha256(`ed25519-sim|${String(seal.root)}`)}${sha256(`ed25519-sim-2|${String(seal.root)}`)}` && seal.public_key === PUBLIC_KEY;
-    checks.push({ name: "Semnătura Ed25519", ok: sigOk, detail: sigOk ? "semnătură simulată validă (modul demo)" : "semnătura nu corespunde rădăcinii" });
+    checks.push({ name: "Ed25519 signature", ok: sigOk, detail: sigOk ? "valid simulated signature (demo mode)" : "the signature doesn't match the root" });
     const countOk = Number(seal.count) === facts.length;
-    checks.push({ name: "Numărul de probe", ok: countOk, detail: `${facts.length} în dosar, ${String(seal.count)} la sigilare` });
+    checks.push({ name: "Evidence count", ok: countOk, detail: `${facts.length} in the file, ${String(seal.count)} at sealing` });
   }
   return { valid: checks.every((c) => c.ok), checks };
 }
@@ -142,14 +149,14 @@ function briefs(c: MockCase): DecisionBrief[] {
 export function createMockApi(zone: Zone): Api {
   startDriver();
   const clientOnly = (path: string) => {
-    if (zone !== "client") throw new ApiError("Endpoint inexistent în zona AML (proces separat).", 404, path);
+    if (zone !== "client") throw new ApiError("This endpoint doesn't exist in the AML zone (a separate process).", 404, path);
   };
   const amlOnly = (path: string) => {
-    if (zone !== "aml") throw new ApiError("Endpoint inexistent în zona client (proces separat).", 404, path);
+    if (zone !== "aml") throw new ApiError("This endpoint doesn't exist in the client zone (a separate process).", 404, path);
   };
   const getCase = (id: string, path: string) => {
     const c = read().cases[id];
-    if (!c) throw notFound(`Cazul ${id}`, path);
+    if (!c) throw notFound(`Case ${id}`, path);
     return c;
   };
 
@@ -217,7 +224,14 @@ export function createMockApi(zone: Zone): Api {
           return createMockCase(db, { scenario: body.scenario_id, customerRef: body.scenario_id === "demo_t1" ? "CUST-DEMO-01" : `CUST-${Math.floor(Math.random() * 900 + 100)}` }).caseId;
         }
         const text = body.complaint.text;
-        const scenario = /apel|sunat|securitate/i.test(text) ? "vishing_securitate" : /sim|semnal/i.test(text) ? "sim_swap" : /de două ori|dublă/i.test(text) ? "plata_dubla" : "phishing_link";
+        // the same rough routing as before, now also for claims written in English
+        const scenario = /apel|sunat|securitate|\bcall(?:ed|ing)?\b|security/i.test(text)
+          ? "vishing_securitate"
+          : /\bsim\b|semnal|\bsignal\b/i.test(text)
+            ? "sim_swap"
+            : /de două ori|dublă|\btwice\b|\bdouble\b|\bduplicate\b/i.test(text)
+              ? "plata_dubla"
+              : "phishing_link";
         return createMockCase(db, { scenario, customerRef: body.complaint.customer_ref || "CUST-NOU", complaintText: text }).caseId;
       });
       return delay({ case_id: id });
@@ -247,22 +261,12 @@ export function createMockApi(zone: Zone): Api {
         };
       };
     },
-    ticker(): StreamSource {
-      return (h) => {
-        h.onStatus?.("open");
-        const unsub = tickerSource()(h.onEvent);
-        return () => {
-          unsub();
-          h.onStatus?.("closed");
-        };
-      };
-    },
     async approve(id, body) {
       clientOnly(`/api/cases/${id}/approve`);
       const status = transact((db, hooks) => {
         const c = db.cases[id];
-        if (!c) throw notFound(`Cazul ${id}`, `/api/cases/${id}/approve`);
-        if (!c.detail.interrupt?.pending || !c.run) throw new ApiError("Nu există nicio aprobare în așteptare.", 409, `/api/cases/${id}/approve`);
+        if (!c) throw notFound(`Case ${id}`, `/api/cases/${id}/approve`);
+        if (!c.detail.interrupt?.pending || !c.run) throw new ApiError("No approval is waiting for this case.", 409, `/api/cases/${id}/approve`);
         const now = Date.now();
         c.run.approval = { action: body.action, at: now, approver: body.approver || "OPERATOR-DEMO", note: body.note };
         advance(c, now, hooks);
@@ -276,12 +280,12 @@ export function createMockApi(zone: Zone): Api {
       const before = briefs(c);
       const after = before.map((b) => ({ ...b }));
       const changed: string[] = [];
-      let explanation = "Faptul schimbat nu atinge nicio regulă care decide acest caz: deciziile rămân aceleași.";
+      let explanation = "The changed fact doesn't touch any rule that decides this case, so the decisions stay the same.";
       const rubric = c.detail.debate?.rubric ?? [];
       const threshold = Number(read().params.prag_rubrica_recuperare ?? 4);
       const value = body.value === true || body.value === "true";
       if (rubric.length && (body.field === "screen_showed_amount_and_payee" || body.field === "client_admits_sharing_credentials")) {
-        const label = body.field === "screen_showed_amount_and_payee" ? "Ecranul a afișat suma și beneficiarul" : "Clientul a dat codul sau parola altcuiva";
+        const label = body.field === "screen_showed_amount_and_payee" ? RUBRIC.screen : RUBRIC.shared;
         const scoreBefore = rubric.reduce((s, r) => s + (r.value ? r.weight : 0), 0);
         const scoreAfter = rubric.reduce((s, r) => s + ((r.indicator === label ? value : r.value) ? r.weight : 0), 0);
         const rec = after.find((b) => b.question === "recuperare_client");
@@ -294,8 +298,8 @@ export function createMockApi(zone: Zone): Api {
         }
         explanation =
           body.field === "screen_showed_amount_and_payee"
-            ? `Cu legarea dinamică (DSP-10), aprobarea din aplicație arată că clientul a văzut suma și beneficiarul. Rubrica urcă de la ${scoreBefore} la ${scoreAfter} puncte (pragul e ${threshold}), deci recuperarea de la client devine o propunere pe care o semnează un om (DSP-06, PAY-06). Rambursarea rămâne: neglijența gravă nu permite refuzul sau amânarea (PAY-15, C-70/25).`
-            : `Dacă clientul ar fi dat codul altcuiva, rubrica urcă de la ${scoreBefore} la ${scoreAfter} puncte (pragul e ${threshold}). Rambursarea rămâne în termen (PAY-15); recuperarea o decide un om.`;
+            ? `With dynamic linking (DSP-10), the approval in the app shows that the customer saw the amount and payee. The rubric goes from ${scoreBefore} to ${scoreAfter} points (the threshold is ${threshold}), so recovery from the customer becomes a proposal that a person signs (DSP-06, PAY-06). The refund stays: gross negligence does not allow refusing or delaying it (PAY-15, C-70/25).`
+            : `If the customer had given the code to someone else, the rubric would go from ${scoreBefore} to ${scoreAfter} points (the threshold is ${threshold}). The refund stays on time (PAY-15), and a person decides on recovery.`;
       }
       return delay({ before, after, changed, explanation }, 400);
     },
@@ -350,14 +354,14 @@ export function createMockApi(zone: Zone): Api {
       clientOnly("/api/wall/attack");
       const kind = body.kind as AttackKind;
       const a = ATTACKS[kind];
-      if (!a) throw new ApiError("Tip de atac necunoscut.", 422, "/api/wall/attack");
+      if (!a) throw new ApiError("Unknown attack type.", 422, "/api/wall/attack");
       const now = Date.now();
       transact((db) => {
         if (kind === "read_aml_tool" || kind === "prompt_injection") {
           const ev = a.result.evidence as Partial<PolicyDecision>;
           db.wall.denials.unshift({
             allowed: false,
-            principal: ev.principal ?? "LLM izolat (Receptor)",
+            principal: ev.principal ?? "Judecator/Receptor",
             action: ev.action ?? "letter.include_aml_value",
             resource: ev.resource ?? "sink:letter",
             reason: a.result.detail,
@@ -366,10 +370,10 @@ export function createMockApi(zone: Zone): Api {
           });
         }
         if (kind === "letter_tipping_off") {
-          db.wall.blocks.unshift({ at: isoRo(now), case_id: "CT-ATAC-DEMO", reasons: ["termeni interziși"], terms: ["ONPCSB", "raportat", "investigat", "AML"] });
+          db.wall.blocks.unshift({ at: isoRo(now), case_id: "CT-ATAC-DEMO", reasons: ["banned terms"], terms: ["ONPCSB", "reported", "investigation", "AML"] });
         }
         if (kind === "diode_text_field") {
-          db.wall.denials.unshift({ allowed: false, principal: "dioda/hold", action: "diode.receive_hold", resource: "zone:client", reason: "HoldSignal cu câmp necunoscut „note”: respins (extra=forbid)", policy_ids: ["diode-schema"], at: isoRo(now) });
+          db.wall.denials.unshift({ allowed: false, principal: "dioda/hold", action: "diode.receive_hold", resource: "zone:client", reason: "HoldSignal with the unknown field “note”: rejected (extra=forbid)", policy_ids: ["diode-schema"], at: isoRo(now) });
         }
         db.wall.denials = db.wall.denials.slice(0, 40);
         db.wall.blocks = db.wall.blocks.slice(0, 40);
@@ -387,7 +391,7 @@ export function createMockApi(zone: Zone): Api {
     async bank(ref) {
       clientOnly(`/api/bank/${ref}`);
       const acct = read().bank[ref];
-      if (!acct) throw notFound(`Clientul ${ref}`, `/api/bank/${ref}`);
+      if (!acct) throw notFound(`Customer ${ref}`, `/api/bank/${ref}`);
       const { linked: _linked, ...state } = acct;
       void _linked;
       return delay(state, 60);
@@ -396,9 +400,9 @@ export function createMockApi(zone: Zone): Api {
       clientOnly(`/api/bank/${ref}/dispute`);
       const caseId = transact((db) => {
         const acct = db.bank[ref];
-        if (!acct) throw notFound(`Clientul ${ref}`, `/api/bank/${ref}/dispute`);
+        if (!acct) throw notFound(`Customer ${ref}`, `/api/bank/${ref}/dispute`);
         const tx = acct.transactions.find((t) => t.id === body.transaction_id);
-        if (!tx) throw notFound(`Tranzacția ${body.transaction_id}`, `/api/bank/${ref}/dispute`);
+        if (!tx) throw notFound(`Transaction ${body.transaction_id}`, `/api/bank/${ref}/dispute`);
         if (acct.linked[tx.id]) return acct.linked[tx.id];
         const c = createMockCase(db, {
           scenario: ref === "CUST-DEMO-02" ? "inel_carausi" : "demo_t1",
@@ -410,10 +414,10 @@ export function createMockApi(zone: Zone): Api {
         });
         c.ctx.executedAt = new Date(tx.ts).getTime();
         acct.linked[tx.id] = c.caseId;
-        tx.status = "contestată";
+        tx.status = "disputed";
         tx.disputable = false;
         startRun(db, c.caseId);
-        acct.notifications.unshift({ ts: isoRo(Date.now()), text: `Am primit contestația ${c.caseId}. Îți răspundem până la termenul legal.`, kind: "info" });
+        acct.notifications.unshift({ ts: isoRo(Date.now()), text: `We have received your claim ${c.caseId}. You will hear from us by the end of the next business day.`, kind: "info" });
         return c.caseId;
       });
       return delay({ case_id: caseId }, 300);
@@ -422,12 +426,12 @@ export function createMockApi(zone: Zone): Api {
       clientOnly("/api/demo/scam");
       const out = transact((db) => {
         const acct = db.bank[body.customer_ref];
-        if (!acct) throw notFound(`Clientul ${body.customer_ref}`, "/api/demo/scam");
+        if (!acct) throw notFound(`Customer ${body.customer_ref}`, "/api/demo/scam");
         const amount = body.customer_ref === "CUST-DEMO-02" ? 1850 : 3200;
         const id = `TX-SCAM-${Date.now().toString(36).toUpperCase()}`;
-        acct.transactions.unshift({ id, ts: isoRo(Date.now()), description: `Transfer către ${MULE_IBAN_SHORT}`, amount: -amount, direction: "out", status: "executată", disputable: true });
+        acct.transactions.unshift({ id, ts: isoRo(Date.now()), description: `Transfer to ${MULE_IBAN_SHORT}`, amount: -amount, direction: "out", status: "booked", disputable: true });
         acct.balance = Math.round((acct.balance - amount) * 100) / 100;
-        acct.notifications.unshift({ ts: isoRo(Date.now()), text: `Ai trimis ${new Intl.NumberFormat("ro-RO").format(amount)} lei către ${MULE_IBAN_SHORT}.`, kind: "debit" });
+        acct.notifications.unshift({ ts: isoRo(Date.now()), text: `You sent ${money(amount)} to ${MULE_IBAN_SHORT}.`, kind: "debit" });
         return { transaction_id: id, amount };
       });
       return delay(out, 500);
@@ -483,7 +487,7 @@ export function createMockApi(zone: Zone): Api {
     async amlLead(id) {
       amlOnly(`/api/aml/leads/${id}`);
       const l = read().aml.leads[id];
-      if (!l) throw notFound(`Pista ${id}`, `/api/aml/leads/${id}`);
+      if (!l) throw notFound(`Lead ${id}`, `/api/aml/leads/${id}`);
       const d = clone(l.detail);
       d.lead.osint = d.osint;
       d.lead.innocent_hypotheses = d.innocent;
@@ -494,7 +498,7 @@ export function createMockApi(zone: Zone): Api {
       amlOnly(`/api/aml/leads/${id}/run`);
       const runId = transact((db) => {
         const l = db.aml.leads[id];
-        if (!l) throw notFound(`Pista ${id}`, `/api/aml/leads/${id}/run`);
+        if (!l) throw notFound(`Lead ${id}`, `/api/aml/leads/${id}/run`);
         const rid = `run-${id}-${Math.floor(Date.now() / 1000).toString(36)}`;
         l.run = { runId: rid, startedAt: Date.now(), cursor: 0, done: false, decided: null };
         return rid;
@@ -515,7 +519,7 @@ export function createMockApi(zone: Zone): Api {
       amlOnly(`/api/aml/leads/${id}/decide`);
       transact((db, hooks) => {
         const l = db.aml.leads[id];
-        if (!l) throw notFound(`Pista ${id}`, `/api/aml/leads/${id}/decide`);
+        if (!l) throw notFound(`Lead ${id}`, `/api/aml/leads/${id}/decide`);
         const now = Date.now();
         const analyst = body.analyst || "ANALIST-07";
         const labels: Record<string, string> = {
@@ -544,7 +548,7 @@ export function createMockApi(zone: Zone): Api {
             const c = db.cases[cid];
             if (!c) continue;
             c.detail.hold = { received: true, approved_by: analyst, approved_at: isoRo(now), authority_notified: false };
-            c.events.push({ type: "CUSTOM", zone: "client", run_id: c.run?.runId ?? "run-0", case_id: cid, seq: hooks.nextSeq(), ts: isoRo(now), step: "reguli", agent: "Dioda", name: "hold_signal", message: "HOLD primit prin diodă: da. Fără motiv, fără detalii. Rambursarea rămâne în termen.", data: { hold: true } });
+            c.events.push({ type: "CUSTOM", zone: "client", run_id: c.run?.runId ?? "run-0", case_id: cid, seq: hooks.nextSeq(), ts: isoRo(now), step: "reguli", agent: "Diode", name: "hold_signal", message: "HOLD received through the diode: yes. No reason and no details. The refund deadline still applies.", data: { hold: true } });
           }
         }
         push("RUN_FINISHED", { message: "Rularea Investigatorului s-a încheiat cu decizia analistului." });

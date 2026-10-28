@@ -2,12 +2,18 @@
 
 Regula proiectului: ș/ț cu virgulă dedesubt (U+0219/U+021B). Intrarea se normalizează
 (ş/ţ cu sedilă, U+015F/U+0163, devin ș/ț) înainte de orice comparație.
+
+The website is in English: `fmt_ron` ("RON 3,200.00"), `fmt_date` ("29 Oct 2026") and `fmt_datetime`
+("29 Oct 2026, 23:59", Bucharest time, 24-hour) write what the user sees. `fmt_lei` and `LUNI` stay for
+the Romanian complaint generator.
 """
 
 from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 SPRE_VIRGULA = str.maketrans("şţŞŢ", "șțȘȚ")
 FARA_DIACRITICE = str.maketrans("ăâîșțĂÂÎȘȚşţŞŢ", "aaistAAISTstST")
@@ -62,3 +68,33 @@ def fmt_lei(value: float, style: int = 0) -> str:
 LUNI = ["ianuarie", "februarie", "martie", "aprilie", "mai", "iunie", "iulie", "august",
         "septembrie", "octombrie", "noiembrie", "decembrie"]
 ZILE = ["luni", "marți", "miercuri", "joi", "vineri", "sâmbătă", "duminică"]
+
+# ---------------------------------------------------------------- English, for the website
+
+MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+          "November", "December"]
+MONTHS_SHORT = [m[:3] for m in MONTHS]
+_TZ = ZoneInfo("Europe/Bucharest")
+
+
+def fmt_ron(value: float, currency: str = "RON") -> str:
+    """3200 -> 'RON 3,200.00'; -12.5 -> '-RON 12.50'."""
+    sign = "-" if value < 0 else ""
+    return f"{sign}{currency} {abs(float(value)):,.2f}"
+
+
+def _local(value: datetime | str) -> datetime:
+    dt = datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
+    return dt.replace(tzinfo=_TZ) if dt.tzinfo is None else dt.astimezone(_TZ)
+
+
+def fmt_date(value: date | datetime | str) -> str:
+    """'29 Oct 2026' (a datetime or an ISO string is read in Bucharest time; a naive one is already local)."""
+    d = value if isinstance(value, date) and not isinstance(value, datetime) else _local(value)
+    return f"{d.day} {MONTHS_SHORT[d.month - 1]} {d.year}"
+
+
+def fmt_datetime(value: datetime | str) -> str:
+    """'29 Oct 2026, 23:59' (Bucharest time, 24-hour)."""
+    dt = _local(value)
+    return f"{dt.day} {MONTHS_SHORT[dt.month - 1]} {dt.year}, {dt:%H:%M}"

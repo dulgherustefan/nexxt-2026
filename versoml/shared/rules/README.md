@@ -70,8 +70,11 @@ zilele închise ale băncii ca parametru. `end_of_next_business_day`, `add_busin
 ## Cum adaugi o regulă
 
 1. Alege ID-ul din docs/context (sau, dacă lipsește, un ID nou în REC/URM, cu marcaj `S` sau `U`).
-2. Scrie funcția pură în pachetul ei, cu decoratorul `@rule(...)`: titlu și temei în română (ș/ț cu virgulă),
-   `confidence`, `questions`, `params`, `exceptions`, `tests`; docstring scurt în română.
+2. Scrie funcția pură în pachetul ei, cu decoratorul `@rule(...)`: titlu și temei în engleză (ex. „Law 209/2019,
+   art. 173”), `confidence`, `questions`, `params`, `exceptions`, `tests`; docstring scurt în engleză (devine
+   descrierea din `explain`). Explicațiile, termenele și pașii următori sunt tot în engleză; sumele și datele se
+   formatează cu `fmt_money` („RON 3,200.00”), `fmt_d` („29 Oct 2026”) și `fmt_dt` („29 Oct 2026, 23:59:59”).
+   Codurile de rezultat, ID-urile și valorile parametrilor nu se traduc.
    Funcția primește `(x: RuleContextExt, env: Env)` și întoarce `Finding(rule_id, outcome, explanation, fields,
    data, deadlines)` sau `None`. `fields` = câmpurile folosite (devin citări prin `ctx.fact_ids`).
 3. Orice valoare [U] intră în `params_default.yaml` (cu `rules: [ID]`, tip, interval).

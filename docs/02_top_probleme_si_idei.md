@@ -2,7 +2,7 @@
 
 **Raiffeisen Bank România · NEXXT Summit 2026 · track „AI for Operational Efficiency"**
 
-Stare: research încheiat pe 6 direcții, plus 3 verificări în Perplexity (28.10.2026). MVP-ul **nu e ales**; documentul servește alegerii. Sursele complete sunt în [raportul de research](<../reports/Oportunități AI operațiuni Raiffeisen România.md>) și în [notele de research](<../research_notes/Oportunități AI operațiuni Raiffeisen România/>). Ce e marcat *(de verificat)* are o singură sursă sau surse în conflict.
+Stare: research încheiat pe 6 direcții, plus 3 verificări în Perplexity (28.10.2026). MVP-ul **nu e ales**; documentul servește alegerii. Ce e marcat *(de verificat)* are o singură sursă sau surse în conflict.
 
 ## Pe scurt
 
@@ -263,10 +263,8 @@ Agentul clasifică reclamațiile, calculează termenele, sumarizează, rutează 
 
 | Ce | Unde |
 |---|---|
-| Raportul complet, cu surse | [reports/Oportunități AI operațiuni Raiffeisen România.md](<../reports/Oportunități AI operațiuni Raiffeisen România.md>) |
 | Reguli pentru popriri, cereri de la autorități, succesiuni | [context/10](context/10_reguli_popriri_autoritati_mosteniri.md) |
 | Reguli KYC/AML, credit, plăți, reclamații | [context/11](context/11_reguli_kyc_aml_credit_plati_reclamatii.md) |
 | Identificatori, formate, date sintetice, tooling | [context/12](context/12_date_sintetice_formate_validatori.md) |
 | Arhitectură de agent, guardrails, evaluare, întrebări de la juriu | [context/13](context/13_arhitectura_agent_guardrails_evaluare.md) |
 | Dispute card, chargeback, fraude, C-70/25 | [context/14](context/14_dispute_card_fraude.md) |
-| Notele brute de research | [research_notes/](<../research_notes/Oportunități AI operațiuni Raiffeisen România/>) |

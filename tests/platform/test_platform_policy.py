@@ -77,14 +77,14 @@ def test_investigators_never_reach_client_tools(principal, action):
     assert not allowed(principal, action, Zone.AML, {"approved_by_human": True})
 
 
-def test_demo_denials_have_a_clear_romanian_reason():
+def test_demo_denials_have_a_clear_english_reason():
     for principal, action in (("Judecator/Redactor", "aml.osint.web_search"),
                               ("Judecator/Procuror", "aml.graph.neighborhood")):
         decision = authorize(principal, action, Zone.AML)
         assert not decision.allowed
         assert {"wall-client-not-in-aml", "wall-client-no-aml-actions"} <= set(decision.policy_ids)
         assert decision.principal == f'Agent::"{principal}"' and decision.resource == 'Zone::"aml"'
-        assert "zona AML" in decision.reason and "tipping-off" in decision.reason and "Refuzat" in decision.reason
+        assert "AML zone" in decision.reason and "tipping-off" in decision.reason and decision.reason.startswith("Denied")
         assert not any(c in decision.reason for c in NO_CEDILLA)
         assert decision.at is not None
 
@@ -176,7 +176,7 @@ def test_mcp_aml_has_exactly_its_list():
 ])
 def test_default_deny(principal, action, zone):
     decision = authorize(principal, action, zone)
-    assert not decision.allowed and decision.policy_ids and decision.reason.startswith("Refuzat")
+    assert not decision.allowed and decision.policy_ids and decision.reason.startswith("Denied")
 
 
 def test_wildcard_read_tools_follow_their_zone():
@@ -239,7 +239,7 @@ def test_parity_cedar_and_python_on_the_full_matrix():
 def test_forced_python_engine_says_so_loudly():
     set_engine("python")
     decision = authorize("Judecator/Redactor", "aml.osint.web_search", Zone.AML)
-    assert not decision.allowed and decision.reason.startswith("[ATENȚIE")
+    assert not decision.allowed and decision.reason.startswith("[WARNING")
     assert engine_status()["engine"] == "python"
 
 
@@ -251,7 +251,7 @@ def test_cedar_failure_falls_back_with_a_loud_reason(monkeypatch):
     denied = authorize("Judecator/Redactor", "aml.osint.web_search", Zone.AML)
     permitted = authorize("MotorReguli", "refund.issue", Zone.CLIENT, {"within_auto_cap": True})
     assert not denied.allowed and permitted.allowed
-    assert "cedarpy indisponibil" in denied.reason and "cedarpy indisponibil" in permitted.reason
+    assert "cedarpy is unavailable" in denied.reason and "cedarpy is unavailable" in permitted.reason
 
 
 # ------------------------------------------------------------ guarded, jurnal, abonați

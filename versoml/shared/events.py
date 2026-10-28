@@ -123,10 +123,10 @@ class Emitter:
                    message: str | None = None) -> None:
         if result is None:
             await self.emit(EventType.TOOL_CALL_START, step=step, agent=agent, name=tool,
-                            message=message or f"{agent} apelează {tool}", data={"tool": tool, "args": args})
+                            message=message or f"{agent} calls {tool}", data={"tool": tool, "args": args})
         else:
             await self.emit(EventType.TOOL_CALL_END, step=step, agent=agent, name=tool,
-                            message=message or f"{tool} a răspuns", data={"tool": tool, "args": args, "result": result})
+                            message=message or f"{tool} responded", data={"tool": tool, "args": args, "result": result})
 
     async def custom(self, name: str, message: str, data: dict | None = None, *, step: str | None = None,
                      agent: str | None = None) -> None:

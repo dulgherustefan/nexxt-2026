@@ -104,7 +104,7 @@ def test_demo_flow_refund_and_aml_lead(zones):
     assert detail["summary"]["status"] == "RAMBURSAT"
     assert all(d["rule_ids"] for d in detail["decisions"])
     bank = httpx.get(f"{client}/api/bank/CUST-DEMO-01").json()
-    assert any("returnat" in n["text"] for n in bank["notifications"])
+    assert any(n["text"].startswith("We refunded RON ") for n in bank["notifications"])
     verify = httpx.get(f"{client}/api/ledger/{case_id}").json()["verify"]
     assert verify["valid"] is True
 

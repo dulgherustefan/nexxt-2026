@@ -13,6 +13,9 @@ from versoml.osint.base import (
     Interp,
     SourceError,
     ToolResult,
+    en_ago,
+    en_count,
+    en_dt,
     expect_status,
     failure,
     fmt_age,
@@ -147,22 +150,22 @@ def _build_rdap(raw: Any, ctx: Ctx) -> Interp:
     if isinstance(raw, dict) and raw.get("_whois"):
         data = parse_rotld_whois(raw["_whois"], ctx.now)
         if not data.get("registered"):
-            return Interp(data, f"Domeniul {domain} nu apare în registrul ROTLD.", "galben")
+            return Interp(data, f"The domain {domain} is not in the ROTLD registry.", "galben")
     elif isinstance(raw, dict) and raw.get("_status") == 404:
         data = {"domain": domain, "registered": None, "source": "rdap"}
-        return Interp(data, f"RDAP nu are înregistrare pentru {domain} (neînregistrat sau TLD fără RDAP).", "neutru")
+        return Interp(data, f"RDAP has no record for {domain} (not registered, or a TLD without RDAP).", "neutru")
     else:
         data = parse_rdap(raw, ctx.now)
     hours = data.get("age_hours")
     signal = _age_signal(hours)
     if data.get("created_before_2001"):
-        summary = f"Domeniul {domain} e înregistrat înainte de 2001 (registrar: {data.get('registrar') or 'necunoscut'})."
+        summary = f"The domain {domain} was registered before 2001 (registrar: {data.get('registrar') or 'unknown'})."
     elif hours is None:
-        summary = f"RDAP nu arată data înregistrării pentru {domain}."
+        summary = f"RDAP does not show when {domain} was registered."
     else:
-        summary = (f"Domeniul {domain} a fost înregistrat acum {fmt_age(hours)} ({fmt_dt(parse_dt(data['created']))}), "
-                   f"prin {data.get('registrar') or 'un registrar necunoscut'}")
-        summary += "; datele titularului sunt ascunse." if data.get("privacy_protected") else "."
+        summary = (f"The domain {domain} was registered {en_ago(hours)} ({en_dt(parse_dt(data['created']))}) "
+                   f"through {data.get('registrar') or 'an unknown registrar'}")
+        summary += "; the registrant's details are hidden." if data.get("privacy_protected") else "."
     return Interp(data, summary, signal)
 
 
@@ -200,7 +203,7 @@ async def rdap_domain(domain: str) -> ToolResult:
     """Data înregistrării domeniului (RDAP; WHOIS ROTLD pentru .ro), registrarul, contactul de abuz și vârsta în ore/zile."""
     registered, args = _domain_args(domain)
     if registered is None:
-        return failure("rdap_domain", args, f"Domeniu invalid: {args['domain']}.", error="domeniu invalid")
+        return failure("rdap_domain", args, f"Invalid domain: {args['domain']}.", error="invalid domain")
     is_ro = registered.endswith(".ro")
     fetch = (lambda: _whois_rotld(registered)) if is_ro else (lambda: _rdap_fetch(registered))
     return await run_source("rdap_domain", args, key=registered, fetch=fetch, build=_build_rdap, ttl_s=86400,
@@ -380,14 +383,14 @@ def _build_ct(raw: Any, ctx: Ctx) -> Interp:
             "free_ca": bool(free), "free_ca_issuers": free,
             "certificates": sorted(certs, key=lambda c: str(c.get("logged_at")))[-10:]}
     if not certs:
-        return Interp(data, f"Niciun certificat în Certificate Transparency pentru {domain}.", "neutru")
+        return Interp(data, f"No certificate in Certificate Transparency for {domain}.", "neutru")
     earliest = min(certs, key=lambda c: parse_dt(c.get("logged_at")) or ctx.now)
-    first_issuer = earliest.get("issuer_org") or earliest.get("issuer") or "un emitent necunoscut"
+    first_issuer = earliest.get("issuer_org") or earliest.get("issuer") or "an unknown issuer"
     first_free = any(m in first_issuer.lower() for m in FREE_CA_MARKERS)
     data["first_issuer"] = first_issuer
-    ca = f"emis de {first_issuer}" + (" (CA gratuit)" if first_free else "")
-    summary = (f"Primul certificat pentru {domain} a apărut în CT acum {fmt_age(hours)} ({fmt_dt(first)}), {ca}; "
-               f"{ro_count(len(certs), 'certificat', 'certificate')} în total.")
+    ca = f"issued by {first_issuer}" + (" (a free CA)" if first_free else "")
+    summary = (f"The first certificate for {domain} appeared in CT {en_ago(hours)} ({en_dt(first)}), {ca}; "
+               f"{en_count(len(certs), 'certificate')} in total.")
     if hours is not None and hours < float(param("cert_age_red_hours")):
         signal = "rosu"
     elif hours is not None and hours < float(param("cert_age_yellow_days")) * DAY_H:
@@ -402,7 +405,7 @@ async def ct_certificates(domain: str) -> ToolResult:
     """Certificatele din Certificate Transparency (crt.sh, cu Cert Spotter ca rezervă): prima apariție, emitenții, numărul."""
     registered, args = _domain_args(domain)
     if registered is None:
-        return failure("ct_certificates", args, f"Domeniu invalid: {args['domain']}.", error="domeniu invalid")
+        return failure("ct_certificates", args, f"Invalid domain: {args['domain']}.", error="invalid domain")
     return await run_source("ct_certificates", args, key=registered, fetch=lambda: _ct_fetch(registered),
                             build=_build_ct, ttl_s=6 * 3600, label="Certificate Transparency",
                             synthetic=is_synthetic_target(registered))

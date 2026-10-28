@@ -29,18 +29,19 @@ NODE_FEATURES = [
     "near_threshold_share", "in_amount_cv", "days_active", "account_age_days", "is_internal", "is_business",
 ]
 
+# the labels are in English (the website's language); the dict keeps its historical name for its importers
 FEATURE_LABELS_RO = {
-    "in_count": "număr de intrări", "out_count": "număr de ieșiri", "in_amount": "total intrări (lei)",
-    "out_amount": "total ieșiri (lei)", "distinct_senders": "plătitori distincți", "distinct_receivers": "beneficiari distincți",
-    "degree_total": "contrapartide distincte", "pass_through_ratio": "raport ieșiri / intrări",
-    "median_dwell_hours": "timp median între intrare și următoarea ieșire (ore)",
-    "share_fwd_24h": "ponderea intrărilor urmate de o ieșire în 24 de ore", "frac_out_crypto": "ponderea ieșirilor spre exchange cripto",
-    "frac_out_cash": "ponderea ieșirilor în numerar", "frac_in_exchange": "ponderea intrărilor de la exchange",
-    "frac_in_cash": "ponderea depunerilor de numerar", "victim_reports": "intrări raportate ca fraudă (dispută sau rechemare)",
-    "night_share": "activitate între 00:00 și 05:00", "burstiness": "activitate în rafale", "max_in_24h": "intrări maxime în 24 de ore",
-    "near_threshold_share": "intrări chiar sub un prag rotund", "in_amount_cv": "variația sumelor primite",
-    "days_active": "zile active / fereastră", "account_age_days": "vechimea contului (zile)", "is_internal": "cont la Banca Demo",
-    "is_business": "cont de persoană juridică",
+    "in_count": "incoming payments", "out_count": "outgoing payments", "in_amount": "total received (RON)",
+    "out_amount": "total sent (RON)", "distinct_senders": "distinct senders", "distinct_receivers": "distinct payees",
+    "degree_total": "distinct counterparties", "pass_through_ratio": "money out / money in",
+    "median_dwell_hours": "median hours between money coming in and the next payment out",
+    "share_fwd_24h": "share of incoming money moved on within 24 hours", "frac_out_crypto": "share sent to crypto exchanges",
+    "frac_out_cash": "share withdrawn as cash", "frac_in_exchange": "share received from exchanges",
+    "frac_in_cash": "share deposited as cash", "victim_reports": "incoming payments reported as fraud (dispute or recall)",
+    "night_share": "activity between 00:00 and 05:00", "burstiness": "bursts of activity",
+    "max_in_24h": "most incoming payments in 24 hours", "near_threshold_share": "incoming payments just under a round threshold",
+    "in_amount_cv": "variation in the amounts received", "days_active": "active days / window",
+    "account_age_days": "account age (days)", "is_internal": "account at Demo Bank", "is_business": "business account",
 }
 
 _COLS = ["flow_id", "ts", "from_iban", "to_iban", "amount", "channel", "reported_fraud", "case_id"]
@@ -185,12 +186,12 @@ M2_FEATURES = [
     "sca_strong", "night_tx", "channel_card", "customer_tenure_days",
 ]
 M2_LABELS_RO = {
-    "prior_disputes_12m": "contestații în ultimele 12 luni", "device_known": "dispozitiv cunoscut",
-    "device_age_days": "vechimea dispozitivului (zile)", "ip_usual": "IP obișnuit al clientului",
-    "beneficiary_seen_before": "beneficiar folosit anterior", "merchant_familiarity": "cumpărături anterioare la același comerciant",
-    "hours_purchase_to_dispute": "ore de la plată la contestație", "amount_vs_typical": "suma față de mediana clientului",
-    "shipping_matches_profile": "livrare la adresa clientului", "sca_strong": "SCA puternic, cu suma și beneficiarul afișate",
-    "night_tx": "plată între 00:00 și 06:00", "channel_card": "plată cu cardul", "customer_tenure_days": "vechimea clientului (zile)",
+    "prior_disputes_12m": "disputes in the last 12 months", "device_known": "known device",
+    "device_age_days": "device age (days)", "ip_usual": "the customer's usual IP address",
+    "beneficiary_seen_before": "payee used before", "merchant_familiarity": "earlier purchases from the same merchant",
+    "hours_purchase_to_dispute": "hours from payment to dispute", "amount_vs_typical": "amount compared with the customer's median",
+    "shipping_matches_profile": "delivery to the customer's address", "sca_strong": "strong SCA with the amount and payee shown",
+    "night_tx": "payment between 00:00 and 06:00", "channel_card": "card payment", "customer_tenure_days": "customer tenure (days)",
 }
 
 

@@ -27,10 +27,10 @@ _FACT_FALLBACK = {
 
 GN_FIELDS = ("screen_showed_amount_and_payee", "client_admits_approving_in_app", "client_admits_sharing_credentials")
 GN_LABELS = {
-    "screen_showed_amount_and_payee": "ecranul de autentificare a afișat suma și beneficiarul",
-    "client_admits_approving_in_app": "clientul spune că a aprobat plata în aplicație",
-    "client_admits_sharing_credentials": "clientul spune că și-a divulgat datele sau codul OTP",
-    "sca_performed": "autentificarea strictă (SCA) a reușit",
+    "screen_showed_amount_and_payee": "the authentication screen showed the amount and beneficiary",
+    "client_admits_approving_in_app": "the customer says they approved the payment in the app",
+    "client_admits_sharing_credentials": "the customer says they shared their credentials or OTP code",
+    "sca_performed": "strong customer authentication (SCA) succeeded",
 }
 
 
@@ -67,24 +67,32 @@ def cite(x: RuleContextExt, fields: Iterable[str]) -> list[str]:
     return out
 
 
-# ---------------------------------------------------------------- formatare (română)
+# ---------------------------------------------------------------- formatare (engleză)
+
+# Lunile scrise explicit: `%b` din strftime depinde de locale-ul procesului.
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 def fmt_d(d: date | datetime) -> str:
-    return local_date(d).strftime("%d.%m.%Y")
+    """Data locală, ex. „29 Oct 2026” (ziua fără zero în față)."""
+    day = local_date(d)
+    return f"{day.day} {_MONTHS[day.month - 1]} {day.year}"
 
 
 def fmt_dt(dt: datetime) -> str:
-    return to_local(dt).strftime("%d.%m.%Y, %H:%M:%S")
+    """The moment in Romanian time, 24h, e.g. "29 Oct 2026, 23:59"."""
+    local = to_local(dt)
+    return f"{fmt_d(local)}, {local:%H:%M}"
 
 
 def fmt_num(value: float, decimals: int = 2) -> str:
-    text = f"{value:,.{decimals}f}"
-    return text.replace(",", "§").replace(".", ",").replace("§", ".")
+    """Virgulă la mii, punct la zecimale, ex. „3,200.00”."""
+    return f"{value:,.{decimals}f}"
 
 
 def fmt_money(value: float, currency: str) -> str:
-    return f"{fmt_num(value)} {currency}"
+    """Codul monedei întâi, ex. „RON 3,200.00”."""
+    return f"{currency} {fmt_num(value)}"
 
 
 # ---------------------------------------------------------------- conversii
@@ -227,10 +235,10 @@ def risk_signals(x: RuleContextExt, env: Env) -> list[tuple[str, tuple[str, ...]
     out: list[tuple[str, tuple[str, ...]]] = []
     thr = env.p("client_fraud_signal_threshold")
     if x.client_fraud_score is not None and x.client_fraud_score >= thr:
-        out.append((f"scorul M2 de fraudă a clientului este {fmt_num(x.client_fraud_score)}, peste pragul de "
-                    f"{fmt_num(thr)} (doar semnal pentru om)", ("client_fraud_score",)))
+        out.append((f"the M2 customer fraud score is {fmt_num(x.client_fraud_score)}, above the threshold of "
+                    f"{fmt_num(thr)} (a signal for a human only)", ("client_fraud_score",)))
     n_thr = env.p("prior_disputes_signal_threshold")
     if x.prior_disputes_12m >= n_thr:
-        out.append((f"{x.prior_disputes_12m} contestații în ultimele 12 luni (pragul este {n_thr})",
+        out.append((f"{x.prior_disputes_12m} disputes in the last 12 months (threshold: {n_thr})",
                     ("prior_disputes_12m",)))
     return out

@@ -122,7 +122,7 @@ def seal_payload(case_id: str, count: int, root: str) -> str:
 
 
 def qr_text(case_id: str, root: str, signature: str) -> str:
-    """Conținutul QR-ului de pe dosar."""
+    """The text in the evidence file's QR code."""
     return f"{SEAL_PREFIX}:{case_id}:{root}:{signature}"
 
 
@@ -175,7 +175,14 @@ def _check(name: str, ok: bool, detail: str, facts: Sequence[str] = ()) -> dict[
 
 def _list_ids(ids: Sequence[str], limit: int = 6) -> str:
     shown = ", ".join(ids[:limit])
-    return shown + (f" și încă {len(ids) - limit}" if len(ids) > limit else "")
+    return shown + (f" and {len(ids) - limit} more" if len(ids) > limit else "")
+
+
+def _entries(n: int) -> str:
+    return "1 entry" if n == 1 else f"{n} entries"
+
+
+SEAL_CHECK = "Case seal"
 
 
 def verify_facts(
@@ -188,7 +195,7 @@ def verify_facts(
     stored_args: Sequence[tuple[Any, str]] | None = None,
     sealed_leaves: Sequence[str] | None = None,
     expected_public_key: str | None = None,
-    key_source: str = "cheia zonei",
+    key_source: str = "the zone key",
 ) -> dict[str, Any]:
     """Verificarea completă a unui caz, comună pentru registru și pentru dosarul exportat."""
     zone = Zone(zone)
@@ -206,17 +213,17 @@ def verify_facts(
         except (KeyError, TypeError, ValueError):
             bad.append(fid)
     checks.append(_check(
-        "Integritatea conținutului", not bad,
-        f"Conținutul nu mai corespunde hash-ului la: {_list_ids(bad)}." if bad
-        else f"Toate cele {n} fapte au conținutul intact.", bad))
+        "Content integrity", not bad,
+        f"The content no longer matches its hash for: {_list_ids(bad)}." if bad
+        else ("The entry's content is intact." if n == 1 else f"All {n} entries have intact content."), bad))
 
     # 2. argumentele (doar în registru; dosarul are doar hash-ul lor)
     if stored_args is not None:
         bad = [fid for fid, (args, h) in zip(ids, stored_args) if prefixed_hash(args) != h]
         checks.append(_check(
-            "Integritatea argumentelor", not bad,
-            f"Argumentele nu corespund hash-ului la: {_list_ids(bad)}." if bad
-            else "Hash-urile argumentelor se potrivesc.", bad))
+            "Argument integrity", not bad,
+            f"The arguments no longer match their hash for: {_list_ids(bad)}." if bad
+            else "The argument hashes match.", bad))
 
     # 3. hash-ul fiecărei înregistrări
     entries: list[str | None] = []
@@ -229,9 +236,9 @@ def verify_facts(
         bad = [fid for fid, mine, stored in zip(ids, entries, stored_entries) if stored is not None and mine != stored]
         bad += [fid for fid, mine in zip(ids, entries) if mine is None and fid not in bad]
         checks.append(_check(
-            "Integritatea înregistrărilor", not bad,
-            f"Metadatele faptului au fost modificate la: {_list_ids(bad)}." if bad
-            else "Metadatele (sursă, oră, etichete, rezumat) sunt intacte.", bad))
+            "Record integrity", not bad,
+            f"The entry metadata was changed for: {_list_ids(bad)}." if bad
+            else "The metadata (source, time, labels, summary) is intact.", bad))
 
     # 4. numerotarea: EV-001, EV-002, … fără goluri, aceeași zonă și același caz
     bad = []
@@ -240,9 +247,9 @@ def verify_facts(
         if fid != expected or fact.get("case_id") != case_id or str(fact.get("zone")) != zone.value:
             bad.append(fid)
     checks.append(_check(
-        "Numerotarea faptelor", not bad,
-        f"Fapte lipsă, mutate sau din alt caz la: {_list_ids(bad)}." if bad
-        else f"Faptele sunt consecutive ({prefix}-001 … {prefix}-{n:03d})." if n else "Registrul cazului e gol.", bad))
+        "Entry numbering", not bad,
+        f"Missing, moved or foreign entries at: {_list_ids(bad)}." if bad
+        else f"The entries are consecutive ({prefix}-001 to {prefix}-{n:03d})." if n else "The case ledger is empty.", bad))
 
     # 5. lanțul de hash-uri
     bad = []
@@ -252,59 +259,60 @@ def verify_facts(
             bad.append(fid)
     if bad:
         first = ids.index(bad[0])
-        hint = f" (verificați {ids[first - 1]} și {bad[0]})" if first > 0 else ""
-        detail = f"Lanțul e rupt la: {_list_ids(bad)}{hint}."
+        hint = f" (check {ids[first - 1]} and {bad[0]})" if first > 0 else ""
+        detail = f"The chain is broken at: {_list_ids(bad)}{hint}."
     else:
-        detail = "Fiecare fapt trimite corect la cel dinainte."
-    checks.append(_check("Lanțul de hash-uri", not bad, detail, bad))
+        detail = "Each entry points correctly to the one before it."
+    checks.append(_check("Hash chain", not bad, detail, bad))
 
     # 6–9. sigiliul
     root_value = None
     if seal is None:
-        checks.append(_check("Sigiliul cazului", False, "Cazul nu a fost sigilat încă; lanțul e verificat, rădăcina nu."))
+        checks.append(_check(SEAL_CHECK, False, "The case is not sealed yet; the chain is verified, the root is not."))
     else:
         count = int(seal.get("count", -1))
         root_value = str(seal.get("root", ""))
         covered = entries[:count] if 0 <= count <= n else []
         if count < 0 or count > n:
             checks.append(_check(
-                "Rădăcina Merkle", False,
-                f"Sigiliul acoperă {count} fapte, dar registrul are doar {n}: au dispărut fapte.", ids[count:] if count > 0 else ()))
+                "Merkle root", False,
+                f"The seal covers {_entries(count)}, but the ledger has only {n}: entries are missing.",
+                ids[count:] if count > 0 else ()))
         elif any(e is None for e in covered):
             bad = [fid for fid, e in zip(ids, covered) if e is None]
-            checks.append(_check("Rădăcina Merkle", False, f"Fapte ilizibile: {_list_ids(bad)}.", bad))
+            checks.append(_check("Merkle root", False, f"Unreadable entries: {_list_ids(bad)}.", bad))
         else:
             computed = root_hex([e for e in covered if e is not None])
             if computed == root_value:
-                checks.append(_check("Rădăcina Merkle", True, f"Rădăcina peste {count} fapte se potrivește cu sigiliul."))
+                checks.append(_check("Merkle root", True, f"The root over {_entries(count)} matches the seal."))
             else:
                 bad = []
                 if sealed_leaves is not None and len(sealed_leaves) == count:
                     bad = [fid for fid, mine, old in zip(ids, covered, sealed_leaves) if mine != old]
                     if root_hex(list(sealed_leaves)) != root_value:
                         bad = bad or ids[:count]
-                detail = (f"Rădăcina recalculată diferă de cea sigilată; fapte modificate: {_list_ids(bad)}." if bad
-                          else "Rădăcina recalculată diferă de cea sigilată.")
-                checks.append(_check("Rădăcina Merkle", False, detail, bad))
+                detail = (f"The recomputed root differs from the sealed one; changed entries: {_list_ids(bad)}." if bad
+                          else "The recomputed root differs from the sealed one.")
+                checks.append(_check("Merkle root", False, detail, bad))
         payload = seal_payload(case_id, count, root_value)
         sig_ok = verify_signature(str(seal.get("public_key", "")), payload.encode("utf-8"), str(seal.get("signature", "")))
         checks.append(_check(
-            "Semnătura Ed25519", sig_ok,
-            "Semnătura pe rădăcină e validă." if sig_ok else "Semnătura nu corespunde rădăcinii și cheii publice."))
+            "Ed25519 signature", sig_ok,
+            "The signature on the root is valid." if sig_ok else "The signature does not match the root and the public key."))
         if expected_public_key is None:
             checks.append(_check(
-                "Cheia publică a zonei", True,
-                "Cheia publică a fost luată din dosar; comparați-o cu cheia publicată de bancă."))
+                "Zone public key", True,
+                "The public key was taken from the evidence file; compare it with the key the bank publishes."))
         else:
             key_ok = seal.get("public_key") == expected_public_key
             checks.append(_check(
-                "Cheia publică a zonei", key_ok,
-                f"Sigiliul e făcut cu {key_source}." if key_ok else f"Sigiliul nu e făcut cu {key_source}."))
+                "Zone public key", key_ok,
+                f"The seal was made with {key_source}." if key_ok else f"The seal was not made with {key_source}."))
         extra = n - count if 0 <= count <= n else 0
         checks.append(_check(
-            "Acoperirea sigiliului", extra == 0,
-            "Sigiliul acoperă toate faptele." if extra == 0
-            else f"{extra} fapte adăugate după sigiliu; sigilați din nou cazul.", ids[count:] if extra else ()))
+            "Seal coverage", extra == 0,
+            "The seal covers every entry." if extra == 0
+            else f"{_entries(extra)} added after the seal; seal the case again.", ids[count:] if extra else ()))
 
     return {
         "valid": all(c["ok"] for c in checks),
@@ -367,9 +375,9 @@ class Ledger:
         labels = labels if isinstance(labels, Labels) else Labels.model_validate(labels)
         if self.zone is Zone.CLIENT and labels.conf in ("aml", "aml-only"):
             raise LabelError(
-                f"Zidul (etichete): o probă cu confidențialitatea «{labels.conf}» nu poate intra în registrul zonei client.")
+                f"The wall (labels): an entry with confidentiality \"{labels.conf}\" cannot enter the client zone ledger.")
         if self.zone is Zone.AML and (Sink.CLIENT in labels.sinks or Sink.LETTER in labels.sinks):
-            raise LabelError("Zidul (etichete): o probă din zona AML nu poate avea ca destinație zona client sau scrisoarea.")
+            raise LabelError("The wall (labels): an entry from the AML zone cannot go to the client zone or into a letter.")
         return labels
 
     def _rows(self, conn: sqlite3.Connection, case_id: str) -> list[sqlite3.Row]:
@@ -418,12 +426,12 @@ class Ledger:
             "public_key": row["public_key"],
             "count": row["count"],
             "sealed_at": row["sealed_at"],
-            "algorithm": "Ed25519 peste rădăcina Merkle RFC 6962 (SHA-256, JSON canonic RFC 8785)",
+            "algorithm": "Ed25519 over the RFC 6962 Merkle root (SHA-256, RFC 8785 canonical JSON)",
             "payload": row["payload"],
             "qr_text": text,
         }
         if with_svg:
-            view["qr_svg"] = qr_svg(text, title=f"Sigiliul cazului {row['case_id']}")
+            view["qr_svg"] = qr_svg(text, title=f"Seal of case {row['case_id']}")
         return view
 
     # ------------------------------------------------------------ API public
@@ -443,14 +451,14 @@ class Ledger:
         """Adaugă o probă. Întoarce faptul cu ID-ul lui (EV-001… sau AX-001…)."""
         case_id = str(case_id).strip()
         if not case_id or len(case_id) > 128:
-            raise LedgerError("case_id lipsă sau prea lung")
+            raise LedgerError("case_id is missing or too long")
         if not kind or not source_tool:
-            raise LedgerError("kind și source_tool sunt obligatorii")
+            raise LedgerError("kind and source_tool are required")
         checked = self._check_labels(labels)
         args_norm = normalize_json(args if args is not None else {})
         content_norm = normalize_json(content if content is not None else {})
         if not isinstance(content_norm, dict):
-            raise LedgerError("conținutul unei probe trebuie să fie un obiect JSON")
+            raise LedgerError("an entry's content must be a JSON object")
         labels_dict = normalize_json(checked.model_dump(mode="json"))
         fact = {
             "zone": self.zone.value,
@@ -542,9 +550,9 @@ class Ledger:
                 rows = self._rows(conn, case_id)
                 facts = [self._fact_dict(r) for r in rows]
                 pre = verify_facts(self.zone, case_id, facts, None, stored_entries=[f["entry_hash"] for f in facts])
-                broken = [c for c in pre["checks"] if not c["ok"] and c["name"] != "Sigiliul cazului"]
+                broken = [c for c in pre["checks"] if not c["ok"] and c["name"] != SEAL_CHECK]
                 if broken:
-                    raise LedgerError("Registrul nu trece verificarea, nu se sigilează: " + broken[0]["detail"])
+                    raise LedgerError("The ledger fails verification, so it is not sealed: " + broken[0]["detail"])
                 entries = [f["entry_hash"] for f in facts]
                 root = root_hex(entries)
                 last = self._seal_row(conn, case_id)
@@ -588,7 +596,7 @@ class Ledger:
             stored_args=stored_args,
             sealed_leaves=leaves,
             expected_public_key=zone_key or "",  # fără cheia zonei, verificarea cheii trebuie să pice
-            key_source=f"cheia zonei {self.zone.value}" + ("" if zone_key else " (lipsește din keys_dir)"),
+            key_source=f"the {self.zone.value} zone key" + ("" if zone_key else " (missing from keys_dir)"),
         )
 
     def verify_global(self) -> dict[str, Any]:
@@ -605,8 +613,9 @@ class Ledger:
                 bad.append(f"{row['case_id']}/{row['fact_id']}")
             prev = row["global_hash"]
         check = _check(
-            "Lanțul global al zonei", not bad,
-            f"Lanțul global e rupt la: {_list_ids(bad)}." if bad else f"Toate cele {len(rows)} înregistrări sunt legate.",
+            "Zone-wide chain", not bad,
+            f"The zone-wide chain is broken at: {_list_ids(bad)}." if bad
+            else ("The only record is linked." if len(rows) == 1 else f"All {len(rows)} records are linked."),
             bad)
         return {"valid": not bad, "checks": [check], "zone": self.zone.value, "count": len(rows)}
 
@@ -618,7 +627,7 @@ class Ledger:
         entries = [r["entry_hash"] for r in rows]
         ids = [r["fact_id"] for r in rows]
         if fact_id not in ids:
-            raise LedgerError(f"Faptul {fact_id} nu există în cazul {case_id}")
+            raise LedgerError(f"Entry {fact_id} does not exist in case {case_id}")
         index = ids.index(fact_id)
         size = seal_row["count"] if seal_row and index < seal_row["count"] else len(entries)
         leaves = [leaf_hash(bytes.fromhex(e)) for e in entries[:size]]
@@ -646,7 +655,7 @@ class Ledger:
             rows = self._rows(conn, case_id)
             seal_row = self._seal_row(conn, case_id)
         if seal_row is None:
-            raise LedgerError(f"Cazul {case_id} nu are sigiliu")
+            raise LedgerError(f"Case {case_id} has no seal")
         facts = [self._fact_dict(r) for r in rows]
         entries = [f["entry_hash"] for f in facts]
         leaves = [leaf_hash(bytes.fromhex(e)) for e in entries]
@@ -656,9 +665,9 @@ class Ledger:
             "case_id": case_id,
             "exported_at": iso_utc(now_utc()),
             "facts": facts,
-            "chain": {"genesis": case_genesis(self.zone, case_id), "hash": "SHA-256 peste JSON canonic RFC 8785"},
+            "chain": {"genesis": case_genesis(self.zone, case_id), "hash": "SHA-256 over RFC 8785 canonical JSON"},
             "merkle": {
-                "algorithm": "RFC 6962 (frunză = H(0x00‖entry_hash), nod = H(0x01‖s‖d))",
+                "algorithm": "RFC 6962 (leaf = H(0x00‖entry_hash), node = H(0x01‖left‖right))",
                 "tree_size": len(entries),
                 "leaves": entries,
                 "root": root_hex(entries),
@@ -667,10 +676,10 @@ class Ledger:
             "seal": self._seal_view(seal_row),
             "public_key": self.public_key(),
             "how_to_verify": (
-                "Pentru fiecare fapt: sha256 = SHA-256(JSON canonic al conținutului); entry_hash = SHA-256(JSON canonic "
-                "al metadatelor); prev_hash = entry_hash-ul faptului anterior. Rădăcina Merkle peste entry_hash-uri "
-                "trebuie să fie egală cu seal.root, iar seal.signature trebuie să fie o semnătură Ed25519 validă pe "
-                "„versoml:v1:{case_id}:{count}:{root}” cu cheia publică a zonei."
+                "For each entry: sha256 = SHA-256(canonical JSON of the content); entry_hash = SHA-256(canonical JSON "
+                "of the metadata); prev_hash = the entry_hash of the entry before it. The Merkle root over the "
+                "entry_hash values must equal seal.root, and seal.signature must be a valid Ed25519 signature of "
+                "\"versoml:v1:{case_id}:{count}:{root}\" with the zone's public key."
             ),
         }
 
@@ -698,16 +707,17 @@ def verify_dossier(dossier: dict[str, Any], public_key: str | None = None) -> di
         seal = dossier.get("seal")
         merkle = dossier.get("merkle") or {}
     except (KeyError, TypeError, ValueError, AttributeError):
-        return {"valid": False, "checks": [_check("Formatul dosarului", False, "Dosarul nu are câmpurile minime (zone, case_id, facts).")]}
+        return {"valid": False, "checks": [_check("Evidence file format", False,
+                                                  "The evidence file lacks the required fields (zone, case_id, facts).")]}
     format_ok = dossier.get("format") == DOSSIER_FORMAT
     result = verify_facts(
         zone, case_id, facts, seal,
         stored_entries=[f.get("entry_hash") if isinstance(f, dict) else None for f in facts],
         sealed_leaves=merkle.get("leaves"),
         expected_public_key=public_key,
-        key_source="cheia publică dată la verificare",
+        key_source="the public key given for this check",
     )
-    checks = [_check("Formatul dosarului", format_ok, "Format versoml-dossier/v1." if format_ok else "Format necunoscut.")]
+    checks = [_check("Evidence file format", format_ok, "Format versoml-dossier/v1." if format_ok else "Unknown format.")]
     checks += result["checks"]
     proofs = merkle.get("proofs") or {}
     if proofs and seal:
@@ -724,8 +734,8 @@ def verify_dossier(dossier: dict[str, Any], public_key: str | None = None) -> di
             except (KeyError, TypeError, ValueError):
                 bad.append(fid)
         checks.append(_check(
-            "Dovezile de includere", not bad,
-            f"Dovezi invalide pentru: {_list_ids(bad)}." if bad else "Fiecare fapt are o dovadă de includere validă.", bad))
+            "Inclusion proofs", not bad,
+            f"Invalid inclusion proofs for: {_list_ids(bad)}." if bad else "Every entry has a valid inclusion proof.", bad))
     result["checks"] = checks
     result["valid"] = all(c["ok"] for c in checks)
     return result

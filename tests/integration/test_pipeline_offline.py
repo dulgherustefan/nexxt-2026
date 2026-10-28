@@ -1,12 +1,13 @@
-"""Graful real al Judecătorului, cap-coadă, fără rețea (LLM offline, OSINT pe înregistrări).
+"""The dispute judge's real graph, end to end, without network (LLM offline, OSINT from recordings).
 
-Rulează pe un director var/ temporar, într-un subproces, ca să nu atingă datele demo-ului.
+It runs on a temporary var/ directory, in a subprocess, so it never touches the demo data.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -27,22 +28,29 @@ async def run(sid):
     await s.graph()
     case_id = s.create_case(sid)
     await s.run_case(case_id)
+    prompts = []
     for _ in range(400):
         await asyncio.sleep(0.25)
         doc = s.rt.cases.get(case_id) or {}
         if (doc.get("interrupt") or {}).get("pending"):
+            prompts.append(doc["interrupt"].get("prompt"))
             await s.approve(case_id, "approve", "test", "OPERATOR-TEST")
         if doc.get("finished_at") or doc.get("status") == "EROARE":
             break
     d = s.detail(case_id)
+    letter = d.get("letter") or {}
     return {"status": d["summary"]["status"], "decisions": {x["question"]: x["decision"] for x in d["decisions"]},
-            "facts": len(d["facts"]), "letter": (d.get("letter") or {}).get("status"),
+            "facts": len(d["facts"]), "letter": letter.get("status"), "subject": letter.get("subject"),
+            "body": letter.get("body"), "prompts": prompts,
+            "summaries": [n.get("summary") for n in d["pipeline"]["nodes"] if n.get("summary")],
+            "fact_summaries": [f["summary"] for f in d["facts"]],
+            "messages": [e.message for e in s.rt.bus.history(case_id)],
             "nodes": {n["id"]: n.get("status") for n in d["pipeline"]["nodes"]},
             "verify": s.rt.ledger.verify(case_id).get("valid")}
 
 async def main():
     out = {}
-    for sid in ["demo_t1", "card_visa_secure", "reclamatie_tardiva"]:
+    for sid in ["demo_t1", "card_visa_secure", "reclamatie_tardiva", "frauda_client"]:
         out[sid] = await run(sid)
     print("RESULT" + json.dumps(out), flush=True)
     await get_service().close()
@@ -50,6 +58,8 @@ async def main():
 asyncio.run(main())
 os._exit(0)
 """
+
+ROMANIAN = re.compile(r"[ăâîșțĂÂÎȘȚ\u015f\u0163]|\b(?:si|pentru|contestati\w*|rambursat\w*|reguli|cazul|plata|zidul|dosar\w*)\b")
 
 
 @pytest.fixture(scope="module")
@@ -86,3 +96,32 @@ def test_visa_secure_refund_despite_strong_auth(results):
 def test_late_claim_rejected_with_human(results):
     r = results["reclamatie_tardiva"]
     assert r["decisions"]["rambursare_t1"] == "RESPINGE_TARDIV"
+    assert r["prompts"] and "13 months" in r["prompts"][0]
+
+
+def test_the_letter_is_english_and_specific(results):
+    r = results["demo_t1"]
+    assert r["letter"] == "draft", r["body"]
+    assert r["subject"].startswith("Refund of RON 3,200.00 for a transfer")
+    assert r["body"].startswith("Dear ") and "RON 3,200.00" in r["body"]
+    assert "Article 173 of Law 209/2019" in r["body"] and "end of the next business day" in r["body"]
+    assert all(k in r["body"] for k in ("ANPC", "ANAF", "BNR", "CSALB"))
+    assert "T+1" not in r["body"] and "—" not in r["body"] and not re.search(r"\b\d{1,3}(?:\.\d{3})+,\d{2}\b", r["body"])
+    late = results["reclamatie_tardiva"]["body"]
+    assert "Article 169 of Law 209/2019" in late and "cannot refund" in late
+
+
+def test_sign_off_prompt_names_the_real_reason(results):
+    r = results["frauda_client"]
+    assert r["decisions"]["rambursare_t1"] == "RAMBURSEAZA_CU_APROBARE"
+    [prompt] = r["prompts"]
+    assert re.fullmatch(r"Refund RON 2,890\.00 by \d{1,2} [A-Z][a-z]{2}, 23:59\? Sign-off is needed because .+\.", prompt), prompt
+    assert "the customer has risk signals" in prompt and "over the cap" not in prompt
+
+
+@pytest.mark.parametrize("sid", ["demo_t1", "card_visa_secure", "reclamatie_tardiva", "frauda_client"])
+def test_what_a_person_reads_is_english(results, sid):
+    r = results[sid]
+    texts = r["summaries"] + r["fact_summaries"] + r["messages"] + r["prompts"]
+    romanian = [t for t in texts if t and ROMANIAN.search(re.sub(r"https?://\S+|\b[\w.-]+\.(?:example|test)\b", "", t))]
+    assert romanian == [], romanian[:5]

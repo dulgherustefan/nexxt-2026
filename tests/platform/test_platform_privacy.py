@@ -59,6 +59,16 @@ POSITIVES = [
     ("Subsemnatul Popescu Ion, domiciliat", "NUME", "ion popescu"),
     ("Doamna Ionescu Maria a sunat", "NUME", "ionescu maria"),
     ("Nume: TESTESCU ANA-MARIA", "NUME", "ana maria testescu"),
+    ("Cu stimă,\nIon Popescu", "NUME", "ion popescu"),
+    # English complaints
+    ("My name is Ana Testescu and I bank with you.", "NUME", "ana testescu"),
+    ("I'm Ion Popescu, a customer since 2010.", "NUME", "ion popescu"),
+    ("This is Maria Ionescu, I called yesterday.", "NUME", "ionescu maria"),
+    ("Kind regards,\nMaria Ionescu", "NUME", "ionescu maria"),
+    ("Thank you in advance.\nAna-Maria Testescu", "NUME", "ana maria testescu"),
+    ("Thanks,\nRADU ENACHE", "NUME", "enache radu"),
+    ("Account holder: Radu Enache", "NUME", "enache radu"),
+    ("Mrs Ionescu called about the card.", "NUME", "ionescu"),
 ]
 
 NEGATIVES = [
@@ -74,6 +84,14 @@ NEGATIVES = [
     "IBAN cu cifre de control greșite RO55RZBR0000060012345678.",
     "CNP cu cifră de control greșită 1630615123458.",
     "Firma SC EXEMPLU SRL, CUI RO12345674, domeniul livrare-bancademo.example.",
+    # English text without a name
+    "Thanks,\nPlease answer quickly.",
+    "I'm writing about a transaction on my account.",
+    "This is Demo Bank's helpline.",
+    "I am Very upset about this.",
+    "Best regards,\nDemo Bank",
+    "Dear Sir or Madam, I paid RON 3,200.00 on 28 Oct 2026 at 14:30.",
+    "Hi, I have an urgent problem. Help me get my money back please.",
 ]
 
 

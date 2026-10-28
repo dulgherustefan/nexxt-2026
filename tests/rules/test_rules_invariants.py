@@ -24,6 +24,14 @@ from versoml.shared.rules.registry import known_ids
 
 REFUNDS = {Verdict.RAMBURSEAZA, Verdict.RAMBURSEAZA_CU_APROBARE}
 CEDILLA = set("şţŞŢ")
+RO_LETTERS = set("ăâîșțĂÂÎȘȚ")
+PROPER_NOUNS = ("Plăți Instant",)          # numele schemei Transfond rămâne ca atare în textul englez
+
+
+def without_proper_nouns(text: str) -> str:
+    for name in PROPER_NOUNS:
+        text = text.replace(name, "")
+    return text
 opt_bool = st.none() | st.booleans()
 moments = st.datetimes(min_value=datetime(2025, 6, 1), max_value=datetime(2027, 6, 30), timezones=st.just(TZ))
 gn = st.fixed_dictionaries({
@@ -118,6 +126,7 @@ def test_invariant_determinism_si_diacritice(ctx):
     assert a.model_dump(mode="json") == b.model_dump(mode="json")
     text = json.dumps(a.model_dump(mode="json"), ensure_ascii=False)
     assert not (CEDILLA & set(text))
+    assert not (RO_LETTERS & set(without_proper_nouns(text)))           # textele pentru UI sunt în engleză
 
 
 @settings(max_examples=150, deadline=None)

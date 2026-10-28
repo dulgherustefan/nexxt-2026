@@ -67,51 +67,51 @@ def _fail(name: str, code: str, message: str) -> dict[str, str]:
 def _coerce(spec: ParamSpec, value: Any) -> tuple[Any, dict[str, str] | None]:
     """Validează și normalizează o valoare. Întoarce (valoare, eroare)."""
     if value is None:
-        return (None, None) if spec.nullable else (None, _fail(spec.name, "PARAM_NULL", "valoarea nu poate lipsi"))
+        return (None, None) if spec.nullable else (None, _fail(spec.name, "PARAM_NULL", "a value is required"))
     t = spec.type
     if t in ("number", "integer"):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return None, _fail(spec.name, "PARAM_TYPE", "trebuie să fie un număr")
+            return None, _fail(spec.name, "PARAM_TYPE", "must be a number")
         if t == "integer":
             if float(value) != int(value):
-                return None, _fail(spec.name, "PARAM_TYPE", "trebuie să fie un număr întreg")
+                return None, _fail(spec.name, "PARAM_TYPE", "must be a whole number")
             value = int(value)
         else:
             value = float(value)
         if spec.min is not None and value < spec.min:
-            return None, _fail(spec.name, "PARAM_RANGE", f"minimul este {spec.min}")
+            return None, _fail(spec.name, "PARAM_RANGE", f"the minimum is {spec.min}")
         if spec.max is not None and value > spec.max:
-            return None, _fail(spec.name, "PARAM_RANGE", f"maximul este {spec.max}")
+            return None, _fail(spec.name, "PARAM_RANGE", f"the maximum is {spec.max}")
         return value, None
     if t == "boolean":
         if not isinstance(value, bool):
-            return None, _fail(spec.name, "PARAM_TYPE", "trebuie să fie true sau false")
+            return None, _fail(spec.name, "PARAM_TYPE", "must be true or false")
         return value, None
     if t in ("string", "enum"):
         if not isinstance(value, str):
-            return None, _fail(spec.name, "PARAM_TYPE", "trebuie să fie text")
+            return None, _fail(spec.name, "PARAM_TYPE", "must be text")
         if t == "enum" and spec.choices and value not in spec.choices:
-            return None, _fail(spec.name, "PARAM_CHOICE", f"valori permise: {', '.join(map(str, spec.choices))}")
+            return None, _fail(spec.name, "PARAM_CHOICE", f"allowed values: {', '.join(map(str, spec.choices))}")
         return value, None
     if t == "time":
         if not isinstance(value, str) or not _TIME.match(value):
-            return None, _fail(spec.name, "PARAM_TYPE", "format HH:MM:SS")
+            return None, _fail(spec.name, "PARAM_TYPE", "must use the HH:MM:SS format")
         return value, None
     if t == "date_list":
         if not isinstance(value, (list, tuple)):
-            return None, _fail(spec.name, "PARAM_TYPE", "trebuie să fie o listă de date ISO")
+            return None, _fail(spec.name, "PARAM_TYPE", "must be a list of ISO dates")
         out = []
         for item in value:
             try:
                 out.append((item if isinstance(item, date) else date.fromisoformat(str(item))).isoformat())
             except ValueError:
-                return None, _fail(spec.name, "PARAM_TYPE", f"dată invalidă: {item}")
+                return None, _fail(spec.name, "PARAM_TYPE", f"invalid date: {item}")
         return sorted(set(out)), None
     if t == "string_list":
         if not isinstance(value, (list, tuple)) or not all(isinstance(i, str) and i.strip() for i in value):
-            return None, _fail(spec.name, "PARAM_TYPE", "trebuie să fie o listă de texte")
+            return None, _fail(spec.name, "PARAM_TYPE", "must be a list of text values")
         return [i.strip() for i in value], None
-    return None, _fail(spec.name, "PARAM_TYPE", f"tip necunoscut {t}")
+    return None, _fail(spec.name, "PARAM_TYPE", f"unknown type {t}")
 
 
 @lru_cache(maxsize=1)
@@ -120,7 +120,7 @@ def param_specs() -> dict[str, ParamSpec]:
     specs: dict[str, ParamSpec] = {}
     for name, row in raw.items():
         if row.get("type") not in _TYPES:
-            raise ValueError(f"{name}: tip necunoscut {row.get('type')}")
+            raise ValueError(f"{name}: unknown type {row.get('type')}")
         spec = ParamSpec(
             name=name, value=row.get("value"), type=row["type"], confidence=Confidence(row.get("confidence", "U")),
             rules=tuple(row.get("rules") or ()), description=" ".join(str(row.get("description", "")).split()),
@@ -130,7 +130,7 @@ def param_specs() -> dict[str, ParamSpec]:
         )
         value, err = _coerce(spec, spec.value)
         if err:
-            raise ValueError(f"Valoare implicită invalidă: {err}")
+            raise ValueError(f"Invalid default value: {err}")
         specs[name] = ParamSpec(**{**spec.__dict__, "value": value})
     return specs
 
@@ -151,7 +151,7 @@ def validate(updates: Mapping[str, Any]) -> dict[str, Any]:
     for name, value in updates.items():
         spec = specs.get(name)
         if spec is None:
-            errors.append(_fail(name, "PARAM_UNKNOWN", "parametru necunoscut"))
+            errors.append(_fail(name, "PARAM_UNKNOWN", "unknown parameter"))
             continue
         coerced, err = _coerce(spec, value)
         if err:
@@ -159,9 +159,9 @@ def validate(updates: Mapping[str, Any]) -> dict[str, Any]:
             continue
         if spec.locked and coerced != spec.value:
             errors.append(_fail(name, spec.locked_code or "PARAM_LOCKED",
-                                "parametrul e blocat: o decizie defavorabilă nu poate fi luată exclusiv automat "
+                                "this parameter is locked: an adverse decision cannot be fully automated "
                                 "(GDPR art. 22)" if spec.locked_code == "DP_HUMAN_REVIEW_REQUIRED"
-                                else "parametrul e blocat"))
+                                else "this parameter is locked"))
             continue
         clean[name] = coerced
     if errors:
@@ -219,7 +219,7 @@ def get_params() -> dict[str, Any]:
 def set_params(updates: Mapping[str, Any]) -> dict[str, Any]:
     """Validează și salvează suprascrierile în var/rules_params.json; întoarce parametrii efectivi."""
     if not isinstance(updates, Mapping):
-        raise ParamsError([_fail("*", "PARAM_TYPE", "corpul trebuie să fie un obiect {nume: valoare}")])
+        raise ParamsError([_fail("*", "PARAM_TYPE", "the body must be an object of {name: value}")])
     clean = validate(updates)
     overrides = {**_read_overrides(), **clean}
     base = defaults()

@@ -116,7 +116,7 @@ def train_m2(seed: int = 7, *, models_dir: str | Path | None = None) -> dict:
     metrics = {"held_out": binary_metrics(te["label"].to_numpy(), p, threshold=0.5),
                "brier": round(float(brier_score_loss(te["label"], p)), 4), "n_train": int(len(tr)), "n_test": int(len(te)),
                "fraud_rate": round(float(df["label"].mean()), 4),
-               "note": "semnal pentru om; distribuții sintetice suprapuse, nu date reale"}
+               "note": "a signal for a person; overlapping synthetic distributions, not real data"}
     final = lgb.LGBMClassifier(**LGB_PARAMS, random_state=seed).fit(df[M2_FEATURES], df["label"])
     final.booster_.save_model(str(out_dir / MODEL_FILE))
     version = version_tag("m2-lgbm", seed, M2_FEATURES, metrics["held_out"]["auc"])

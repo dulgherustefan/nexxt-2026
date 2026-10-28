@@ -10,15 +10,15 @@ from versoml.data import ids
 
 # ---------------------------------------------------------------- domenii
 
-LEGIT_BRAND_DOMAIN = "bancademo.example"          # Banca Demo (fictivă)
-LEGIT_COURIER_DOMAIN = "curierdemo.example"       # Curier Demo (fictiv)
+LEGIT_BRAND_DOMAIN = "bancademo.example"          # Demo Bank (fictitious)
+LEGIT_COURIER_DOMAIN = "curierdemo.example"       # Demo Courier (fictitious)
 
 SCAM_DOMAIN_DEMO = "livrare-bancademo.example"    # demo_t1 (și campania „taxă de livrare")
 SCAM_DOMAIN_CARD = "bancadem0-plati.test"         # phishing card / Visa Secure
 SCAM_DOMAIN_INEL = "confirmare-colet-demo.example"  # inel_carausi
 SCAM_DOMAIN_VISHING = "securitate-bancademo.test"   # pagina de „verificare" din vishing
 
-DEMO_SMS_TEXT = ("Coletul tău nu a putut fi livrat. Confirmă adresa și plata taxei de 2,99 lei: "
+DEMO_SMS_TEXT = ("Your parcel could not be delivered. Confirm your address and pay the RON 2.99 delivery fee: "
                  "https://livrare-bancademo.example/colet/RO4471")
 DEMO_URL = "https://livrare-bancademo.example/colet/RO4471"
 
@@ -26,20 +26,20 @@ DEMO_URL = "https://livrare-bancademo.example/colet/RO4471"
 
 SCAM_PHONE_SECURITATE = "+40700000111"   # vishing „departamentul de securitate"
 SCAM_PHONE_CONT_SIGUR = "+40700000222"   # „mută banii într-un cont sigur"
-BANK_OFFICIAL_PHONE = "+40700000100"     # linia (fictivă) a Băncii Demo, ca reper legitim
+BANK_OFFICIAL_PHONE = "+40700000100"     # Demo Bank's (fictitious) helpline, the legitimate reference
 
 # ---------------------------------------------------------------- firme
 
 SHELL_COMPANY_NAME = "EXPRES LIVRARE DEMO SRL"
 SHELL_COMPANY_CUI = ids.make_invalid_cui("4471202")      # cifră de control greșită în mod deliberat
 
-CRYPTO_EXCHANGE_NAME = "CryptoX Exchange — sintetic"
+CRYPTO_EXCHANGE_NAME = "CryptoX Exchange (synthetic)"
 CRYPTO_EXCHANGE_CUI = ids.make_invalid_cui("3901777")
 CRYPTO_EXCHANGE_IBAN = ids.make_iban("ZBNK", "9000000000777000")
 
 CASH_NODE = "NUMERAR"                    # nod tehnic: retrageri și depuneri de numerar
 
-BANK_NAME = "Banca Demo"
+BANK_NAME = "Demo Bank"
 BANK_CODE = ids.OWN_BANK
 
 

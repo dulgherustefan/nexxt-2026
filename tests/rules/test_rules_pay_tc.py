@@ -84,6 +84,22 @@ def test_TC31_transfer_autorizat_dupa_apel_de_la_banca_e_app():
     assert "CMP-01" in answer.rule_ids and answer.deadline is not None
 
 
+def test_PAY03_explicatia_in_engleza_cu_termenul_si_temeiul():
+    out = evaluate(make_ctx(executed_at=ts(2026, 10, 28, 9), notified_at=ts(2026, 10, 28, 10)))
+    assert hit(out, "PAY-03").explanation == (
+        "Refund due by 29 Oct 2026, 23:59, the end of the business day after the customer reported it on "
+        "28 Oct 2026, 10:00 (Law 209/2019, art. 173; CJEU C-70/25). The account returns to its state before "
+        "the payment, with a value date no later than the debit date.")
+    assert t1(out).next_actions[0] == ("The engine issues the (simulated) refund instruction for RON 1,000.00 by "
+                                       "29 Oct 2026, 23:59")
+    big = evaluate(make_ctx(amount=Money(value=7200.0), executed_at=ts(2026, 10, 28, 9),
+                            notified_at=ts(2026, 10, 28, 10)))
+    assert t1(big).next_actions[0] == ("Get human sign-off on the RON 7,200.00 refund by 29 Oct 2026, 23:59 "
+                                       "(reasons: DSP-59)")
+    assert hit(big, "DSP-59").explanation.startswith("The amount of RON 7,200.00 is above the automatic refund cap "
+                                                      "(RON 5,000.00, a bank setting).")
+
+
 def test_TC32_debitare_directa():
     assert direct_debit_refund_due(date(2026, 9, 1), date(2026, 10, 20)) == date(2026, 11, 3)
     assert direct_debit_refund_due(date(2026, 9, 1), date(2026, 10, 28)) is None   # PAY_DD_WINDOW_EXPIRED

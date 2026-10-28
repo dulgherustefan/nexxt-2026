@@ -349,10 +349,7 @@ export type CustomEventName =
   | "wall_block"
   | "interrupt"
   | "ledger_seal"
-  | "hold_signal"
-  | "refund"
-  | "clock"
-  | "typology";
+  | "hold_signal";
 
 export interface AgentEvent {
   type: EventType;
@@ -437,18 +434,6 @@ export interface CaseSummary {
   deadline: ISODate | null;
   sla_seconds_left: number | null;
   requires_human: boolean;
-  dispute_type?: DisputeType | string | null;
-}
-
-export type StoryKind = "click" | "device" | "auth" | "payment" | "dispute" | "aml" | "refund" | "letter" | "seal";
-
-/** Cronologia cazului, construită de backend din probele din registru (`ClientService._story`). */
-export interface StoryItem {
-  ts: ISODate;
-  kind: StoryKind | string;
-  title: string;
-  detail?: string;
-  fact_id?: string | null;
 }
 
 export interface DebateArgument {
@@ -540,7 +525,6 @@ export interface CaseDetail {
   aml_referral?: { status?: string; victim_ref?: string } | null;
   decision_seconds?: number | null;
   llm_mode?: string | null;
-  story?: StoryItem[];
 }
 
 export interface DecisionBrief {

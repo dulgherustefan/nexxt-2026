@@ -23,7 +23,7 @@ from versoml.data.calendar_ro import iso, parse_ts
 from versoml.data.repos import connect, epoch, insert, table_columns
 from versoml.data.scenarios import SCENARIOS, ScenarioBundle, build_case, build_scenario
 from versoml.data.schema import AML_DDL, CLIENT_DDL, CLIENT_TABLES
-from versoml.data.text import fmt_lei
+from versoml.data.text import fmt_ron
 from versoml.data.world import World, generate_world, static_catalogs
 
 
@@ -88,9 +88,9 @@ def _notifications(txs: list[dict], customer_ref: str, now_iso: str, prefix: str
     for i, t in enumerate(sorted(txs, key=lambda x: x["ts"])[-30:]):
         ts = parse_ts(t["ts"])
         if (now - ts).days <= 10:
-            verb = "Ai plătit" if t["direction"] == "debit" else "Ai primit"
+            verb = "You paid" if t["direction"] == "debit" else "You received"
             out.append({"notification_id": f"NTF-{prefix}-{i:03d}", "customer_ref": customer_ref, "ts": t["ts"],
-                        "kind": "tranzactie", "text": f"{verb} {fmt_lei(t['amount'], 1)} — {t['description']}", "read": True,
+                        "kind": "tranzactie", "text": f"{verb} {fmt_ron(t['amount'])}: {t['description']}", "read": True,
                         "synthetic": True})
     return out
 
@@ -233,7 +233,7 @@ def write_aml(path: Path, world: World, bundles: list[ScenarioBundle], seed: int
                 for p in world.patterns]
     inel = aml_world.inel_mule(seed)["iban"]
     inel_victims = sorted({f["from_iban"] for f in flows if f["to_iban"] == inel})
-    patterns.append({"pattern_id": "PAT-INEL", "typology": "inel_carausi", "family": "VersoML scenariu", "mules_json": [inel],
+    patterns.append({"pattern_id": "PAT-INEL", "typology": "inel_carausi", "family": "VersoML scenario", "mules_json": [inel],
                      "victims_json": inel_victims, "flow_ids_json": [f["flow_id"] for f in flows if inel in (f["from_iban"], f["to_iban"])],
                      "start": None, "end": None, "amount_in": round(sum(f["amount"] for f in flows if f["to_iban"] == inel), 2),
                      "typologies_json": ["fan_in", "rapid_pass_through"], "synthetic": 1})
@@ -245,7 +245,7 @@ def write_aml(path: Path, world: World, bundles: list[ScenarioBundle], seed: int
     counts["referrals"] = 0
     meta = {"zone": "aml", "seed": str(seed), "world_now": iso(world.now), "generator": "versoml.data.seed", "version": "1",
             "synthetic": "true", "demo_mule_iban": dm, "inel_mule_iban": inel, "crypto_exchange_iban": art.CRYPTO_EXCHANGE_IBAN,
-            "note_labels": "synthetic_labels și patterns sunt adevărul de teren, doar pentru antrenare și evaluare"}
+            "note_labels": "synthetic_labels and patterns are the ground truth, for training and evaluation only"}
     insert(conn, "meta", [{"key": k, "value": v} for k, v in meta.items()], ["key", "value"])
     conn.execute("COMMIT")
     conn.execute("PRAGMA synchronous=NORMAL")
@@ -274,7 +274,7 @@ def seed_all(settings: Any = None, seed: int = 7) -> dict:
 if __name__ == "__main__":
     import argparse
 
-    ap = argparse.ArgumentParser(description="Scrie var/client_zone.db și var/aml_zone.db (date sintetice).")
+    ap = argparse.ArgumentParser(description="Write var/client_zone.db and var/aml_zone.db (synthetic data).")
     ap.add_argument("--seed", type=int, default=7)
     args = ap.parse_args()
     print(json.dumps(seed_all(seed=args.seed), ensure_ascii=False, indent=2))

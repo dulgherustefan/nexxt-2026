@@ -20,13 +20,13 @@ RULES_VERSION = "2026.10.28"
 
 PACK_ORDER = ("PAY", "DSP", "CMP", "REC", "URM", "DP", "AML")
 PACK_TITLES = {
-    "PAY": "Plăți: Legea 209/2019 (PSD2) și CJUE C-70/25 (docs/context/11 §2.5)",
-    "DSP": "Dispute card și scheme Visa/Mastercard (docs/context/14)",
-    "CMP": "Reclamații: termene și conținutul răspunsului (docs/context/11 §2.6)",
-    "REC": "Rechemarea transferurilor (docs/05 §3–4, ghiduri EPC); EXTENSIE, absentă din docs/context",
-    "URM": "Reguli de produs VersoML (docs/05 §3–5); EXTENSIE, absentă din catalogul docs/context",
-    "DP": "Protecția datelor și decizii automate (docs/context/11 §2.7)",
-    "AML": "AML: Legea 129/2019 art. 6–8 (docs/context/11 §2.2); doar în zona AML",
+    "PAY": "Payments: Law 209/2019 (PSD2) and CJEU ruling C-70/25 (docs/context/11 §2.5)",
+    "DSP": "Card disputes and Visa/Mastercard scheme rules (docs/context/14)",
+    "CMP": "Complaints: deadlines and answer content (docs/context/11 §2.6)",
+    "REC": "Transfer recalls (docs/05 §3–4, EPC guidance); extension, not in docs/context",
+    "URM": "VersoML product rules (docs/05 §3–5); extension, not in the docs/context catalog",
+    "DP": "Data protection and automated decisions (docs/context/11 §2.7)",
+    "AML": "AML: Law 129/2019, art. 6–8 (docs/context/11 §2.2); AML zone only",
 }
 EXTENSION_PACKS = frozenset({"REC", "URM"})
 
@@ -42,7 +42,7 @@ def normalize_ro(text: str) -> str:
 
 @dataclass(frozen=True)
 class Finding:
-    """Ce a constatat o regulă: codul rezultatului, explicația în română și câmpurile folosite."""
+    """Ce a constatat o regulă: codul rezultatului, explicația (în engleză) și câmpurile folosite."""
 
     rule_id: str
     outcome: str
@@ -112,14 +112,14 @@ _ID = re.compile(r"^[A-Z]{2,4}-\d{2}$")
 
 def register(spec: RuleSpec) -> RuleSpec:
     if not _ID.match(spec.rule_id):
-        raise ValueError(f"ID de regulă invalid: {spec.rule_id}")
+        raise ValueError(f"Invalid rule ID: {spec.rule_id}")
     if spec.pack not in PACK_ORDER:
-        raise ValueError(f"Pachet necunoscut: {spec.pack}")
+        raise ValueError(f"Unknown rule pack: {spec.pack}")
     if spec.rule_id in _REGISTRY or spec.rule_id in _ALIASES:
-        raise ValueError(f"Regula {spec.rule_id} e deja înregistrată")
+        raise ValueError(f"Rule {spec.rule_id} is already registered")
     for alias in spec.aliases:
         if alias in _REGISTRY or alias in _ALIASES:
-            raise ValueError(f"Aliasul {alias} e deja folosit")
+            raise ValueError(f"Alias {alias} is already in use")
         _ALIASES[alias] = spec.rule_id
     _REGISTRY[spec.rule_id] = spec
     return spec
@@ -169,7 +169,7 @@ def resolve_id(rule_id: str) -> str:
 def get_rule(rule_id: str) -> RuleSpec:
     canonical = resolve_id(rule_id)
     if canonical not in _REGISTRY:
-        raise KeyError(f"Regulă necunoscută: {rule_id}")
+        raise KeyError(f"Unknown rule: {rule_id}")
     return _REGISTRY[canonical]
 
 

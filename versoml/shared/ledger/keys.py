@@ -64,7 +64,7 @@ def load_zone_key(zone: Zone | str, keys_dir: Path) -> ZoneKey:
             _write_exclusive(priv_path, pem)
         private = serialization.load_pem_private_key(priv_path.read_bytes(), password=None)
         if not isinstance(private, Ed25519PrivateKey):
-            raise ValueError(f"{priv_path.name} nu conține o cheie Ed25519")
+            raise ValueError(f"{priv_path.name} does not contain an Ed25519 key")
         public = private.public_key()
         pub_pem = public.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
         if not pub_path.exists() or pub_path.read_bytes() != pub_pem:

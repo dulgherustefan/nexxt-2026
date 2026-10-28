@@ -27,7 +27,7 @@ from versoml.data import ids
 from versoml.data.calendar_ro import TZ, iso, parse_ts
 from versoml.data.features import HUB_DEGREE, is_hub, node_features
 from versoml.data.schema import AML_DDL, BOOL_COLUMNS, CLIENT_DDL, JSON_COLUMNS
-from versoml.data.text import fmt_lei
+from versoml.data.text import fmt_ron
 
 FROZEN_AFTER_DAYS = 14
 
@@ -181,7 +181,7 @@ class ClientRepo(_Repo):
     def balance(self, customer_ref: str) -> float:
         acc = self.get_account(customer_ref)
         if acc is None:
-            raise KeyError(f"client necunoscut: {customer_ref}")
+            raise KeyError(f"unknown customer: {customer_ref}")
         return round(float(acc["balance"]), 2)
 
     # -------- tranzacții
@@ -256,12 +256,40 @@ class ClientRepo(_Repo):
             return rows(c.execute("SELECT * FROM sim_events WHERE customer_ref=? AND ts_epoch BETWEEN ? AND ? ORDER BY ts_epoch",
                                   (customer_ref, int((end - timedelta(hours=hours)).timestamp()), int(end.timestamp()))))
 
-    def get_prior_disputes(self, customer_ref: str, months: int = 12, *, as_of: datetime | str | None = None) -> list[dict]:
+    def get_prior_disputes(self, customer_ref: str, months: int = 12, *, as_of: datetime | str | None = None,
+                           exclude_case_id: str | None = None) -> list[dict]:
+        """The customer's disputes in the `months` before `as_of` (default: now), oldest first.
+
+        Two sources, each row tagged with `source`:
+        - "archive": the closed disputes written by the seed (`prior_disputes`);
+        - "live": complaints filed in this session (`complaints`, historical=0), dated by `received_at`.
+        The case under analysis never counts as its own prior dispute. Pass `exclude_case_id`; with `as_of`,
+        only complaints received strictly before it count; with neither, the customer's latest live
+        complaint is taken to be the case under analysis (the collector reads this right after the save).
+        """
         end = parse_ts(as_of) if as_of else self.now()
-        lo = end - timedelta(days=round(months * 365 / 12))
+        lo, hi = int((end - timedelta(days=round(months * 365 / 12))).timestamp()), int(end.timestamp())
+        sql = "SELECT * FROM complaints WHERE customer_ref=? AND COALESCE(historical,0)=0 AND received_epoch>=?"
+        args: list[Any] = [customer_ref, lo]
+        if as_of:
+            sql += " AND received_epoch<?"
+            args.append(hi)
         with self._conn() as c:
-            return rows(c.execute("SELECT * FROM prior_disputes WHERE customer_ref=? AND opened_epoch>=? AND opened_epoch<? "
-                                  "ORDER BY opened_epoch", (customer_ref, int(lo.timestamp()), int(end.timestamp()))))
+            archived = rows(c.execute("SELECT * FROM prior_disputes WHERE customer_ref=? AND opened_epoch>=? AND opened_epoch<? "
+                                      "ORDER BY opened_epoch", (customer_ref, lo, hi)))
+            live = rows(c.execute(sql + " ORDER BY received_epoch, case_id", args))
+            if not as_of and exclude_case_id is None and live:
+                live = live[:-1]        # the latest complaint is the case being analysed
+            skip = {d["case_id"] for d in archived} | {exclude_case_id}
+            live = [x for x in live if x["case_id"] not in skip]
+            refs = [x["transaction_refs"][0] for x in live if x.get("transaction_refs")]
+            txs = {t["tx_id"]: t for t in rows(c.execute(
+                f"SELECT tx_id, amount, counterparty_name, channel FROM transactions WHERE tx_id IN ({','.join('?' * len(refs))})",
+                refs))} if refs else {}
+        for d in archived:
+            d["source"] = "archive"
+        out = archived + [_live_dispute(x, txs) for x in live]
+        return sorted(out, key=lambda d: (epoch(d["opened_at"]) or 0, d["case_id"] or ""))
 
     def get_merchant(self, merchant_id: str) -> dict | None:
         with self._conn() as c:
@@ -316,10 +344,10 @@ class ClientRepo(_Repo):
         meta = dict(meta or {})
         amount = round(float(amount), 2)
         if amount <= 0:
-            raise ValueError("suma trebuie să fie pozitivă")
+            raise ValueError("the amount must be positive")
         to_iban = ids.normalize_iban(to_iban)
         if ids.validate_iban_ro(to_iban):
-            raise ValueError(f"IBAN invalid: {to_iban}")
+            raise ValueError(f"invalid IBAN: {to_iban}")
         ts = parse_ts(meta.get("ts")) or self.now()
         key = meta.get("idempotency_key") or meta.get("tx_id")
         with self._tx() as c:
@@ -333,7 +361,7 @@ class ClientRepo(_Repo):
                             "created": False}
             acc = c.execute("SELECT * FROM accounts WHERE customer_ref=? ORDER BY is_primary DESC, iban LIMIT 1", (from_ref,)).fetchone()
             if acc is None:
-                raise KeyError(f"client necunoscut: {from_ref}")
+                raise KeyError(f"unknown customer: {from_ref}")
             if acc["balance"] + 1e-9 < amount:
                 return {"tx_id": None, "from_ref": from_ref, "from_iban": acc["iban"], "to_iban": to_iban, "amount": amount,
                         "currency": "RON", "ts": iso(ts), "status": "respins_fonduri_insuficiente",
@@ -344,7 +372,7 @@ class ClientRepo(_Repo):
                 d = dict(dev, customer_ref=from_ref, enrolled_epoch=epoch(dev.get("enrolled_at") or ts))
                 insert(c, "devices", [d], table_columns(c, "devices"), mode="INSERT OR IGNORE")
                 self._notify(c, from_ref, parse_ts(dev.get("enrolled_at")) or ts, "securitate",
-                             f"Aplicația Banca Demo a fost activată pe un dispozitiv nou ({dev.get('model', 'necunoscut')}).")
+                             f"The Demo Bank app was activated on a new device ({dev.get('model') or 'unknown model'}).")
             device_id = meta.get("device_id") or (dev or {}).get("device_id")
             if device_id is None:
                 r = c.execute("SELECT device_id FROM devices WHERE customer_ref=? AND status='activ' ORDER BY enrolled_epoch DESC LIMIT 1",
@@ -371,14 +399,14 @@ class ClientRepo(_Repo):
                     a["tx_id"] = tx_id
                 insert(c, "auth_events", [a], table_columns(c, "auth_events"), mode="INSERT OR IGNORE")
             new_balance = round(acc["balance"] - amount, 2)
-            name = meta.get("beneficiary_name") or "beneficiar"
+            name = meta.get("beneficiary_name") or "payee"
             known = {"ts", "channel", "beneficiary_name", "description", "device_id", "ip", "new_device", "session",
                      "auth_events", "end_to_end_id", "tx_id", "idempotency_key", "scenario"}
             extra = {k: v for k, v in meta.items() if k not in known}
             t = {"tx_id": tx_id, "customer_ref": from_ref, "account_iban": acc["iban"], "direction": "debit",
                  "kind": "transfer", "channel": meta.get("channel") or "transfer", "amount": amount, "currency": "RON",
                  "ts": iso(ts), "ts_epoch": epoch(ts), "booked_at": iso(ts),
-                 "description": meta.get("description") or f"Transfer către {name}", "counterparty_name": name,
+                 "description": meta.get("description") or f"Transfer to {name}", "counterparty_name": name,
                  "counterparty_iban": to_iban, "merchant_id": None, "mcc": None, "card_id": None, "pos_entry_mode": None,
                  "eci": None, "cavv_present": None, "merchant_country": None, "device_id": device_id,
                  "session_id": session_id, "ip": meta.get("ip"), "status": "booked",
@@ -387,7 +415,7 @@ class ClientRepo(_Repo):
                  "extra_json": extra or None, "synthetic": 1}
             insert(c, "transactions", [t], list(t))
             c.execute("UPDATE accounts SET balance=? WHERE iban=?", (new_balance, acc["iban"]))
-            self._notify(c, from_ref, ts, "tranzactie", f"Ai trimis {fmt_lei(amount, 1)} către {name}.")
+            self._notify(c, from_ref, ts, "tranzactie", f"You sent {fmt_ron(amount)} to {name}.")
         return {"tx_id": tx_id, "from_ref": from_ref, "from_iban": acc["iban"], "to_iban": to_iban, "amount": amount,
                 "currency": "RON", "ts": iso(ts), "status": "booked", "balance_after": new_balance,
                 "session_id": session_id, "device_id": device_id, "created": True}
@@ -397,29 +425,29 @@ class ClientRepo(_Repo):
         fără a credita încă o dată. Reutilizarea cheii pentru alt caz sau altă sumă e o eroare."""
         amount = round(float(amount), 2)
         if amount <= 0:
-            raise ValueError("suma trebuie să fie pozitivă")
+            raise ValueError("the amount must be positive")
         if not idempotency_key:
-            raise ValueError("idempotency_key este obligatoriu")
+            raise ValueError("idempotency_key is required")
         ts = self.now()
         with self._tx() as c:
             old = c.execute("SELECT * FROM refunds WHERE idempotency_key=?", (idempotency_key,)).fetchone()
             if old is not None:
                 o = row_to_dict(old)
                 if o["case_id"] != case_id or o["customer_ref"] != customer_ref or abs(o["amount"] - amount) > 0.005:
-                    raise ValueError("idempotency_key reutilizat pentru alt caz sau altă sumă")
+                    raise ValueError("idempotency_key was already used for another case or another amount")
                 bal = c.execute("SELECT balance FROM accounts WHERE customer_ref=? ORDER BY is_primary DESC LIMIT 1",
                                 (customer_ref,)).fetchone()[0]
                 return {**o, "balance_after": round(bal, 2), "created": False, "idempotent_replay": True}
             acc = c.execute("SELECT * FROM accounts WHERE customer_ref=? ORDER BY is_primary DESC, iban LIMIT 1",
                             (customer_ref,)).fetchone()
             if acc is None:
-                raise KeyError(f"client necunoscut: {customer_ref}")
+                raise KeyError(f"unknown customer: {customer_ref}")
             h = hashlib.sha256(idempotency_key.encode()).hexdigest()[:10].upper()
             tx_id, refund_id = f"TX-RF-{h}", f"RF-{h}"
             new_balance = round(acc["balance"] + amount, 2)
             t = {"tx_id": tx_id, "customer_ref": customer_ref, "account_iban": acc["iban"], "direction": "credit",
                  "kind": "refund", "channel": "internal", "amount": amount, "currency": "RON", "ts": iso(ts),
-                 "ts_epoch": epoch(ts), "booked_at": iso(ts), "description": f"Rambursare contestație {case_id}",
+                 "ts_epoch": epoch(ts), "booked_at": iso(ts), "description": f"Refund for dispute {case_id}",
                  "counterparty_name": art.BANK_NAME, "counterparty_iban": None, "status": "booked", "disputable": 0,
                  "case_tag": case_id, "balance_after": new_balance, "idempotency_key": f"refund:{idempotency_key}",
                  "synthetic": 1}
@@ -429,7 +457,7 @@ class ClientRepo(_Repo):
                  "currency": "RON", "idempotency_key": idempotency_key, "tx_id": tx_id, "ts": iso(ts),
                  "status": "executat", "synthetic": 1}
             insert(c, "refunds", [r], list(r))
-            self._notify(c, customer_ref, ts, "rambursare", f"Ți-am returnat {fmt_lei(amount, 1)} pentru contestația {case_id}.")
+            self._notify(c, customer_ref, ts, "rambursare", f"We refunded {fmt_ron(amount)} for dispute {case_id}.")
         return {**r, "synthetic": True, "balance_after": new_balance, "created": True, "idempotent_replay": False}
 
     # -------- scenarii live
@@ -441,6 +469,18 @@ class ClientRepo(_Repo):
             tx = (bundle.records if hasattr(bundle, "records") else bundle["records"])["transaction"]
             return {"tx_id": tx["tx_id"], "created": False, "status": "seeded"}
         return self.post_transfer(args["from_ref"], args["to_iban"], args["amount"], args["meta"])
+
+
+def _live_dispute(complaint: dict, txs: dict[str, dict]) -> dict:
+    """A complaint filed live, in the shape of a `prior_disputes` row."""
+    refs = complaint.get("transaction_refs") or []
+    tx = (txs.get(refs[0]) if refs else None) or {}
+    return {"dispute_id": f"LIVE-{complaint['case_id']}", "customer_ref": complaint["customer_ref"],
+            "case_id": complaint["case_id"], "tx_ref": refs[0] if refs else None, "opened_at": complaint["received_at"],
+            "closed_at": None, "channel": complaint.get("channel_hint") or tx.get("channel"), "dispute_type": None,
+            "scenario": complaint.get("scenario"), "amount": tx.get("amount"), "counterparty": tx.get("counterparty_name"),
+            "outcome": None, "reason": None, "status": complaint.get("status"), "source": "live",
+            "synthetic": bool(complaint.get("synthetic", True))}
 
 
 def _flatten_extra(t: dict | None) -> dict | None:
@@ -632,7 +672,7 @@ class AmlRepo(_Repo):
                     _ensure_account(c, ben_iban)
                     insert(c, "flows", [{"flow_id": flow_id, "ts": iso(ex), "ts_epoch": epoch(ex), "from_iban": d["victim_ref"],
                                          "to_iban": ben_iban, "amount": rec["amount"], "currency": rec["currency"],
-                                         "channel": d["channel"], "reference": "Plată contestată", "reported_fraud": 1,
+                                         "channel": d["channel"], "reference": "Disputed payment", "reported_fraud": 1,
                                          "report_source": "dispute_intern", "case_id": rec["case_id"], "feed": "referral",
                                          "natural_key": f"ref:{rec['case_id']}", "synthetic": 1}],
                            ["flow_id", "ts", "ts_epoch", "from_iban", "to_iban", "amount", "currency", "channel", "reference",

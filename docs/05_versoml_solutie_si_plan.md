@@ -5,7 +5,7 @@
 NEXXT Summit 2026 · VibeHack · track Raiffeisen „AI for Operational Efficiency" · versiunea din 28.10.2026
 
 > Document de lucru pentru echipă. Pornește de la draftul vostru „Soluție hackathon.md" și îl completează cu cinci lucruri:
-> - research-ul din `research_notes/Tooling agenți MCP dispute AML/`;
+> - research-ul echipei despre tooling, MCP și AML;
 > - regulile din `docs/context/10–14`;
 > - cazurile reale din `docs/03`;
 > - deciziile de arhitectură;
@@ -437,7 +437,7 @@ Paperul despre triajul AML (2604.19755) a găsit că un LLM singur e mai slab de
 | DNSC | Raportare phishing | 1911 sau pnrisc.dnsc.ro; fără API | [V] |
 | OpenSanctions + yente | Sancțiuni și PEP | Rulează local; datele sunt CC BY-NC 4.0, deci producția cere licență | [V] |
 | OpenPhish | Feed de phishing | Gratuit, actualizat la 6 ore; PhishTank nu mai acceptă înregistrări din 2020 | [V] |
-| RDAP, Certificate Transparency, dnstwist, urlscan, Google Web Risk | Vârsta și asemănarea domeniului | Condițiile neverificate în această sesiune | [D] |
+| RDAP, Certificate Transparency, dnstwist, urlscan, Google Web Risk | Vârsta și asemănarea domeniului | Condițiile de utilizare, încă neverificate | [D] |
 | Căutare web (știri) | Presă negativă despre firmă | Bedrock nu are web search, deci avem nevoie de o cheie API (de exemplu Exa) | ne-o dați la cerere |
 | IBM AMLworld | Tranzacții sintetice pentru antrenarea GNN | Public | [V] |
 
@@ -794,6 +794,5 @@ Toate valorile sunt fictive. `victim_ref` e un pseudonim; identitatea victimei n
 - AgenticSimLaw: [arXiv 2601.21936](https://arxiv.org/abs/2601.21936) · PROClaim: [arXiv 2603.28488](https://arxiv.org/html/2603.28488v1)
 - Explainable AML Triage: [arXiv 2604.19755](https://arxiv.org/pdf/2604.19755) · Co-Investigator AI: [arXiv 2509.08380](https://www.alphaxiv.org/abs/2509.08380)
 
-**Notele complete, cu toate URL-urile:** `research_notes/Tooling agenți MCP dispute AML/`, adică `aws_bedrock_agentcore_stack.md`, `protocoale_securitate_mcp.md`, `aml_osint_surse_ro_verificari.md` și `evaluare_dezbatere_demo.md`.
 
 ---

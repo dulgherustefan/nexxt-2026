@@ -1,79 +1,92 @@
 @import "tailwindcss";
-@import "@fontsource-variable/archivo/wdth.css";
-@import "@fontsource-variable/jetbrains-mono/wght.css";
+@import "@fontsource-variable/host-grotesk/wght.css";
+@import "@fontsource/fragment-mono/400.css";
 
-/* VersoML: unealtă internă de back-office (reper: Linear, Stripe Dashboard).
-   Suprafețe albe și neutre, text aproape negru, un singur accent: galbenul.
-   Galbenul apare doar pe butonul principal, pe selecție și pe un singur lucru important pe ecran.
-   Roșu și verde doar pentru stare. */
+/* VersoML. Calm ink-on-paper surfaces; yellow is a signal (live, needs you, proof path), never a fill behind text. */
 @theme {
-  --font-sans: "Archivo Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --font-sans: "Host Grotesk Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Fragment Mono", ui-monospace, "SF Mono", Consolas, monospace;
 
-  --color-yellow: #ffe500;
-  --color-yellow-hover: #f2d900;
-  --color-yellow-soft: #fff5b8;
-  --color-yellow-tint: #fffbe5;
-  --color-yellow-line: #e8d23a;
-
-  --color-ink: #141413;
-  --color-ink-soft: #3d3d39;
-  --color-muted: #66665f;
-  --color-subtle: #74746c;
-  --color-line: #e6e6e1;
-  --color-line-strong: #cfcfc8;
+  --color-ink: #121316;
+  --color-ink-soft: #2e3036;
+  --color-muted: #5c5e66;
+  --color-subtle: #6f717a;
+  --color-line: #e8e8ec;
+  --color-line-strong: #d5d6dc;
   --color-paper: #ffffff;
-  --color-canvas: #f7f7f5;
-  --color-hover: #f0f0ec;
+  --color-canvas: #f7f7f8;
+  --color-hover: #f1f1f4;
 
-  --color-danger: #c4311a;
-  --color-danger-soft: #fdeee9;
-  --color-danger-line: #f1bcae;
-  --color-ok: #15793b;
-  --color-ok-soft: #e8f5ec;
-  --color-ok-line: #b2dcbf;
-  --color-warn: #9a5a00;
-  --color-warn-soft: #fdf3df;
-  --color-warn-line: #ecc98a;
+  --color-yellow: #fee600;
+  --color-yellow-hover: #e5d119;
+  --color-yellow-soft: #fff5b3;
+  --color-yellow-tint: #fffbe0;
+
+  --color-danger: #c4321d;
+  --color-danger-soft: #fdeeea;
+  --color-danger-line: #f3c5bb;
+  --color-ok: #127a47;
+  --color-ok-soft: #e7f5ed;
+  --color-ok-line: #b8e0c9;
+  --color-warn: #a8500d;
+  --color-warn-soft: #fdf1e6;
+
+  --color-night: #0f1012;
+  --color-night-2: #17181b;
+  --color-night-line: rgb(255 255 255 / 0.09);
+  --color-night-text: #ecedef;
+  --color-night-muted: #9b9da5;
 
   --radius-sm: 6px;
   --radius-md: 8px;
-  --radius-lg: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
 
-  --shadow-overlay: 0 24px 48px -16px rgb(20 20 19 / 0.22), 0 4px 12px rgb(20 20 19 / 0.06);
-  --shadow-raise: 0 1px 2px rgb(20 20 19 / 0.05);
+  --shadow-card: 0 1px 2px rgb(18 19 22 / 0.04), 0 0 0 1px rgb(18 19 22 / 0.06);
+  --shadow-raise: 0 1px 2px rgb(18 19 22 / 0.05), 0 6px 16px -8px rgb(18 19 22 / 0.12);
+  --shadow-overlay: 0 24px 48px -16px rgb(18 19 22 / 0.24), 0 0 0 1px rgb(18 19 22 / 0.06);
 
-  --animate-pulse-dot: pulse-dot 1.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --default-transition-duration: 140ms;
+  --default-transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --animate-enter: enter 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-flash: flash 1.6s cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-enter: enter 200ms cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-drawer: drawer 220ms cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-ticker-in: enter 200ms cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-glow: glow 1.8s ease-in-out infinite;
 }
 
-@keyframes pulse-dot {
-  0% { box-shadow: 0 0 0 0 rgb(232 210 58 / 0.7); }
-  70% { box-shadow: 0 0 0 6px rgb(232 210 58 / 0); }
-  100% { box-shadow: 0 0 0 0 rgb(232 210 58 / 0); }
+@keyframes enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
 }
 @keyframes flash {
   0% { background-color: var(--color-yellow-soft); }
   100% { background-color: transparent; }
 }
-@keyframes glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgb(255 229 0 / 0); }
-  50% { box-shadow: 0 0 0 4px rgb(255 229 0 / 0.45); }
+@keyframes ping-ring {
+  0% { transform: scale(1); opacity: 0.55; }
+  80%, 100% { transform: scale(2.4); opacity: 0; }
 }
-@keyframes dash-flow {
-  to { stroke-dashoffset: -24; }
+@keyframes sheet-in {
+  from { transform: translateX(calc(100% + 0.5rem)); }
+  to { transform: none; }
 }
-@keyframes enter {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: none; }
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
-@keyframes drawer {
-  from { opacity: 0.6; transform: translateX(24px); }
-  to { opacity: 1; transform: none; }
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: none; }
+}
+@keyframes grow-x {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
 }
 
 @layer base {
@@ -87,13 +100,13 @@
     background: var(--color-paper);
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    caret-color: var(--color-ink);
-    font-feature-settings: "tnum" 0;
+    font-feature-settings: "ss01" 0;
   }
   h1, h2, h3, h4 {
     text-wrap: balance;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
   }
   p { text-wrap: pretty; }
   a { text-underline-offset: 3px; text-decoration-thickness: 1px; }
@@ -105,27 +118,34 @@
   }
   input, textarea, select, button { font: inherit; color: inherit; }
   input::placeholder, textarea::placeholder { color: var(--color-subtle); }
-  input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offset: 0; }
   * { scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; }
   *::-webkit-scrollbar { width: 10px; height: 10px; }
   *::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
   code, kbd, samp, pre { font-family: var(--font-mono); }
-  summary::-webkit-details-marker { display: none; }
 }
 
 @layer utilities {
   .tnum { font-variant-numeric: tabular-nums; }
-  /* Banda de avertizare: doar o fâșie subțire, în zona AML. */
-  .hazard {
-    background-image: repeating-linear-gradient(-45deg, var(--color-yellow) 0 8px, var(--color-ink) 8px 16px);
-  }
-  .hazard-thin {
-    background-image: repeating-linear-gradient(-45deg, var(--color-yellow) 0 5px, var(--color-ink) 5px 10px);
-  }
-  /* Rămas din versiunea veche: titlurile nu mai sunt late. */
-  .display { letter-spacing: -0.015em; }
-  .flow-dash { stroke-dasharray: 6 6; animation: dash-flow 0.6s linear infinite; }
+  /* IDs (PAY-03, EV-004, CT-2026-118020): the text face with even digits, not a code font. Mono is for hashes and code. */
+  .id-text { font-family: var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
   .text-meta { font-size: 0.8667rem; line-height: 1.35rem; color: var(--color-muted); }
+  /* A live dot: the ring pulses on the compositor (transform + opacity), not via box-shadow. */
+  .live-dot { position: relative; }
+  .live-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: inherit;
+    animation: ping-ring 1.8s var(--ease-out) infinite;
+  }
+  .press { transition: transform 120ms var(--ease-out); }
+  .press:active { transform: scale(0.97); }
+  .draft-shimmer {
+    background: linear-gradient(90deg, transparent 0%, rgb(255 255 255 / 0.65) 50%, transparent 100%) var(--color-hover);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear 2;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -135,4 +155,5 @@
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
   }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }

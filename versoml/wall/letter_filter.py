@@ -1,7 +1,7 @@
-"""Filtrul scrisorilor către client (zidul, stratul 5): termeni interziși + canary + date personale.
+"""The check on letters to customers (the wall, layer 5): forbidden terms, canary tokens and personal data.
 
-Orice potrivire blochează scrisoarea și o trimite la un om. Un clasificator opțional
-(de ex. Haiku) poate doar adăuga blocări, niciodată nu poate debloca una deterministă.
+Any match blocks the letter and sends it to a person. An optional classifier (Haiku, say) can only add blocks;
+it can never unblock a deterministic one.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from versoml.wall.terms import find_terms, labels, snippet
 
 log = logging.getLogger("versoml.wall")
 
-# Datele personale care nu au ce căuta brute într-o scrisoare (se maschează: „RO49 **** 0000")
+# Personal data that must never appear raw in a letter (it is written masked: "RO49 **** 0000")
 BLOCKING_PII = ("CNP", "CARD", "IBAN")
 
 Classifier = Callable[[str], bool]
@@ -26,7 +26,7 @@ _default_registry: CanaryRegistry | None = None
 
 
 def register_classifier(classifier: Classifier | None) -> None:
-    """Clasificatorul folosit implicit de `check_letter` (None îl dezactivează)."""
+    """The classifier `check_letter` uses by default (None turns it off)."""
     global _default_classifier
     _default_classifier = classifier
 
@@ -38,6 +38,10 @@ def _registry() -> CanaryRegistry:
     return _default_registry
 
 
+def _tokens(n: int) -> str:
+    return f"{n} canary {'token' if n == 1 else 'tokens'}"
+
+
 def check_letter(
     text: str,
     *,
@@ -46,37 +50,37 @@ def check_letter(
     registry: CanaryRegistry | None = None,
     proxy: PrivacyProxy | None = None,
 ) -> FilterResult:
-    """Verifică o scrisoare. `passed=False` înseamnă: nu pleacă, merge la om."""
+    """Checks a letter. `passed=False` means it doesn't go out: a person looks at it."""
     text = normalize_ro(text or "")
     reasons: list[str] = []
     hits = find_terms(text)
     canaries = (registry if registry is not None else _registry()).scan(text)
-    # Cu un canary în text, fragmentele ar copia conținut AML în jurnale: atunci dăm doar eticheta
+    # With a canary in the text, quoting fragments would copy AML content into the logs: then only the label
     for hit in hits:
-        where = "" if canaries else f", în fragmentul „{snippet(text, hit.start, hit.end)}”"
-        reasons.append(f"Termen interzis «{hit.label}»: {hit.why}{where}.")
+        where = "" if canaries else f", in “{snippet(text, hit.start, hit.end).rstrip('.')}”"
+        reasons.append(f"Forbidden term “{hit.label}”: it {hit.why}{where}.")
     if canaries:
-        reasons.append(f"Scrisoarea conține {canaries} token(uri) canary din dosarele AML: conținut AML scurs.")
+        reasons.append(f"The letter contains {_tokens(canaries)} from the AML files: AML content has leaked.")
 
     pii_findings = []
     for found in (proxy or get_proxy()).scan(text):
         if found["pii"] and found["type"] in BLOCKING_PII:
             pii_findings.append(f"{found['type']}: {found['masked']}")
     if pii_findings:
-        reasons.append("Date personale brute în scrisoare (se scriu mascat): " + ", ".join(pii_findings) + ".")
+        reasons.append("Raw personal data in the letter (write it masked): " + ", ".join(pii_findings) + ".")
 
     flag = False
     classify = classifier or _default_classifier
     if classify is not None:
         try:
             flag = bool(classify(text))
-        except Exception as exc:  # noqa: BLE001 - un clasificator căzut nu lasă scrisoarea să treacă
+        except Exception as exc:  # noqa: BLE001 - a broken classifier doesn't let the letter through
             flag = True
-            log.warning("Zid: clasificatorul scrisorii a eșuat (%s)", type(exc).__name__)
-            reasons.append("Clasificatorul nu a putut verifica scrisoarea; merge la om.")
+            log.warning("Wall: the letter classifier failed (%s)", type(exc).__name__)
+            reasons.append("The classifier could not check the letter, so it goes to a person.")
         else:
             if flag:
-                reasons.append("Clasificatorul a semnalat o posibilă dezvăluire a unei analize AML (tipping-off).")
+                reasons.append("The classifier flagged a possible disclosure of an AML review (tipping-off).")
 
     blocked_terms = labels(hits)
     result = FilterResult(
@@ -89,14 +93,14 @@ def check_letter(
         term_spans=[{"start": h.start, "end": h.end, "label": h.label} for h in hits],
     )
     if not result.passed:
-        # În jurnal intră doar etichetele, fără fragmente din scrisoare
-        summary = [f"Termen interzis «{label}»." for label in blocked_terms]
+        # The journal gets the labels only, never fragments of the letter
+        summary = [f"Forbidden term “{label}”." for label in blocked_terms]
         if canaries:
-            summary.append(f"{canaries} token(uri) canary din dosarele AML.")
+            summary.append(f"{_tokens(canaries)[0].upper()}{_tokens(canaries)[1:]} from the AML files.")
         if pii_findings:
-            summary.append("Date personale brute: " + ", ".join(p.split(":")[0] for p in pii_findings) + ".")
+            summary.append("Raw personal data: " + ", ".join(p.split(":")[0] for p in pii_findings) + ".")
         if flag:
-            summary.append("Semnalat de clasificator.")
+            summary.append("Flagged by the classifier.")
         journal.record(5, "letter_block", case_id=case_id, reasons=summary, terms=blocked_terms,
                        detail={"canaries": canaries, "pii": len(pii_findings), "classifier": flag})
     return result

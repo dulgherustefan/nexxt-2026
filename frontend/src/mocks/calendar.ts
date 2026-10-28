@@ -1,6 +1,6 @@
 /**
- * Calendar RO aproximativ, doar pentru modul mock. Termenele reale le calculează backend-ul
- * (`versoml/shared/rules/calendar_ro.py`); aici sărim peste weekenduri și sărbătorile legale fixe din 2026–2027.
+ * An approximate Romanian calendar, for mock mode only. The backend computes the real deadlines
+ * (`versoml/shared/rules/calendar_ro.py`); here we skip weekends and the fixed public holidays of 2026–2027.
  */
 const HOLIDAYS = new Set([
   "2026-01-01", "2026-01-02", "2026-01-06", "2026-01-07", "2026-01-24", "2026-04-10", "2026-04-12", "2026-04-13",
@@ -10,7 +10,7 @@ const HOLIDAYS = new Set([
 
 const TZ = "Europe/Bucharest";
 
-/** Ofsetul României față de UTC, în minute, la momentul dat (EET +120 / EEST +180). */
+/** Romania's offset from UTC, in minutes, at the given moment (EET +120 / EEST +180). */
 export function bucharestOffset(at: Date): number {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: TZ, timeZoneName: "shortOffset" }).formatToParts(at);
   const name = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT+2";
@@ -44,7 +44,7 @@ export function isBusinessDay(v: Ymd): boolean {
   return dow !== 0 && dow !== 6 && !HOLIDAYS.has(key(v));
 }
 
-/** ISO cu ofsetul României, ex. „2026-10-29T23:59:59+02:00". */
+/** ISO with Romania's offset, e.g. "2026-10-29T23:59:59+02:00". */
 export function bucharestIso(v: Ymd, hh: number, mm: number, ss: number): string {
   const probe = new Date(Date.UTC(v.y, v.m - 1, v.d, 12));
   const off = bucharestOffset(probe);
@@ -55,14 +55,14 @@ export function bucharestIso(v: Ymd, hh: number, mm: number, ss: number): string
   return `${key(v)}T${p(hh)}:${p(mm)}:${p(ss)}${tz}`;
 }
 
-/** Sfârșitul zilei lucrătoare următoare (PAY-03), 23:59:59 ora României. */
+/** The end of the next business day (PAY-03), 23:59:59 Romanian time. */
 export function endOfNextBusinessDay(from: Date): string {
   let day = addDays(bucharestYmd(from), 1);
   while (!isBusinessDay(day)) day = addDays(day, 1);
   return bucharestIso(day, 23, 59, 59);
 }
 
-/** Ziua lucrătoare N după data dată (CMP-01: 15 zile lucrătoare), la 23:59:59. */
+/** The Nth business day after the given date (CMP-01: 15 business days), at 23:59:59. */
 export function addBusinessDays(from: Date, n: number): string {
   let day = bucharestYmd(from);
   let left = n;
@@ -73,7 +73,7 @@ export function addBusinessDays(from: Date, n: number): string {
   return bucharestIso(day, 23, 59, 59);
 }
 
-/** ISO cu ofsetul României pentru un moment dat (pentru câmpurile `ts`, `retrieved_at`). */
+/** ISO with Romania's offset for a given moment (for the `ts` and `retrieved_at` fields). */
 export function isoRo(at: Date | number): string {
   const dt = typeof at === "number" ? new Date(at) : at;
   const off = bucharestOffset(dt);
@@ -86,4 +86,33 @@ export function isoRo(at: Date | number): string {
     `${p(local.getUTCHours())}:${p(local.getUTCMinutes())}:${p(local.getUTCSeconds())}` +
     `${sign}${p(Math.floor(abs / 60))}:${p(abs % 60)}`
   );
+}
+
+// ------------------------------------------------------------------ dates in words, as the backend writes them
+
+/** Fixed abbreviations, so September stays "Sep" whatever the browser's locale data says. */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+const asDate = (v: string | number | Date) => (v instanceof Date ? v : new Date(v));
+
+/** "29 Oct 2026", in Bucharest time. */
+export function fmtDay(v: string | number | Date): string {
+  const at = asDate(v);
+  if (Number.isNaN(at.getTime())) return "";
+  const { y, m, d } = bucharestYmd(at);
+  return `${d} ${MONTHS[m - 1]} ${y}`;
+}
+
+/** "29 Oct 2026, 23:59"; with `seconds`, "29 Oct 2026, 23:59:59", like the rule texts. */
+export function fmtDayTime(v: string | number | Date, seconds = false): string {
+  const at = asDate(v);
+  if (Number.isNaN(at.getTime())) return "";
+  const time = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: seconds ? "2-digit" : undefined,
+    hourCycle: "h23",
+  }).format(at);
+  return `${fmtDay(at)}, ${time}`;
 }

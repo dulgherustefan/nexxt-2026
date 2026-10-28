@@ -28,7 +28,7 @@ BankingCalendarKind = Literal["ro", "target2"]
 
 @lru_cache(maxsize=64)
 def _ro_holidays(year: int) -> dict[date, str]:
-    return dict(holidays.Romania(years=year, language="ro"))
+    return dict(holidays.Romania(years=year, language="en_US"))     # numele sărbătorilor apar în engleză
 
 
 @lru_cache(maxsize=64)
@@ -62,7 +62,7 @@ class BusinessCalendar:
     def add_business_days(self, d: date, n: int) -> date:
         """`n` zile lucrătoare după `d`; ziua de start nu se numără."""
         if n < 0:
-            raise ValueError("n trebuie să fie ≥ 0")
+            raise ValueError("n must be >= 0")
         for _ in range(n):
             d = self.next_business_day(d)
         return d

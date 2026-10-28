@@ -46,7 +46,7 @@ async def test_call_tool_validates_and_never_raises():
     result = await base.call_tool("lookalike_score", {"domain": "livrare-bancademo.example"})
     assert result.ok and result.signal == "rosu"
     bad = await base.call_tool("rdap_domain", {"nu_exista": 1})
-    assert bad.ok is False and "Argumente invalide" in bad.summary
+    assert bad.ok is False and "Invalid arguments" in bad.summary
     unknown = await base.call_tool("tool_inexistent", {})
     assert unknown.ok is False
 
@@ -73,7 +73,7 @@ async def test_run_source_fixture_mode_without_fixture_is_offline(settings_with)
     with settings_with(versoml_osint_mode="fixture"):
         result = await base.run_source("tool_test", {"x": 1}, key="nimic", fetch=fetch, build=_build, ttl_s=60,
                                        label="Test")
-    assert result.ok is False and result.mode == "offline" and result.error == "fixture lipsă"
+    assert result.ok is False and result.mode == "offline" and result.error == "missing fixture"
 
 
 async def test_run_source_live_then_cache():
@@ -114,17 +114,17 @@ async def test_run_source_live_mode_does_not_use_fixture(settings_with):
     with settings_with(versoml_osint_mode="live"):
         result = await base.run_source("rdap_domain", {"domain": "bancademo.example"}, key="bancademo.example",
                                        fetch=failing, build=_build_rdap, ttl_s=60, label="RDAP")
-    assert result.ok is False and result.mode == "live" and "nu a răspuns" in result.summary
+    assert result.ok is False and result.mode == "live" and "did not respond" in result.summary
 
 
-async def test_missing_key_is_offline_with_romanian_summary():
+async def test_missing_key_is_offline_with_a_clear_summary():
     async def fetch():
         raise AssertionError("fără cheie nu se apelează sursa")
 
     result = await base.run_source("tool_test", {}, key="k", fetch=fetch, build=_build, ttl_s=60, label="Sursa X",
                                    missing_key="URLSCAN_API_KEY")
     assert result.ok is False and result.mode == "offline"
-    assert "necesită cheie URLSCAN_API_KEY" in result.summary
+    assert "needs the URLSCAN_API_KEY key" in result.summary
 
 
 async def test_http_request_retries_5xx_then_succeeds(mock_http):

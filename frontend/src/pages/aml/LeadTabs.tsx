@@ -45,7 +45,7 @@ function FieldValue({ k, v }: { k: string; v: unknown }) {
   return <>{s}</>;
 }
 
-export function RtsTab({ rts, onCite, factTitle, running }: { rts: LeadDetail["rts"]; onCite: Cite; factTitle: FactTitle; running: boolean }) {
+function RtsTab({ rts, onCite, factTitle, running }: { rts: LeadDetail["rts"]; onCite: Cite; factTitle: FactTitle; running: boolean }) {
   const narrative = Array.isArray(rts?.narrative) ? rts!.narrative.filter((l) => l && typeof l.text === "string") : [];
   const fields = rts?.fields && typeof rts.fields === "object" ? Object.entries(rts.fields) : [];
   if (!rts || (!narrative.length && !fields.length)) {
@@ -108,7 +108,7 @@ export function RtsTab({ rts, onCite, factTitle, running }: { rts: LeadDetail["r
 
 // ------------------------------------------------------------------ OSINT
 
-export function OsintTab({ findings, summary, onCite, factTitle, running }: { findings: OsintFinding[]; summary?: string | null; onCite: Cite; factTitle: FactTitle; running: boolean }) {
+function OsintTab({ findings, summary, onCite, factTitle, running }: { findings: OsintFinding[]; summary?: string | null; onCite: Cite; factTitle: FactTitle; running: boolean }) {
   if (!findings.length) {
     return (
       <EmptyState icon={<Search aria-hidden className="size-5" />} title={running ? "Pasul OSINT interoghează sursele." : "Nicio verificare OSINT încă."}>
@@ -122,7 +122,7 @@ export function OsintTab({ findings, summary, onCite, factTitle, running }: { fi
       <OsintGroups findings={findings} onCite={onCite} factTitle={factTitle} />
       <p className="text-[0.8667rem] text-muted">
         Vrei să verifici alt identificator?{" "}
-        <Link to="/aml/osint" className="font-semibold text-ink underline">
+        <Link to="/osint" className="font-semibold text-ink underline">
           Deschide verificarea OSINT
         </Link>
       </p>
@@ -132,7 +132,7 @@ export function OsintTab({ findings, summary, onCite, factTitle, running }: { fi
 
 // ------------------------------------------------------------------ probele
 
-export function ProbeTab({ facts, highlight, ledger }: { facts: FactRow[]; highlight: { id: string; n: number } | null; ledger: LeadDetail["ledger"] }) {
+function ProbeTab({ facts, highlight, ledger }: { facts: FactRow[]; highlight: { id: string; n: number } | null; ledger: LeadDetail["ledger"] }) {
   const listRef = useRef<HTMLUListElement>(null);
   useEffect(() => {
     if (!highlight) return;

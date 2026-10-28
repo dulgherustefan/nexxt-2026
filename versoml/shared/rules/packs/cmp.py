@@ -35,90 +35,92 @@ def payment_complaint_deadlines(received: datetime | date, env: Env) -> tuple[da
     return (end_of_day(add_business_days(d, 15, env.cal)), end_of_day(add_business_days(d, 35, env.cal)))
 
 
-@rule("CMP-01", title="Răspuns la toate punctele, în cel mult 15 zile lucrătoare de la primire",
-      basis="Legea 209/2019 art. 224", confidence=P, pack="CMP", source=SRC, questions=(Q_ANSWER,),
+@rule("CMP-01", title="Answer every point within 15 business days of receipt",
+      basis="Law 209/2019, art. 224", confidence=P, pack="CMP", source=SRC, questions=(Q_ANSWER,),
       params=("bank_closure_days", "complaint_alert_lead_business_days"),
       exceptions=("CMP_DEADLINE_RISK", "CMP_POINT_UNANSWERED"), aliases=("DSP-14",),
       tests=("TC-34", "DT-01", "DT-02", "DT-05", "DT-07", "DT-09"))
 def cmp_01_answer_deadline(x: RuleContextExt, env: Env) -> Finding | None:
-    """Reclamațiile privind serviciile de plată primesc răspuns pe hârtie sau pe alt suport durabil convenit,
-    la toate punctele, în cel mult 15 zile lucrătoare de la primire (inclusiv la ghișeu sau prin poștă)."""
+    """Complaints about payment services get an answer on paper or another agreed durable medium, covering
+    every point, within 15 business days of receipt (including complaints made at a branch or by post)."""
     if x.credit_fraud:
         return None
     received = complaint_received(x)
     due, _ = payment_complaint_deadlines(received, env)
-    deadline = Deadline(rule_id="CMP-01", name="Răspuns la reclamație (15 zile lucrătoare)", due_at=due,
-                        basis="Legea 209/2019 art. 224", business_days=True)
+    deadline = Deadline(rule_id="CMP-01", name="Complaint answer (15 business days)", due_at=due,
+                        basis="Law 209/2019, art. 224", business_days=True)
     fields = (_received_field(x),)
     now = to_local(x.now)
     left = business_days_between(now, due, env.cal)
     data = {"due": due, "received": received, "business_days_left": left}
     if x.final_answer_sent_at is not None:
-        return Finding("CMP-01", "raspuns_trimis", f"Răspunsul final a plecat la {fmt_dt(x.final_answer_sent_at)}.",
+        return Finding("CMP-01", "raspuns_trimis", f"The final answer went out on {fmt_dt(x.final_answer_sent_at)}.",
                        ("final_answer_sent_at",), data=data, deadlines=(deadline,))
     if now > due:
         return Finding("CMP-01", "CMP_DEADLINE_RISK",
-                       f"Termenul de 15 zile lucrătoare ({fmt_d(due)}) a trecut fără răspuns final.", fields,
+                       f"The 15-business-day deadline ({fmt_d(due)}) passed with no final answer.", fields,
                        data=data, deadlines=(deadline,))
     if left <= env.p("complaint_alert_lead_business_days"):
+        when = "today" if left == 0 else f"{left} business day{'' if left == 1 else 's'} away"
         return Finding("CMP-01", "CMP_DEADLINE_RISK",
-                       f"Mai sunt {left} zile lucrătoare până la termenul de răspuns ({fmt_d(due)}).", fields,
+                       f"The answer deadline ({fmt_d(due)}) is {when}.", fields,
                        data=data, deadlines=(deadline,))
     return Finding("CMP-01", "in_termen",
-                   f"Reclamația a fost primită la {fmt_dt(received)}: răspunsul final, pe suport durabil și la fiecare "
-                   f"punct, pleacă până la {fmt_d(due)} (15 zile lucrătoare, art. 224).", fields, data=data,
-                   deadlines=(deadline,))
+                   f"The bank received the complaint on {fmt_dt(received)}. The final answer, on a durable medium and "
+                   f"covering every point, goes out by {fmt_d(due)} (15 business days, Law 209/2019, art. 224).",
+                   fields, data=data, deadlines=(deadline,))
 
 
-@rule("CMP-02", title="Situații excepționale: răspuns intermediar motivat, final în cel mult 35 de zile lucrătoare",
-      basis="Legea 209/2019 art. 224", confidence=P, pack="CMP", source=SRC, questions=(Q_ANSWER,),
+@rule("CMP-02", title="Exceptional cases: a reasoned holding reply, and a final answer within 35 business days",
+      basis="Law 209/2019, art. 224", confidence=P, pack="CMP", source=SRC, questions=(Q_ANSWER,),
       params=("bank_closure_days", "complaint_alert_lead_business_days"),
       exceptions=("CMP_HOLDING_REPLY_REQUIRED",), tests=("TC-34", "EX-22", "DT-02"))
 def cmp_02_extension(x: RuleContextExt, env: Env) -> Finding | None:
-    """Doar în situații excepționale, independente de bancă: răspuns intermediar cu motivele întârzierii și data
-    răspunsului final, care nu poate depăși 35 de zile lucrătoare de la primire. Un motiv aflat în controlul
-    băncii nu permite prelungirea."""
+    """Only in exceptional cases outside the bank's control: a holding reply with the reasons for the delay and
+    the date of the final answer, which cannot be later than 35 business days from receipt. A reason within
+    the bank's control does not allow the extension."""
     if x.credit_fraud or x.final_answer_sent_at is not None:
         return None
     received = complaint_received(x)
     due15, due35 = payment_complaint_deadlines(received, env)
-    deadline = Deadline(rule_id="CMP-02", name="Termen maxim de răspuns, cu răspuns intermediar (35 zile lucrătoare)",
-                        due_at=due35, basis="Legea 209/2019 art. 224", business_days=True)
+    deadline = Deadline(rule_id="CMP-02", name="Maximum answer deadline with a holding reply (35 business days)",
+                        due_at=due35, basis="Law 209/2019, art. 224", business_days=True)
     if x.holding_reply_sent_at is not None:
         if x.delay_reason_external is True:
             return Finding("CMP-02", "prelungire_valida",
-                           f"Răspunsul intermediar a plecat la {fmt_dt(x.holding_reply_sent_at)}, cu un motiv independent "
-                           f"de bancă: răspunsul final poate pleca până la {fmt_d(due35)}.",
+                           f"The holding reply went out on {fmt_dt(x.holding_reply_sent_at)}, with a reason outside "
+                           f"the bank's control. The final answer can go out by {fmt_d(due35)}.",
                            ("holding_reply_sent_at", "delay_reason_external"),
                            data={"effective_due": due35}, deadlines=(deadline,))
         return Finding("CMP-02", "prelungire_nepermisa",
-                       "Motivul întârzierii nu e independent de bancă: prelungirea la 35 de zile nu e permisă, iar "
-                       f"termenul rămâne {fmt_d(due15)}.", ("holding_reply_sent_at", "delay_reason_external"),
+                       "The reason for the delay is within the bank's control. The extension to 35 business days is "
+                       f"not allowed, and the deadline stays {fmt_d(due15)}.",
+                       ("holding_reply_sent_at", "delay_reason_external"),
                        data={"effective_due": due15}, deadlines=(deadline,))
     now = to_local(x.now)
     left = business_days_between(now, due15, env.cal)
     if now > due15 or left <= env.p("complaint_alert_lead_business_days"):
         return Finding("CMP-02", "CMP_HOLDING_REPLY_REQUIRED",
-                       "Răspunsul final nu a plecat și nu există răspuns intermediar: doar în situații excepționale, "
-                       "independente de bancă, se trimite un răspuns intermediar motivat, cu data finală de cel mult "
+                       "No final answer and no holding reply have gone out. Only in exceptional cases outside the "
+                       "bank's control can it send a reasoned holding reply, with a final date no later than "
                        f"{fmt_d(due35)}.", (_received_field(x),), data={"effective_due": due15}, deadlines=(deadline,))
     return Finding("CMP-02", "termen_maxim",
-                   f"Doar în situații excepționale, independente de bancă, răspunsul final poate pleca până la "
-                   f"{fmt_d(due35)}, cu un răspuns intermediar motivat.", (_received_field(x),),
+                   "Only in exceptional cases outside the bank's control can the final answer go out as late as "
+                   f"{fmt_d(due35)}, after a reasoned holding reply.", (_received_field(x),),
                    data={"effective_due": due15}, deadlines=(deadline,))
 
 
-@rule("CMP-03", title="Răspunsul final indică ANPC, ANAF, BNR și entitatea SAL competentă",
-      basis="Legea 209/2019 art. 225 și 185 alin. (2)", confidence=P, pack="CMP", source=SRC, questions=(Q_ANSWER,),
+@rule("CMP-03", title="The final answer names ANPC, ANAF, BNR and the competent ADR entity",
+      basis="Law 209/2019, art. 225 and art. 185(2)", confidence=P, pack="CMP", source=SRC, questions=(Q_ANSWER,),
       exceptions=("CMP_ADR_BLOCK_MISSING",), aliases=("DSP-15",), tests=("TC-36", "DT-18"))
 def cmp_03_adr_block(x: RuleContextExt, env: Env) -> Finding | None:
-    """Banca informează clar despre dreptul de a sesiza ANPC, ANAF, BNR și entitatea SAL (CSALB). Blocul e
-    obligatoriu în orice răspuns final; fără el, răspunsul nu pleacă."""
+    """The bank states clearly that the customer can complain to ANPC, ANAF, BNR and the ADR entity (CSALB).
+    This block is required in every final answer. Without it, the answer does not go out."""
     if x.credit_fraud:
         return None
     return Finding("CMP-03", "bloc_obligatoriu",
-                   "Răspunsul final include căile de sesizare: ANPC, ANAF, BNR și entitatea de soluționare "
-                   "alternativă a litigiilor (CSALB); fără ele nu pleacă.")
+                   "The final answer lists the external complaint routes: ANPC, ANAF, BNR and the alternative "
+                   "dispute resolution entity (CSALB). Without them, it does not go out.")
 
 
 def credit_complaint_deadline(registered_on: date) -> date:
@@ -126,31 +128,32 @@ def credit_complaint_deadline(registered_on: date) -> date:
     return registered_on + timedelta(days=30)
 
 
-@rule("CMP-04", title="Reclamația la creditul de consum: răspuns în cel mult 30 de zile de la înregistrare",
-      basis="OUG 50/2010 art. 42", confidence=S, pack="CMP", source=SRC, questions=(Q_ANSWER,),
+@rule("CMP-04", title="Consumer credit complaint: answer within 30 days of registration",
+      basis="GEO 50/2010, art. 42", confidence=S, pack="CMP", source=SRC, questions=(Q_ANSWER,),
       exceptions=("CMP_DEADLINE_RISK",), tests=("TC-35", "DT-17"))
 def cmp_04_credit_complaint(x: RuleContextExt, env: Env) -> Finding | None:
-    """Reclamațiile la creditul de consum se înregistrează și primesc răspuns în cel mult 30 de zile de la
-    înregistrare (zile calendaristice: inferență din note). Se aplică la creditul luat pe numele victimei."""
+    """Consumer credit complaints are registered and answered within 30 days of registration (calendar days,
+    an inference from the notes). This applies to a loan taken out in the victim's name."""
     if not x.credit_fraud:
         return None
     registered = complaint_received(x).date()
     due = credit_complaint_deadline(registered)
     return Finding("CMP-04", "termen_credit",
-                   f"Reclamația de credit primește răspuns până la {fmt_d(due)} (30 de zile de la înregistrare).",
+                   f"The credit complaint gets an answer by {fmt_d(due)} (30 days from registration).",
                    (_received_field(x),), data={"due": end_of_day(due)},
-                   deadlines=(Deadline(rule_id="CMP-04", name="Răspuns la reclamația de credit (30 de zile)",
-                                       due_at=end_of_day(due), basis="OUG 50/2010 art. 42", business_days=False),))
+                   deadlines=(Deadline(rule_id="CMP-04", name="Credit complaint answer (30 days)",
+                                       due_at=end_of_day(due), basis="GEO 50/2010, art. 42", business_days=False),))
 
 
 # ---------------------------------------------------------------- verificarea scrisorii
 
 
+# Termenii se caută în română și în engleză (scrisorile pot fi în oricare dintre limbi).
 ADR_TERMS: dict[str, tuple[str, ...]] = {
-    "ANPC": ("anpc", "protecția consumatorilor", "protectia consumatorilor"),
-    "ANAF": ("anaf", "administrare fiscală", "administrare fiscala"),
-    "BNR": ("bnr", "banca națională", "banca nationala"),
-    "SAL (CSALB)": ("csalb", "soluționare alternativă", "solutionare alternativa"),
+    "ANPC": ("anpc", "protecția consumatorilor", "protectia consumatorilor", "consumer protection"),
+    "ANAF": ("anaf", "administrare fiscală", "administrare fiscala", "fiscal administration", "tax administration"),
+    "BNR": ("bnr", "banca națională", "banca nationala", "national bank of romania"),
+    "ADR (CSALB)": ("csalb", "soluționare alternativă", "solutionare alternativa", "alternative dispute resolution"),
 }
 
 
@@ -166,8 +169,9 @@ def check_adr_block(body: str) -> RuleHit:
     missing = [name for name, terms in ADR_TERMS.items() if not any(t in text for t in terms)]
     if missing:
         return _hit("CMP-03", "CMP_ADR_BLOCK_MISSING",
-                    f"Răspunsul final nu poate pleca: lipsesc căile de sesizare {', '.join(missing)} (art. 225).")
-    return _hit("CMP-03", "bloc_prezent", "Răspunsul indică ANPC, ANAF, BNR și CSALB.")
+                    f"The final answer cannot go out. It is missing these complaint routes: {', '.join(missing)} "
+                    "(Law 209/2019, art. 225).")
+    return _hit("CMP-03", "bloc_prezent", "The answer names ANPC, ANAF, BNR and CSALB.")
 
 
 def check_points_answered(points: Sequence[str], answered: Sequence[str]) -> RuleHit:
@@ -175,9 +179,11 @@ def check_points_answered(points: Sequence[str], answered: Sequence[str]) -> Rul
     done = {normalize_ro(a).strip().lower() for a in answered}
     missing = [p for p in points if normalize_ro(p).strip().lower() not in done]
     if missing:
-        listed = "; ".join(f"„{p}”" for p in missing)
-        return _hit("CMP-01", "CMP_POINT_UNANSWERED", f"Scrisoarea nu răspunde la {len(missing)} puncte: {listed}.")
-    return _hit("CMP-01", "toate_punctele", "Scrisoarea răspunde la toate punctele din reclamație.")
+        listed = "; ".join(f"“{p}”" for p in missing)
+        n = len(missing)
+        return _hit("CMP-01", "CMP_POINT_UNANSWERED",
+                    f"The letter does not answer {n} point{'' if n == 1 else 's'}: {listed}.")
+    return _hit("CMP-01", "toate_punctele", "The letter answers every point in the complaint.")
 
 
 def check_complaint_letter(body: str, points: Sequence[str] = (), answered: Sequence[str] = ()) -> list[RuleHit]:

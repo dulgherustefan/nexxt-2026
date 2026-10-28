@@ -14,8 +14,10 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Awaitable, Callable, TypeVar
 
 from pydantic import BaseModel
@@ -43,6 +45,9 @@ _VOLATILE = [
     (re.compile(r"\bPL-[A-F0-9]{6}\b"), "PL-X"),
     (re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?"), "<TS>"),
     (re.compile(r"\b\d{2}\.\d{2}\.\d{4}(?: \d{2}:\d{2})?\b"), "<DATA>"),
+    # English dates in prompts: "29 Oct 2026, 23:59", "29 Oct, 23:59", "29 October 2026"
+    (re.compile(r"\b\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?(?: \d{4})?(?:,? \d{2}:\d{2})?\b"),
+     "<DATA>"),
     (re.compile(r"\b[a-f0-9]{16,64}\b"), "<HASH>"),
 ]
 
@@ -96,20 +101,31 @@ def _cost(model: str, usage: Any) -> float:
 
 
 class ReplayStore:
-    """Răspunsuri înregistrate, cheie = hash(rol, sistem, intrare, schemă). Fișier JSONL comis în repo."""
+    """Recorded answers, key = hash(role, system, input, schema), in JSONL files.
 
-    def __init__(self, path):
-        self.path = path
+    `path` is the only file written (by live runs: var/replay/replay.jsonl, outside git). `read_also` are
+    read-only files, such as the recordings committed in versoml/data/replay. When a key appears more than
+    once, the first recording wins (the read-only files are read first).
+    """
+
+    def __init__(self, path: Path | str, read_also: Iterable[Path | str] = ()):
+        self.path = Path(path)
+        self.read_paths = [Path(p) for p in read_also if Path(p) != self.path]
         self._lock = threading.Lock()
         self._data: dict[str, dict] = {}
-        if path.exists():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    try:
-                        row = json.loads(line)
-                        self._data[row["key"]] = row
-                    except (json.JSONDecodeError, KeyError):
-                        continue
+        for source in (*self.read_paths, self.path):
+            self._load(source)
+
+    def _load(self, path: Path) -> None:
+        if not path.exists():
+            return
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                try:
+                    row = json.loads(line)
+                    self._data.setdefault(row["key"], row)
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    continue
 
     def get(self, key: str) -> dict | None:
         return self._data.get(key)
@@ -120,6 +136,7 @@ class ReplayStore:
                 return
             row = {"key": key, **row}
             self._data[key] = row
+            self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
@@ -141,7 +158,9 @@ class LLMClient:
         self.settings = settings or get_settings()
         install_log_redaction()
         self.has_key = load_bedrock_key()
-        self.replay = ReplayStore(self.settings.replay_dir / "replay.jsonl")
+        # new recordings go under var/ (never into git); replay also reads the committed recordings
+        self.replay = ReplayStore(self.settings.replay_record_path,
+                                  read_also=[self.settings.replay_dir / "replay.jsonl"])
         self.usage = _Usage()
         self._client = None
         self._live_failed_at: float | None = None
@@ -255,7 +274,7 @@ class LLMClient:
                     )
                     parsed = response.parsed_output
                     if parsed is None:
-                        raise LLMUnavailable(f"răspuns fără JSON valid (stop_reason={response.stop_reason})")
+                        raise LLMUnavailable(f"the response has no valid JSON (stop_reason={response.stop_reason})")
                     usage = response.usage
                     info = CallInfo(
                         agent=agent, role=role.value, model=model, mode="live",
@@ -271,7 +290,7 @@ class LLMClient:
                     if type(exc).__name__ == "RawPIIError":
                         raise
                     last_error = redact(f"{type(exc).__name__}: {exc}")[:300]
-                    log.warning("LLM %s pe %s a eșuat: %s", agent, model, last_error)
+                    log.warning("LLM call %s on %s failed: %s", agent, model, last_error)
                     if type(exc).__name__ in ("APIConnectionError", "AuthenticationError", "PermissionDeniedError"):
                         self._live_failed_at = time.time()
                         break
@@ -286,7 +305,7 @@ class LLMClient:
                 return schema.model_validate(row["output"]), self._record(info)
 
         if fallback is None:
-            raise LLMUnavailable(last_error or "fără LLM și fără rezervă deterministă")
+            raise LLMUnavailable(last_error or "no LLM available and no deterministic fallback")
         info = CallInfo(agent=agent, role=role.value, model="determinist", mode="offline", error=last_error, key=key)
         return fallback(), self._record(info)
 
@@ -344,7 +363,7 @@ class LLMClient:
                     if type(exc).__name__ == "RawPIIError":
                         raise
                     last_error = redact(f"{type(exc).__name__}: {exc}")[:300]
-                    log.warning("LLM text %s pe %s a eșuat: %s", agent, model, last_error)
+                    log.warning("LLM text call %s on %s failed: %s", agent, model, last_error)
                     if type(exc).__name__ in ("APIConnectionError", "AuthenticationError", "PermissionDeniedError"):
                         self._live_failed_at = time.time()
                         break
@@ -362,7 +381,7 @@ class LLMClient:
                                                    mode="replay", key=key))
 
         if fallback is None:
-            raise LLMUnavailable(last_error or "fără LLM și fără rezervă deterministă")
+            raise LLMUnavailable(last_error or "no LLM available and no deterministic fallback")
         text = fallback()
         if on_delta:
             for i in range(0, len(text), 64):
@@ -419,7 +438,7 @@ class LLMClient:
                     if not calls and not transcript and not nudged:
                         # modelul a anunțat un plan fără să cheme nimic: îi cerem o dată să execute
                         nudged = True
-                        messages.append({"role": "user", "content": "Execută acum verificările, chemând tool-urile."})
+                        messages.append({"role": "user", "content": "Run the checks now by calling the tools."})
                         continue
                     if response.stop_reason != "tool_use" or not calls:
                         text = "".join(getattr(b, "text", "") for b in response.content).strip()
@@ -443,12 +462,12 @@ class LLMClient:
             except Exception as exc:  # noqa: BLE001
                 if type(exc).__name__ == "RawPIIError":
                     raise
-                log.warning("tool_loop %s a eșuat: %s", agent, redact(str(exc))[:200])
+                log.warning("tool_loop %s failed: %s", agent, redact(str(exc))[:200])
                 if type(exc).__name__ in ("APIConnectionError", "AuthenticationError", "PermissionDeniedError"):
                     self._live_failed_at = time.time()
 
         if fallback_plan is None:
-            raise LLMUnavailable("fără LLM și fără plan determinist")
+            raise LLMUnavailable("no LLM available and no deterministic plan")
         for name, args in fallback_plan():
             result = await execute(name, args)
             transcript.append({"tool": name, "input": args, "result": result})

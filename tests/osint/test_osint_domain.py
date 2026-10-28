@@ -17,7 +17,7 @@ async def test_rdap_scam_domain_six_hours_old(no_network):
     assert result.data["registrar"] == "Registrar Demo SRL"
     assert result.data["privacy_protected"] is True
     assert result.data["abuse_contact"]["email"] == "abuz@registrar-demo.example"
-    assert "acum 6 ore" in result.summary and "ascunse" in result.summary
+    assert "6 hours ago" in result.summary and "hidden" in result.summary
     assert result.retrieved_at == FIXTURE_NOW
     assert not no_network.calls
 
@@ -59,7 +59,7 @@ async def test_rdap_live_parser_and_404(mock_http):
     assert found.data["abuse_contact"]["email"] == "abuz@mock.invalid"
     assert str(calls[0].url) == "https://rdap.org/domain/exemplu-nou.invalid"
     missing = await domain.rdap_domain("nu-exista-deloc.invalid")
-    assert missing.ok and missing.signal == "neutru" and "RDAP nu are înregistrare" in missing.summary
+    assert missing.ok and missing.signal == "neutru" and "RDAP has no record" in missing.summary
 
 
 def test_rotld_whois_parser():
@@ -111,7 +111,7 @@ async def test_ct_scam_cert_five_hours_free_ca(no_network):
     result = await domain.ct_certificates("livrare-bancademo.example")
     assert result.signal == "rosu" and result.data["count"] == 1
     assert result.data["free_ca"] is True and 4.9 < result.data["cert_age_hours"] < 5.1
-    assert "1 certificat în total" in result.summary
+    assert "1 certificate in total" in result.summary
 
 
 async def test_ct_legit_has_long_history(no_network):

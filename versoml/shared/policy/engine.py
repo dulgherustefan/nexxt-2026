@@ -1,6 +1,6 @@
 """Punctul de control pe fiecare apel de tool: Cedar (cedarpy), default deny, jurnal de decizii.
 
-- `authorize(principal, action, zona, context)` → `PolicyDecision`, cu motivul în română.
+- `authorize(principal, action, zona, context)` → `PolicyDecision`, with the reason in plain English.
 - `guarded(...)`: decorator pentru funcții sync și async; ridică `PolicyDenied`.
 - `recent_decisions(limit)`: jurnalul circular; `subscribe(cb)`: abonare (ex. SSE pentru refuzuri).
 - Dacă cedarpy nu poate fi folosit, decide evaluatorul Python echivalent și motivul o spune explicit.
@@ -38,29 +38,30 @@ from versoml.shared.policy.entities import (
 log = logging.getLogger("versoml.policy")
 
 POLICY_FILE = Path(__file__).with_name("policies.cedar")
-WALL_BASIS = "zidul anti-tipping-off, Legea 129/2019 art. 38 alin. (2)"
+WALL_BASIS = "the anti-tipping-off wall, Law 129/2019 art. 38(2)"
+ZONE_NAMES = {"client": "client", "aml": "AML"}
 
 POLICY_TEXT: dict[str, str] = {
-    "client-agents-tools": "agenții Judecătorului folosesc tool-urile de citire și ciornă ale zonei client",
-    "operator-client-tools": "operatorul uman folosește tool-urile zonei client",
-    "motor-system-tools": "motorul de reguli citește registrul, verifică scrisorile și trimite fapte prin diodă",
-    "motor-refund": "doar motorul de reguli emite rambursarea, sub plafon sau după aprobarea unui om",
-    "mcp-client-tools": "clientul MCP al zonei client are doar lista lui de tool-uri",
-    "aml-agents-tools": "agenții Investigatorului folosesc tool-urile zonei AML",
-    "analyst-aml-tools": "analistul AML citește și decide pistele",
-    "analyst-hold": "doar analistul AML (om) emite semnalul HOLD spre zona client",
-    "mcp-aml-tools": "clientul MCP al zonei AML are doar lista lui de tool-uri",
-    "wall-client-not-in-aml": "un principal din zona client nu acționează niciodată în zona AML",
-    "wall-aml-not-in-client": "un principal din zona AML nu acționează direct în zona client, doar prin diodă",
-    "wall-client-no-aml-actions": "tool-urile AML nu sunt accesibile din zona client",
-    "wall-aml-no-client-actions": "tool-urile zonei client nu sunt accesibile din zona AML",
-    "refund-only-motor": "rambursarea o emite doar motorul de reguli, niciodată un agent sau un om direct",
-    "no-llm-moves-money": "niciun agent LLM nu mută bani",
-    "hold-only-analyst": "semnalul HOLD îl emite doar analistul AML",
-    "facts-only-from-client": "faptele trec dioda doar dinspre zona client spre AML",
-    "mcp-no-effects": "un client MCP nu mută bani și nu folosește dioda",
-    "default-deny": "nicio politică nu permite cererea (refuz implicit)",
-    "invalid-request": "cererea e invalidă (zonă sau nume de acțiune necunoscute)",
+    "client-agents-tools": "the Judge's agents use the client zone's read and draft tools",
+    "operator-client-tools": "the human operator uses the client zone tools",
+    "motor-system-tools": "the rules engine reads the ledger, checks letters and sends facts through the diode",
+    "motor-refund": "only the rules engine issues a refund, under the cap or after a person approves it",
+    "mcp-client-tools": "the client zone's MCP client has only its own list of tools",
+    "aml-agents-tools": "the Investigator's agents use the AML zone tools",
+    "analyst-aml-tools": "the AML analyst reads and decides the leads",
+    "analyst-hold": "only the AML analyst, a person, sends the HOLD signal to the client zone",
+    "mcp-aml-tools": "the AML zone's MCP client has only its own list of tools",
+    "wall-client-not-in-aml": "a client zone principal never acts in the AML zone",
+    "wall-aml-not-in-client": "an AML zone principal never acts directly in the client zone, only through the diode",
+    "wall-client-no-aml-actions": "AML tools cannot be reached from the client zone",
+    "wall-aml-no-client-actions": "client zone tools cannot be reached from the AML zone",
+    "refund-only-motor": "only the rules engine issues refunds, never an agent or a person directly",
+    "no-llm-moves-money": "no LLM agent moves money",
+    "hold-only-analyst": "only the AML analyst sends the HOLD signal",
+    "facts-only-from-client": "facts cross the diode only from the client zone to the AML zone",
+    "mcp-no-effects": "an MCP client never moves money and never uses the diode",
+    "default-deny": "no policy allows the request (default deny)",
+    "invalid-request": "the request is invalid (unknown zone or action name)",
 }
 
 _MAX_LOG = 1000
@@ -104,11 +105,11 @@ def _cedar() -> tuple[Any, Any, Any]:
 def engine_status() -> dict[str, Any]:
     """Ce evaluator e activ (pentru panoul zidului)."""
     if _engine_mode == "python":
-        return {"engine": "python", "ok": False, "detail": "Forțat pe evaluatorul Python (VERSOML_POLICY_ENGINE=python)."}
+        return {"engine": "python", "ok": False, "detail": "Forced onto the Python evaluator (VERSOML_POLICY_ENGINE=python)."}
     try:
         _cedar()
     except Exception as exc:  # noqa: BLE001
-        return {"engine": "python", "ok": False, "detail": f"cedarpy indisponibil ({type(exc).__name__}); evaluator de rezervă."}
+        return {"engine": "python", "ok": False, "detail": f"cedarpy is unavailable ({type(exc).__name__}); the backup evaluator decides."}
     return {"engine": "cedar", "ok": True, "detail": f"Cedar (cedarpy), {POLICY_FILE.name}, default deny."}
 
 
@@ -116,7 +117,7 @@ def set_engine(mode: str) -> None:
     """„auto” (Cedar, cu rezervă Python), „cedar” sau „python” (doar pentru teste și incidente)."""
     global _engine_mode
     if mode not in ("auto", "cedar", "python"):
-        raise ValueError("motor necunoscut")
+        raise ValueError("unknown engine")
     _engine_mode = mode
 
 
@@ -170,34 +171,34 @@ def _evaluate(p: PrincipalRef, action: str, zone: str, ctx: dict[str, Any]) -> t
             )
             names = result.diagnostics.id_annotations_by_reason
             ids = sorted(names.get(r, r) for r in result.diagnostics.reasons)
-            warning = f" (avertisment: {len(result.diagnostics.errors)} politici au dat eroare la evaluare)" \
+            warning = f" (warning: {len(result.diagnostics.errors)} policies failed during evaluation)" \
                 if result.diagnostics.errors else ""
             return result.allowed, ids, "cedar", warning
         except Exception as exc:  # noqa: BLE001
             if _engine_mode == "cedar":
                 raise
-            note = f"[ATENȚIE: cedarpy indisponibil ({type(exc).__name__}); a decis evaluatorul Python de rezervă] "
+            note = f"[WARNING: cedarpy is unavailable ({type(exc).__name__}); the backup Python evaluator decided] "
             allowed, ids = fallback.evaluate(fallback.Request(p, action, zone, ctx))
-            log.error("Politici: cedarpy indisponibil, folosesc evaluatorul Python de rezervă: %s", type(exc).__name__)
+            log.error("Policies: cedarpy is unavailable, using the backup Python evaluator: %s", type(exc).__name__)
             return allowed, sorted(ids), "python", note
     allowed, ids = fallback.evaluate(fallback.Request(p, action, zone, ctx))
-    return allowed, sorted(ids), "python", "[ATENȚIE: evaluatorul Python de rezervă e forțat; Cedar nu rulează] "
+    return allowed, sorted(ids), "python", "[WARNING: the backup Python evaluator is forced; Cedar is not running] "
 
 
 def _reason(allowed: bool, ids: list[str], p: PrincipalRef, action: str, zone: str) -> str:
+    where = f"in the {ZONE_NAMES.get(zone, zone)} zone"
     if allowed:
-        return f"Permis ({', '.join(ids)}): {POLICY_TEXT.get(ids[0], ids[0])}."
+        return f"Allowed ({', '.join(ids)}): {POLICY_TEXT.get(ids[0], ids[0])}."
     if not p.known:
-        return f"Refuzat implicit: principalul «{p.name}» nu e cunoscut; nicio politică nu-l permite (default deny)."
+        return f"Denied by default: the principal \"{p.name}\" is unknown and no policy allows it (default deny)."
     if not ids and action == "refund.issue" and p.type == "System" and zone == "client":
-        return ("Refuzat: rambursarea cere context.within_auto_cap == true (sub plafon, fără semnale) "
-                "sau context.approved_by_human == true (aprobarea unui om).")
+        return ("Denied: a refund needs context.within_auto_cap == true (under the cap, no risk signals) "
+                "or context.approved_by_human == true (a person approved it).")
     if not ids:
-        return (f"Refuzat implicit: nicio politică nu-i permite lui {p.name} să apeleze «{action}» "
-                f"în zona {zone} (default deny).")
+        return f"Denied by default: no policy lets {p.name} call \"{action}\" {where} (default deny)."
     texts = "; ".join(POLICY_TEXT.get(i, i) for i in ids)
     wall = f" ({WALL_BASIS})" if any(i.startswith("wall-") for i in ids) else ""
-    return f"Refuzat de politicile {', '.join(ids)}: {texts}{wall}. Cererea: {p.name} → «{action}» în zona {zone}."
+    return f"Denied by {', '.join(ids)}: {texts}{wall}. Request: {p.name} → \"{action}\" {where}."
 
 
 def decide(principal: str, action: str, resource_zone: Zone | str, context: dict | None = None) -> PolicyDecision:
@@ -209,11 +210,11 @@ def decide(principal: str, action: str, resource_zone: Zone | str, context: dict
         zone = _zone(resource_zone)
     except ValueError:
         return PolicyDecision(allowed=False, principal=p.uid, action=action, resource=f"Zone::{resource_zone!r}",
-                              reason=f"Refuzat: zona «{resource_zone}» nu există.", policy_ids=["invalid-request"], at=now)
+                              reason=f"Denied: the zone \"{resource_zone}\" does not exist.", policy_ids=["invalid-request"], at=now)
     resource = f'Zone::"{zone}"'
     if not valid_action_name(action) or action in GROUPS or action == ROOT_GROUP:
         return PolicyDecision(allowed=False, principal=p.uid, action=action, resource=resource,
-                              reason=f"Refuzat: «{action}» nu e un nume de tool valid.", policy_ids=["invalid-request"], at=now)
+                              reason=f"Denied: \"{action}\" is not a valid tool name.", policy_ids=["invalid-request"], at=now)
     ctx = _sanitize(dict(context or {}))
     allowed, ids, _engine, note = _evaluate(p, action, zone, ctx)
     reason = (note if note.startswith("[") else "") + _reason(allowed, ids, p, action, zone) + \
@@ -228,14 +229,14 @@ def _record(decision: PolicyDecision) -> None:
         _log.append(decision)
         subscribers = list(_subscribers)
     if not decision.allowed:
-        log.info("Politici: refuz %s → %s (%s)", decision.principal, decision.action, ", ".join(decision.policy_ids))
+        log.info("Policies: denied %s → %s (%s)", decision.principal, decision.action, ", ".join(decision.policy_ids))
     for callback, denied_only in subscribers:
         if denied_only and decision.allowed:
             continue
         try:
             callback(decision)
         except Exception:  # noqa: BLE001 - un abonat stricat nu oprește controlul
-            log.exception("Politici: abonatul a eșuat")
+            log.exception("Policies: a subscriber failed")
 
 
 def authorize(principal: str, action: str, resource_zone: Zone | str, context: dict | None = None) -> PolicyDecision:

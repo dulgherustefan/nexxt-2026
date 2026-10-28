@@ -46,7 +46,7 @@ def to_canonical(obj: Any) -> Any:
         return obj
     if isinstance(obj, float):
         if not math.isfinite(obj):
-            raise ValueError("JSON canonic: NaN și Infinity nu sunt permise")
+            raise ValueError("canonical JSON: NaN and Infinity are not allowed")
         return obj
     if isinstance(obj, datetime):
         return iso_utc(obj)
@@ -67,7 +67,7 @@ def to_canonical(obj: Any) -> Any:
         return b64url(bytes(obj))
     if isinstance(obj, (PurePath, UUID)):
         return str(obj)
-    raise TypeError(f"JSON canonic: tip nesuportat {type(obj).__name__}")
+    raise TypeError(f"canonical JSON: unsupported type {type(obj).__name__}")
 
 
 def _es_number(x: float) -> str:
@@ -113,7 +113,7 @@ def _encode(value: Any) -> str:
         return "{" + ",".join(json.dumps(k, ensure_ascii=False) + ":" + _encode(value[k]) for k in keys) + "}"
     if isinstance(value, list):
         return "[" + ",".join(_encode(v) for v in value) + "]"
-    raise TypeError(f"JSON canonic: tip nesuportat {type(value).__name__}")
+    raise TypeError(f"canonical JSON: unsupported type {type(value).__name__}")
 
 
 def canonical_json(obj: Any) -> str:

@@ -88,7 +88,7 @@ def test_CMP_raspunsul_cere_om_si_contine_caile_de_sesizare():
     answer = decision(out, ANSWER)
     assert answer.requires_human and answer.decided_by == "rules+human"
     assert {"CMP-01", "CMP-02", "CMP-03"} <= set(answer.rule_ids)
-    assert any("ANPC, ANAF, BNR și CSALB" in a for a in answer.next_actions)
+    assert any("ANPC, ANAF, BNR and CSALB" in a for a in answer.next_actions)
     assert answer.decision == t1(out).decision
 
 

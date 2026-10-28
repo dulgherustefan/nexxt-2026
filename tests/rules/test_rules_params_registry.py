@@ -14,6 +14,12 @@ from versoml.shared.rules import (
 from versoml.shared.rules.registry import PACK_ORDER, aliases, all_rules, get_rule
 
 CEDILLA = set("şţŞŢ")
+RO_LETTERS = set("ăâîșțĂÂÎȘȚ")
+
+
+def english(text: str) -> bool:
+    """Fără litere românești; „Plăți Instant” (schema Transfond) e nume propriu."""
+    return not (RO_LETTERS & set(text.replace("Plăți Instant", "")))
 
 
 def test_parametrii_impliciti_fara_fisier(isolated_params):
@@ -106,6 +112,8 @@ def test_catalogul_are_campurile_contractului():
         assert r["pack"] in PACK_ORDER and r["title"] and r["basis"] and r["source"]
         assert r["extension"] == (r["pack"] in ("REC", "URM"))
         assert not (CEDILLA & set(json.dumps(r, ensure_ascii=False)))
+        if r["pack"] != "AML":                                       # AML se traduce separat
+            assert english(r["title"]) and english(r["basis"]) and english(r["source"]), r["rule_id"]
 
 
 def test_id_urile_din_docs_context_sunt_refolosite():
@@ -134,6 +142,7 @@ def test_parametrii_declarati_exista_si_trimit_la_reguli_existente():
     for name, spec in specs.items():
         assert spec.rules and set(spec.rules) <= ids, name
         assert spec.description and not (CEDILLA & set(spec.description))
+        assert english(spec.description), name
 
 
 def test_valorile_U_sunt_parametri_nu_constante():
@@ -147,6 +156,7 @@ def test_valorile_U_sunt_parametri_nu_constante():
 def test_explain_pe_alias_si_pe_regula():
     entry = explain("DSP-04")
     assert entry["rule_id"] == "PAY-15" and entry["alias_of"] == "PAY-15" and "DSP-04" in entry["note"]
+    assert english(entry["note"]) and english(entry["description"]) and english(entry["pack_title"])
     pay03 = explain("PAY-03")
     assert pay03["description"] and pay03["params_detail"]["refund_end_of_day"]["confidence"] == "U"
     assert pay03["confidence"] == "P" and pay03["alias_of"] is None

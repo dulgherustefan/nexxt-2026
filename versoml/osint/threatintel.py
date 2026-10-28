@@ -10,11 +10,11 @@ from versoml.osint.base import (
     Interp,
     SourceError,
     ToolResult,
+    en_count,
     expect_status,
     failure,
     http_request,
     is_synthetic_target,
-    ro_count,
     run_source,
     secret,
     tool,
@@ -58,7 +58,7 @@ async def _openphish_fetch() -> tuple[Any, str | None]:
                 return {"urls": lines}, url
         except Exception as exc:  # noqa: BLE001 - trecem la oglinda de pe GitHub
             last = exc
-    raise SourceError(f"feed OpenPhish indisponibil ({last})")
+    raise SourceError(f"the OpenPhish feed is unavailable ({last})")
 
 
 def _build_openphish(raw: Any, ctx: Ctx) -> Interp:
@@ -76,10 +76,11 @@ def _build_openphish(raw: Any, ctx: Ctx) -> Interp:
         "feed_size": len(urls)}
     shown = target if is_url else (host or target)
     if matches:
-        how = {"url": "URL-ul exact", "gazdă": "gazda", "domeniu": "domeniul"}[data["match"]]
-        return Interp(data, f"OpenPhish listează {how} {host or target} ({ro_count(len(matches), 'intrare', 'intrări')} în feed).", "rosu")
-    return Interp(data, f"{shown} nu apare în feed-ul OpenPhish ({ro_count(len(urls), 'URL', 'URL-uri')}); "
-                        "absența nu dovedește că e sigur.", "neutru")
+        how = {"url": "the exact URL", "gazdă": "the host", "domeniu": "the domain"}[data["match"]]
+        return Interp(data, f"OpenPhish lists {how} {host or target} ({en_count(len(matches), 'entry', 'entries')} "
+                            "in the feed).", "rosu")
+    return Interp(data, f"{shown} is not in the OpenPhish feed ({en_count(len(urls), 'URL')}); "
+                        "not being listed does not prove it is safe.", "neutru")
 
 
 @tool("openphish_check", group="threat-intel")
@@ -88,7 +89,7 @@ async def openphish_check(url_or_domain: str) -> ToolResult:
     text, host, _ = _target(url_or_domain)
     args = {"url_or_domain": text}
     if not host:
-        return failure("openphish_check", args, f"Țintă invalidă: {url_or_domain}.", error="țintă invalidă")
+        return failure("openphish_check", args, f"Invalid target: {url_or_domain}.", error="invalid target")
     return await run_source("openphish_check", args, key="feed", fetch=_openphish_fetch, build=_build_openphish,
                             ttl_s=OPENPHISH_TTL_S, label="OpenPhish", synthetic=is_synthetic_target(text))
 

@@ -49,7 +49,7 @@ def m7_sanity(seed: int = 7) -> dict:
     ctx = build_scenario("demo_t1", seed).rule_context_hints
     variants = {"amount": [{"value": 6400.0, "currency": "RON"}], "notified_at": ["2027-12-01T10:00:00+02:00"]}
     res = counterfactual(lambda c: {"decision": expected_outcome(c)["rambursare_t1"]}, ctx, CF_FIELDS, variants=variants)
-    return {"case": "demo_t1", "decide": "oracle.expected_outcome (tabelul comun cu motorul de reguli)",
+    return {"case": "demo_t1", "decide": "oracle.expected_outcome (the table shared with the rules engine)",
             "change_rate": res["change_rate"], "fragile_fields": res["fragile_fields"], "n_variants": res["n_variants"]}
 
 
@@ -83,7 +83,7 @@ def train_all(seed: int = 7, *, models_dir: str | Path | None = None) -> dict:
                "seconds_total": round(time.time() - t0, 2), "seconds": timings,
                "m1_classifier": m1, "m2_client_fraud": m2, "m5_mule": m5, "m6_entity_resolution": m6,
                "m7_counterfactual": m7, "synthetic": True,
-               "note": "Toate metricile sunt pe date sintetice; pe date reale vor fi mai mici."}
+               "note": "Every metric is on synthetic data; on real data they will be lower."}
     write_json(metrics, out / "metrics.json")
     return metrics
 
@@ -103,7 +103,7 @@ def _summary(m: dict) -> dict:
 if __name__ == "__main__":
     import argparse
 
-    ap = argparse.ArgumentParser(description="Antrenează M1, M2, M5 și scrie var/models/metrics.json.")
+    ap = argparse.ArgumentParser(description="Train M1, M2 and M5 and write var/models/metrics.json.")
     ap.add_argument("--seed", type=int, default=7)
     args = ap.parse_args()
     print(json.dumps(_summary(train_all(args.seed)), ensure_ascii=False, indent=2))

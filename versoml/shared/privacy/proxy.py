@@ -44,7 +44,7 @@ class RawPIIError(ValueError):
         self.findings = findings
         counts = Counter(f["type"] for f in findings)
         summary = ", ".join(f"{k} ×{v}" for k, v in sorted(counts.items()))
-        super().__init__(f"Date personale brute în cererea spre LLM: {summary}. Pseudonimizați înainte de apel.")
+        super().__init__(f"Raw personal data in the request to the LLM: {summary}. Pseudonymize it before the call.")
 
 
 @dataclass
@@ -68,7 +68,7 @@ def _walk(obj: Any, path: str = "$"):
     elif isinstance(obj, Mapping):
         for key, value in obj.items():
             if isinstance(key, str):
-                yield f"{path}.<cheie>", key
+                yield f"{path}.<key>", key
             yield from _walk(value, f"{path}.{key}")
     elif isinstance(obj, (list, tuple, set, frozenset)):
         for i, value in enumerate(obj):

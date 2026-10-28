@@ -1,4 +1,4 @@
-"""Registrul de probe: lanț SHA-256, Merkle RFC 6962, sigiliu Ed25519, QR, verificare."""
+"""The evidence ledger: SHA-256 chain, RFC 6962 Merkle tree, Ed25519 seal, QR code, verification."""
 
 from versoml.shared.ledger.canonical import canonical_bytes, canonical_json, hash_obj, prefixed_hash, sha256_hex
 from versoml.shared.ledger.ledger import (

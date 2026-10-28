@@ -42,7 +42,7 @@ def test_bundle_is_complete_and_consistent(sid):
 def test_demo_t1():
     b = build_scenario("demo_t1")
     h, r = b.rule_context_hints, b.records
-    assert b.complaint.customer_ref == "CUST-DEMO-01" and r["customer"]["alias"] == "Client Demo"
+    assert b.complaint.customer_ref == "CUST-DEMO-01" and r["customer"]["alias"] == "Demo Customer 01"
     assert r["accounts"][0]["balance"] == pytest.approx(12450.00)
     assert any(a.kind == "sms" and a.content == art.DEMO_SMS_TEXT for a in b.complaint.attachments)
     assert h["seconds_after_click"] == 118 and h["amount"]["value"] == 3200.0 and h["channel"] == "transfer"
@@ -76,7 +76,7 @@ def test_injection_does_not_change_outcome():
     keys = ("rambursare_t1", "requires_human", "recovery", "chargeback_reason", "t1_deadline")
     assert {k: with_inj.expected[k] for k in keys} == {k: without.expected[k] for k in keys}
     assert with_inj.expected["injection_suspected"] is True
-    assert any("Ignoră regulile anterioare" in a.content for a in with_inj.complaint.attachments)
+    assert any("Ignore all previous instructions" in a.content for a in with_inj.complaint.attachments)
 
 
 @pytest.fixture(scope="module")

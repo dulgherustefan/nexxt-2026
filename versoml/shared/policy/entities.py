@@ -180,7 +180,7 @@ def parse_principal(principal: str) -> PrincipalRef:
             info = PRINCIPALS[name]
             return PrincipalRef(name=name, type=info["type"], id=info.get("id", name), zone=info["zone"],
                                 kind=info["kind"], roles=tuple(info["roles"]), known=True)
-    return PrincipalRef(name=raw or "(gol)", type=UNKNOWN_TYPE, id=raw or "(gol)", zone="unknown",
+    return PrincipalRef(name=raw or "(empty)", type=UNKNOWN_TYPE, id=raw or "(empty)", zone="unknown",
                         kind="unknown", roles=(), known=False)
 
 

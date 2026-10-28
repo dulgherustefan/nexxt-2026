@@ -179,24 +179,24 @@ def test_zone_keys_are_separate(ledger, aml_ledger):
     assert ledger.seal(CASE)["public_key"] != aml_ledger.seal(CASE)["public_key"]
 
 
-def test_verify_valid_with_romanian_check_names(ledger):
+def test_verify_valid_with_english_check_names(ledger):
     _fill(ledger)
     ledger.seal(CASE)
     result = ledger.verify(CASE)
     assert result["valid"] and result["sealed"]
     names = [c["name"] for c in result["checks"]]
-    assert {"Integritatea conținutului", "Lanțul de hash-uri", "Rădăcina Merkle", "Semnătura Ed25519",
-            "Cheia publică a zonei", "Acoperirea sigiliului"} <= set(names)
+    assert {"Content integrity", "Hash chain", "Merkle root", "Ed25519 signature",
+            "Zone public key", "Seal coverage"} <= set(names)
 
 
 def test_unsealed_and_post_seal_facts_are_reported(ledger):
     _fill(ledger, n=2)
     first = ledger.verify(CASE)
-    assert not first["valid"] and not first["sealed"] and "Sigiliul cazului" in _failed(first)
+    assert not first["valid"] and not first["sealed"] and "Case seal" in _failed(first)
     ledger.seal(CASE)
     ledger.append(CASE, "human.approval", "console.approve", {}, {"approved": True}, "Aprobare umană.")
     after = ledger.verify(CASE)
-    assert not after["valid"] and _failed(after)["Acoperirea sigiliului"]["facts"] == ["EV-003"]
+    assert not after["valid"] and _failed(after)["Seal coverage"]["facts"] == ["EV-003"]
     ledger.seal(CASE)
     assert ledger.verify(CASE)["valid"]
 
@@ -209,7 +209,7 @@ def test_one_byte_change_in_content_names_the_fact(ledger):
     _tamper(ledger, "UPDATE ledger_facts SET content_json = replace(content_json, '120', '121') WHERE fact_id = 'EV-003'")
     result = ledger.verify(CASE)
     assert not result["valid"]
-    bad = _failed(result)["Integritatea conținutului"]
+    bad = _failed(result)["Content integrity"]
     assert bad["facts"] == ["EV-003"] and "EV-003" in bad["detail"]
 
 
@@ -220,18 +220,18 @@ def test_rehashed_content_is_caught_by_record_hash_chain_and_root(ledger):
     _tamper(ledger, "UPDATE ledger_facts SET content_json = ?, sha256 = ? WHERE fact_id = 'EV-002'",
             (canonical_json(new_content), hash_obj(new_content)))
     failed = _failed(ledger.verify(CASE))
-    assert "Integritatea conținutului" not in failed
-    assert failed["Integritatea înregistrărilor"]["facts"] == ["EV-002"]
-    assert failed["Lanțul de hash-uri"]["facts"] == ["EV-003"]
-    assert "EV-002" in failed["Lanțul de hash-uri"]["detail"]
-    assert failed["Rădăcina Merkle"]["facts"] == ["EV-002"]
+    assert "Content integrity" not in failed
+    assert failed["Record integrity"]["facts"] == ["EV-002"]
+    assert failed["Hash chain"]["facts"] == ["EV-003"]
+    assert "EV-002" in failed["Hash chain"]["detail"]
+    assert failed["Merkle root"]["facts"] == ["EV-002"]
 
 
 def test_metadata_change_is_caught(ledger):
     _fill(ledger)
     ledger.seal(CASE)
     _tamper(ledger, "UPDATE ledger_facts SET summary = 'Clientul a aprobat plata.' WHERE fact_id = 'EV-004'")
-    assert _failed(ledger.verify(CASE))["Integritatea înregistrărilor"]["facts"] == ["EV-004"]
+    assert _failed(ledger.verify(CASE))["Record integrity"]["facts"] == ["EV-004"]
 
 
 def test_deleted_fact_breaks_numbering_chain_and_root(ledger):
@@ -239,7 +239,7 @@ def test_deleted_fact_breaks_numbering_chain_and_root(ledger):
     ledger.seal(CASE)
     _tamper(ledger, "DELETE FROM ledger_facts WHERE fact_id = 'EV-002'")
     failed = _failed(ledger.verify(CASE))
-    assert {"Numerotarea faptelor", "Lanțul de hash-uri", "Rădăcina Merkle"} <= set(failed)
+    assert {"Entry numbering", "Hash chain", "Merkle root"} <= set(failed)
 
 
 def test_forged_signature_and_foreign_key_are_caught(ledger, tmp_path):
@@ -247,14 +247,14 @@ def test_forged_signature_and_foreign_key_are_caught(ledger, tmp_path):
     seal = ledger.seal(CASE)
     forged = seal["signature"][:-2] + ("AA" if not seal["signature"].endswith("AA") else "BB")
     _tamper(ledger, "UPDATE ledger_seals SET signature = ?", (forged,))
-    assert "Semnătura Ed25519" in _failed(ledger.verify(CASE))
+    assert "Ed25519 signature" in _failed(ledger.verify(CASE))
     # atacatorul resemnează aceeași rădăcină cu cheia lui: semnătura e validă, dar nu e cheia zonei
     from versoml.shared.ledger.keys import load_zone_key
 
     attacker = load_zone_key(Zone.CLIENT, tmp_path / "attacker_keys")
     payload = f"versoml:v1:{CASE}:{seal['count']}:{seal['root']}".encode()
     _tamper(ledger, "UPDATE ledger_seals SET signature = ?, public_key = ?", (attacker.sign(payload), attacker.public_b64))
-    assert set(_failed(ledger.verify(CASE))) == {"Cheia publică a zonei"}
+    assert set(_failed(ledger.verify(CASE))) == {"Zone public key"}
 
 
 def test_missing_zone_key_fails_the_key_check(ledger, tmp_path):
@@ -262,7 +262,7 @@ def test_missing_zone_key_fails_the_key_check(ledger, tmp_path):
     ledger.seal(CASE)
     fresh = Ledger(Zone.CLIENT, ledger.db_path, tmp_path / "chei_goale")
     failed = _failed(fresh.verify(CASE))
-    assert set(failed) == {"Cheia publică a zonei"} and "lipsește" in failed["Cheia publică a zonei"]["detail"]
+    assert set(failed) == {"Zone public key"} and "missing" in failed["Zone public key"]["detail"]
     assert not (tmp_path / "chei_goale" / "zone_client.key").exists()  # verificarea nu generează chei
 
 
@@ -277,7 +277,7 @@ def test_last_fact_fully_recomputed_is_caught_by_sealed_root(ledger):
     _tamper(ledger, "UPDATE ledger_facts SET content_json = ?, sha256 = ?, entry_hash = ? WHERE fact_id = 'EV-005'",
             (canonical_json(row["content"]), row["sha256"], entry_hash(row)))
     failed = _failed(ledger.verify(CASE))
-    assert set(failed) == {"Rădăcina Merkle"} and failed["Rădăcina Merkle"]["facts"] == ["EV-005"]
+    assert set(failed) == {"Merkle root"} and failed["Merkle root"]["facts"] == ["EV-005"]
 
 
 def test_seal_refuses_a_tampered_ledger(ledger):
@@ -365,10 +365,10 @@ def test_dossier_tamper_and_wrong_key_are_caught(ledger):
     tampered = json.loads(json.dumps(dossier))
     tampered["facts"][1]["content"]["seconds_after_click"] = 5
     failed = _failed(verify_dossier(tampered))
-    assert failed["Integritatea conținutului"]["facts"] == ["EV-002"]
+    assert failed["Content integrity"]["facts"] == ["EV-002"]
     broken = json.loads(json.dumps(dossier))
     broken["merkle"]["proofs"]["EV-003"][0] = "00" * 32
-    assert "Dovezile de includere" in _failed(verify_dossier(broken))
+    assert "Inclusion proofs" in _failed(verify_dossier(broken))
     assert not verify_dossier({"format": "x"})["valid"]
 
 

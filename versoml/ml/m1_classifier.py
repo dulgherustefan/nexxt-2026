@@ -120,8 +120,8 @@ def train_m1(seed: int = 7, *, models_dir: str | Path | None = None, n_train: in
     metrics.update({"n_train": len(train_rows), "n_test": len(test_rows), "model_version": version,
                     "ambiguous_rate_sample": round(len(flagged) / max(1, len(amb)), 4),
                     "accuracy_text_only": stress,
-                    "held_out": "corpus generat cu alt seed (seed+1000): aceleași șabloane, alte persoane, stiluri și fapte; "
-                                "acuratețea pe reclamații reale va fi mai mică"})
+                    "held_out": "a corpus generated with another seed (seed+1000): the same templates, other people, styles and facts; "
+                                "accuracy on real complaints will be lower"})
     update_metrics(out_dir, "m1_classifier", metrics)
     return metrics
 

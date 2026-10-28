@@ -60,13 +60,13 @@ class Settings(BaseSettings):
     @property
     def client_db(self) -> Path:
         if self.versoml_zone == "aml":
-            raise PermissionError("Zidul: procesul zonei AML nu are acces la baza zonei client.")
+            raise PermissionError("The wall: the AML zone process has no access to the client zone database.")
         return self.var_dir / "client_zone.db"
 
     @property
     def aml_db(self) -> Path:
         if self.versoml_zone == "client":
-            raise PermissionError("Zidul: procesul zonei client nu are acces la baza zonei AML.")
+            raise PermissionError("The wall: the client zone process has no access to the AML zone database.")
         return self.var_dir / "aml_zone.db"
 
     @property
@@ -83,10 +83,17 @@ class Settings(BaseSettings):
 
     @property
     def replay_dir(self) -> Path:
-        """Răspunsurile LLM înregistrate, pentru modul replay (se comit, ca demo-ul să meargă fără rețea)."""
+        """Committed LLM recordings for replay mode (in git, so the demo works without network). Read only."""
         path = PACKAGE_DIR / "data" / "replay"
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    @property
+    def replay_record_path(self) -> Path:
+        """Where live runs append new recordings: var/replay/replay.jsonl (var/ is outside git)."""
+        path = self.var_dir / "replay"
+        path.mkdir(parents=True, exist_ok=True)
+        return path / "replay.jsonl"
 
     @property
     def client_url(self) -> str:

@@ -1,4 +1,4 @@
-"""M1: clasificatorul de contestații."""
+"""M1: the claim classifier (trained on English complaints)."""
 
 from __future__ import annotations
 
@@ -39,15 +39,15 @@ def test_scenarios_classified(trained):
 
 
 def test_cedilla_and_case_normalization(trained):
-    a = "Am primit un SMS de la curier şi am plătit taxa, apoi mi-au luat 3.200 lei din cont"
-    b = a.replace("ş", "ș").upper()
+    a = "Got a text from the courier, paid the fee and then RON 3,200 left my account. Kind regards, \u015etefan Popescu"
+    b = a.replace("\u015e", "Ș").upper()
     assert normalize_text(a) == normalize_text(b)
     ca, cb = classify_complaint(a, models_dir=trained["dir"]), classify_complaint(b, models_dir=trained["dir"])
     assert ca.scenario == cb.scenario and abs(ca.probability - cb.probability) < 1e-9
 
 
 def test_probabilities_and_ambiguity(trained):
-    c = classify_complaint("Bună ziua, am o întrebare.", models_dir=trained["dir"])
+    c = classify_complaint("Hello, I have a question.", models_dir=trained["dir"])
     scen = {k: v for k, v in c.proba.items() if k.startswith("scenario:")}
     assert len(scen) == 12 and abs(sum(scen.values()) - 1.0) < 0.02
     assert {k.split(":")[0] for k in c.proba} == {"channel", "dispute_type", "scenario"}

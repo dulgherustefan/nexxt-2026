@@ -19,7 +19,7 @@ from ..facts import Env, fmt_num, refund_track, refund_withheld, risk_signals
 from ..registry import Finding, rule
 
 S, U = Confidence.S, Confidence.U
-SRC = "docs/05 §3–5 (absent din catalogul docs/context)"
+SRC = "docs/05 §3–5 (not in the docs/context catalog)"
 
 
 def _tokens(text: str) -> list[str]:
@@ -49,60 +49,62 @@ def prohibited_features(features: list[str], prohibited: list[str]) -> list[str]
     return hits
 
 
-@rule("URM-01", title="Fără profilare pe trăsături personale: doar fapte obiective, decizie umană",
-      basis="AI Act art. 5 alin. (1) lit. d); Ghidurile Comisiei C(2025) 884 (docs/05 §3)", confidence=S, pack="URM",
+@rule("URM-01", title="No profiling on personal traits: objective facts only, human decision",
+      basis="AI Act, art. 5(1)(d); Commission Guidelines C(2025) 884 (docs/05 §3)", confidence=S, pack="URM",
       source=SRC, zone=Zone.AML, questions=(Question.PISTA_AML, Question.RTS),
       params=("aml_prohibited_features",), exceptions=("URM_PROFILING_FEATURE",), tests=("URM-T1",))
 def urm_01_objective_facts(a: AmlRuleContext, env: Env) -> Finding | None:
-    """Evaluarea unui cont-cărăuș pe fapte obiective și verificabile, cu decizie umană, e permisă; un scor de
-    „predispoziție” din date demografice nu e. Trăsăturile interzise (listă [U]) scot scorul din decizie."""
+    """Assessing a money mule account on objective, verifiable facts, with a human decision, is allowed. A
+    “predisposition” score built from demographic data is not. Prohibited traits (a [U] list) take the score
+    out of the decision."""
     if not a.features_used:
         return None
     bad = prohibited_features(a.features_used, env.p("aml_prohibited_features"))
     if bad:
         return Finding("URM-01", "URM_PROFILING_FEATURE",
-                       f"Scorul folosește trăsături personale ({', '.join(bad)}): nu poate susține o propunere "
-                       "(AI Act art. 5 alin. (1) lit. d)); se recalculează doar din fapte obiective.",
+                       f"The score uses personal traits ({', '.join(bad)}), so it cannot support a proposal "
+                       "(AI Act, art. 5(1)(d)). It must be recalculated from objective facts only.",
                        ("features_used",), data={"features": bad})
     return Finding("URM-01", "fapte_obiective",
-                   "Scorul folosește doar fapte obiective despre conturi și tranzacții, fără trăsături personale.",
+                   "The score uses only objective facts about accounts and transactions, with no personal traits.",
                    ("features_used",))
 
 
-@rule("URM-02", title="Interdicția de tipping-off: spre client pleacă doar semnalul HOLD",
-      basis="Legea 129/2019 art. 38 alin. (2); sancțiunea: art. 47 alin. (1) (docs/05 §3)", confidence=S, pack="URM",
+@rule("URM-02", title="Tipping-off ban: only the HOLD signal goes to the client zone",
+      basis="Law 129/2019, art. 38(2); penalty: art. 47(1) (docs/05 §3)", confidence=S, pack="URM",
       source=SRC, zone=Zone.AML, questions=(Question.PISTA_AML, Question.RTS, Question.RASPUNS_RECLAMATIE),
       exceptions=("AML_TIPPING_OFF_BAN",), tests=("URM-T2",))
 def urm_02_tipping_off(a: AmlRuleContext, env: Env) -> Finding:
-    """Clientul sau terții nu află nimic despre analiza AML sau despre un RTS. Spre zona client pleacă doar
-    semnalul HOLD (da/nu), aprobat de un om; scrisorile trec prin filtrul zidului. Art. 47 alin. (1)
-    pedepsește încălcarea cu închisoare de la 6 luni la 3 ani sau amendă."""
+    """The customer and third parties learn nothing about the AML analysis or an STR. Only the HOLD signal
+    (yes/no), approved by a human, goes to the client zone, and letters pass through the wall filter.
+    Art. 47(1) punishes a breach with 6 months to 3 years in prison, or a fine."""
     return Finding("URM-02", "AML_TIPPING_OFF_BAN",
-                   "Nicio informație despre analiză sau despre un raport nu ajunge la client sau la terți: spre zona "
-                   "client pleacă doar semnalul HOLD (da/nu), aprobat de un om (art. 38 alin. (2); pedeapsa la "
-                   "art. 47 alin. (1): închisoare de la 6 luni la 3 ani sau amendă).")
+                   "No information about the analysis or a report reaches the customer or third parties. Only the "
+                   "HOLD signal (yes/no), approved by a human, goes to the client zone (Law 129/2019, art. 38(2); "
+                   "penalty under art. 47(1): 6 months to 3 years in prison, or a fine).")
 
 
-@rule("URM-03", title="Rambursare automată doar fără semnale de risc ale clientului",
-      basis="propunere VersoML (docs/05 §3 și §5: „sub plafon și fără semnale”); semnalele sunt candidate pentru "
-            "excepția PAY-03, nu motive de refuz", confidence=U, pack="URM", source=SRC,
+@rule("URM-03", title="Automatic refund only when the customer shows no risk signals",
+      basis="VersoML proposal (docs/05 §3 and §5: “under the cap and no signals”); signals are candidates for the "
+            "PAY-03 exception, not grounds for refusal", confidence=U, pack="URM", source=SRC,
       questions=(Question.RAMBURSARE_T1, Question.RECUPERARE_ESCROC),
       params=("client_fraud_signal_threshold", "prior_disputes_signal_threshold"), tests=("frauda_client",))
 def urm_03_risk_signals(x: RuleContextExt, env: Env) -> Finding | None:
-    """Scorul M2 peste prag sau prea multe contestații în 12 luni trimit rambursarea la om, tot în termenul T+1.
-    Semnalele nu rețin și nu refuză: doar suspiciunea confirmată și comunicată autorității face asta (PAY-03)."""
+    """An M2 score above the threshold, or too many disputes in 12 months, sends the refund to a human, still
+    within the refund deadline. Signals do not withhold or refuse anything. Only a confirmed suspicion reported
+    to the authority does that (PAY-03)."""
     if not refund_track(x) or refund_withheld(x):
         return None
     signals = risk_signals(x, env)
     if signals:
         return Finding("URM-03", "semnale_de_risc",
-                       "Semnale de risc, deci decide un om, tot în termenul T+1: "
+                       "Risk signals, so a human decides, still within the refund deadline: "
                        + "; ".join(t for t, _ in signals) + ".",
                        tuple(f for _, fs in signals for f in fs), data={"signals": [t for t, _ in signals]})
-    parts = [f"{x.prior_disputes_12m} contestații în 12 luni"]
+    parts = [f"{x.prior_disputes_12m} disputes in 12 months"]
     if x.client_fraud_score is not None:
-        parts.insert(0, f"scorul M2 {fmt_num(x.client_fraud_score)}")
-    return Finding("URM-03", "fara_semnale", "Fără semnale de risc ale clientului (" + ", ".join(parts) + ").",
+        parts.insert(0, f"M2 score {fmt_num(x.client_fraud_score)}")
+    return Finding("URM-03", "fara_semnale", "No customer risk signals (" + ", ".join(parts) + ").",
                    ("client_fraud_score", "prior_disputes_12m"))
 
 
@@ -112,27 +114,28 @@ def str_indicators(a: AmlRuleContext, env: Env) -> list[tuple[str, tuple[str, ..
     score_ok = not prohibited_features(a.features_used, env.p("aml_prohibited_features"))
     thr = env.p("aml_mule_score_threshold")
     if score_ok and a.top_mule_score is not None and a.top_mule_score >= thr:
-        out.append((f"scorul M5 de cont-cărăuș este {fmt_num(a.top_mule_score)} (pragul [U]: {fmt_num(thr)})",
+        out.append((f"the M5 money mule score is {fmt_num(a.top_mule_score)} ([U] threshold: {fmt_num(thr)})",
                     ("top_mule_score",)))
     if a.victims >= env.p("aml_min_linked_victims") and a.typologies:
-        out.append((f"{a.victims} victime legate de același cont, cu tipologiile: {', '.join(a.typologies)}",
+        out.append((f"{a.victims} victims linked to the same account, with typologies: {', '.join(a.typologies)}",
                     ("victims", "typologies")))
     return out
 
 
-@rule("URM-04", title="Propunere de RTS din indicii obiective; decide analistul",
-      basis="propunere VersoML (docs/05 §5 și §7.2); Legea 129/2019 art. 6 pentru obligația de raportare",
+@rule("URM-04", title="STR proposal from objective indicators; the analyst decides",
+      basis="VersoML proposal (docs/05 §5 and §7.2); Law 129/2019, art. 6 for the reporting duty",
       confidence=U, pack="URM", source=SRC, zone=Zone.AML, questions=(Question.RTS,),
       params=("aml_mule_score_threshold", "aml_min_linked_victims", "aml_prohibited_features"), tests=("URM-T4",))
 def urm_04_str_indicators(a: AmlRuleContext, env: Env) -> Finding | None:
-    """Scorul de cont-cărăuș peste prag sau mai multe victime legate de același cont, cu o tipologie, fac o
-    propunere de RTS pentru analist. Pragurile sunt [U]; analistul decide dacă suspiciunea există."""
+    """A money mule score above the threshold, or several victims linked to the same account with a typology,
+    trigger an STR proposal for the analyst. The thresholds are [U]. The analyst decides whether there is a
+    suspicion."""
     indicators = str_indicators(a, env)
     if not indicators:
         return None
-    text = "Indicii obiective pentru un RTS, de confirmat de analist: " + "; ".join(t for t, _ in indicators)
+    text = "Objective indicators for an STR, for the analyst to confirm: " + "; ".join(t for t, _ in indicators)
     if a.osint_red_flags:
-        text += f"; {a.osint_red_flags} semnale roșii OSINT"
+        text += f"; {a.osint_red_flags} OSINT red flags"
     return Finding("URM-04", "propunere_rts", text + ".", tuple(f for _, fs in indicators for f in fs),
                    data={"indicators": [t for t, _ in indicators]})
 

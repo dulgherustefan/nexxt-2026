@@ -26,7 +26,7 @@ def _call(client, model: str) -> dict:
         response = client.messages.create(
             model=model,
             max_tokens=16,
-            messages=[{"role": "user", "content": "Răspunde cu un singur cuvânt: ok"}],
+            messages=[{"role": "user", "content": "Reply with one word: ok"}],
         )
         text = "".join(getattr(b, "text", "") for b in response.content).strip()
         return {"ok": True, "ms": round((time.perf_counter() - started) * 1000), "reply": text[:20],
@@ -48,7 +48,7 @@ def probe_bedrock(regions: list[str] | None = None, full: bool = False) -> dict:
     has_key = load_bedrock_key()
     report: dict = {"checked_at": datetime.now(timezone.utc).isoformat(), "key": key_format(), "regions": {}}
     if not has_key:
-        report["verdict"] = "Lipsește cheia: pune-o în API_KEY.txt sau în AWS_BEARER_TOKEN_BEDROCK."
+        report["verdict"] = "The key is missing: put it in API_KEY.txt or in AWS_BEARER_TOKEN_BEDROCK."
         return report
 
     ordered = list(dict.fromkeys([settings.aws_region, *(regions or REGIONS)]))
@@ -76,9 +76,9 @@ def probe_bedrock(regions: list[str] | None = None, full: bool = False) -> dict:
             "haiku": next((m for m in ["anthropic.claude-haiku-5-5", "anthropic.claude-haiku-4-5"] if m in working), None),
         }
         report["recommended"] = {"region": region, **pick}
-        report["verdict"] = f"Merge în {region}: {', '.join(working)}"
+        report["verdict"] = f"Works in {region}: {', '.join(working)}"
     else:
-        report["verdict"] = "Niciun model nu a răspuns. Vezi erorile pe regiuni."
+        report["verdict"] = "No model answered. See the errors for each region."
 
     out = settings.var_dir / "bedrock_probe.json"
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

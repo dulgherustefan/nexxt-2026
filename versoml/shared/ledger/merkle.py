@@ -50,7 +50,7 @@ def inclusion_path(leaves: Sequence[bytes], index: int) -> list[bytes]:
     """Dovada de includere PATH(m, D[n]) din RFC 6962 §2.1.1."""
     n = len(leaves)
     if not 0 <= index < n:
-        raise IndexError("indexul frunzei e în afara arborelui")
+        raise IndexError("the leaf index is outside the tree")
     if n == 1:
         return []
     k = _split(n)

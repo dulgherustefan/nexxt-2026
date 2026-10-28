@@ -71,7 +71,7 @@ def test_unrelated_domains_are_low():
 def test_keyword_domain_without_brand_is_yellow_not_red():
     result = lookalike_score("confirmare-colet-demo.example")
     assert result.data["score"] < 0.5 and result.signal == "galben"
-    assert "Nu imită direct un domeniu protejat" in result.summary
+    assert "does not directly imitate a protected domain" in result.summary
 
 
 def test_brand_in_subdomain_is_flagged():
@@ -106,12 +106,13 @@ def test_permutation_generator_covers_all_fuzzers():
     assert "bancademo.example" not in perms
 
 
-def test_explanations_are_romanian_without_cedilla():
+def test_explanations_are_english_without_cedilla():
     for value in ("livrare-bancademo.example", "xn--bncademo-16g.example", "bancadem0-plati.test"):
         result = lookalike_score(value, age_hours=30, cert_age_hours=20)
         assert not CEDILLA.search(result.summary)
         assert all(not CEDILLA.search(e["reason"]) for e in result.data["explanations"])
-        assert "," in result.summary  # zecimale cu virgulă
+        assert re.search(r"Lookalike score \d\.\d\d against ", result.summary)  # decimal point
+        assert "domain registered 30 hours ago" in [e["reason"] for e in result.data["explanations"]]
 
 
 def test_invalid_domain_fails_soft():

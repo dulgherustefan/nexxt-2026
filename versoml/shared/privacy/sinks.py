@@ -10,21 +10,21 @@ _AML_CONF = ("aml", "aml-only")
 
 
 def explain_sink(labels: Labels | dict[str, Any], sink: Sink | str) -> tuple[bool, str]:
-    """(permis, motiv în română) pentru o valoare cu etichetele date și o destinație."""
+    """(allowed, reason) for a value with the given labels and a destination."""
     labels = labels if isinstance(labels, Labels) else Labels.model_validate(labels)
     sink = Sink(sink)
     if sink not in labels.sinks:
-        allowed = ", ".join(s.value for s in labels.sinks) or "niciuna"
-        return False, f"Destinația «{sink.value}» nu e în pașaportul valorii (permise: {allowed})."
+        allowed = ", ".join(s.value for s in labels.sinks) or "none"
+        return False, f"The destination \"{sink.value}\" is not in this value's data passport (allowed: {allowed})."
     if labels.conf in _AML_CONF and sink in (Sink.CLIENT, Sink.LETTER, Sink.OSINT):
-        return False, "Zidul: datele AML nu ajung niciodată în zona client, în scrisoare sau în surse publice."
+        return False, "The wall: AML data never reaches the client zone, a letter or a public source."
     if labels.conf == "client" and sink is Sink.OSINT:
-        return False, "Datele victimei nu pleacă niciodată spre surse publice; OSINT primește doar identificatori publici."
+        return False, "The victim's data never goes to public sources; OSINT gets public identifiers only."
     if labels.trust is Trust.UNTRUSTED and sink in (Sink.LETTER, Sink.OSINT):
-        return False, "Textul neîncrezut (al escrocului, al paginilor web) nu intră în scrisoare și nu pleacă spre surse publice."
+        return False, "Untrusted text (from the fraudster or from web pages) never goes into a letter or to public sources."
     if sink is Sink.LLM and labels.conf == "client":
-        return True, "Permis spre LLM doar pseudonimizat (PrivacyProxy.pseudonymize, apoi assert_llm_safe)."
-    return True, "Permis de pașaportul datelor."
+        return True, "Allowed to the LLM only when pseudonymized (PrivacyProxy.pseudonymize, then assert_llm_safe)."
+    return True, "Allowed by the data passport."
 
 
 def check_sink(labels: Labels | dict[str, Any], sink: Sink | str) -> bool:

@@ -40,7 +40,7 @@ async def resolve_public(host: str, port: int = 443) -> list[str]:
     """Rezolvă gazda și întoarce IP-urile; ridică BlockedAddressError dacă vreunul nu e public."""
     host = (host or "").strip().strip("[]")
     if not host:
-        raise BlockedAddressError("gazdă lipsă")
+        raise BlockedAddressError("missing host")
     literal = parse_ip(host)
     if literal is not None:
         ips = [str(literal)]
@@ -48,23 +48,23 @@ async def resolve_public(host: str, port: int = 443) -> list[str]:
         try:
             ips = await resolver(host, port)
         except (OSError, socket.gaierror) as exc:
-            raise UnresolvableHostError(f"gazda {host} nu se rezolvă ({exc.__class__.__name__})") from exc
+            raise UnresolvableHostError(f"host {host} does not resolve ({exc.__class__.__name__})") from exc
     if not ips:
-        raise UnresolvableHostError(f"gazda {host} nu are adrese")
+        raise UnresolvableHostError(f"host {host} has no addresses")
     for value in ips:
         ip = parse_ip(value)
         if ip is None or not is_public_ip(ip):
-            raise BlockedAddressError(f"adresă nepublică blocată: {host} → {value}")
+            raise BlockedAddressError(f"blocked non-public address: {host} → {value}")
     return ips
 
 
 def check_scheme_port(scheme: str, port: int | None) -> int:
     scheme = (scheme or "").lower()
     if scheme not in ALLOWED_SCHEMES:
-        raise BlockedAddressError(f"schemă nepermisă: {scheme or 'lipsă'}")
+        raise BlockedAddressError(f"scheme not allowed: {scheme or 'missing'}")
     effective = port or (443 if scheme == "https" else 80)
     if effective not in ALLOWED_PORTS:
-        raise BlockedAddressError(f"port nepermis: {effective}")
+        raise BlockedAddressError(f"port not allowed: {effective}")
     return effective
 
 
@@ -75,7 +75,7 @@ async def assert_url_allowed(url: str) -> list[str]:
     try:
         parsed = httpx.URL(url)
     except Exception as exc:  # noqa: BLE001 - orice URL stricat e refuzat
-        raise BlockedAddressError(f"URL invalid: {exc}") from exc
+        raise BlockedAddressError(f"invalid URL: {exc}") from exc
     port = check_scheme_port(parsed.scheme, parsed.port)
     return await resolve_public(parsed.host, port)
 
@@ -106,10 +106,10 @@ class GuardedBackend(httpcore.AsyncNetworkBackend):
                 )
             except (httpcore.ConnectError, httpcore.ConnectTimeout, OSError) as exc:
                 last = exc
-        raise httpcore.ConnectError(f"conectare eșuată la {host}: {last}")
+        raise httpcore.ConnectError(f"could not connect to {host}: {last}")
 
     async def connect_unix_socket(self, path: str, timeout: float | None = None, socket_options: Any = None):
-        raise httpcore.ConnectError("socket-uri Unix nepermise")
+        raise httpcore.ConnectError("Unix sockets are not allowed")
 
     async def sleep(self, seconds: float) -> None:
         await self._inner.sleep(seconds)

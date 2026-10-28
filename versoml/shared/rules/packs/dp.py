@@ -32,18 +32,18 @@ def is_unfavourable(decision: Decision, x: RuleContextExt) -> bool:
             and (x.dispute_type == DisputeType.APP or x.credit_fraud))
 
 
-@rule("DP-02", title="Nicio decizie defavorabilă exclusiv automată; scorul e doar semnal pentru om",
-      basis="GDPR art. 22; CJUE C-634/21 SCHUFA (7.12.2023)", confidence=S, pack="DP", source=SRC, kind="garda",
-      questions=(Question.RAMBURSARE_T1, Question.RECUPERARE_CLIENT, Question.RASPUNS_RECLAMATIE),
+@rule("DP-02", title="No adverse decision is fully automated; the score is only a signal for a human",
+      basis="GDPR art. 22; CJEU ruling C-634/21 SCHUFA (7 Dec 2023)", confidence=S, pack="DP", source=SRC,
+      kind="garda", questions=(Question.RAMBURSARE_T1, Question.RECUPERARE_CLIENT, Question.RASPUNS_RECLAMATIE),
       params=("require_human_for_unfavourable",), exceptions=("DP_HUMAN_REVIEW_REQUIRED",), tests=("TC-38",))
 def apply_human_review(decision: Decision, x: RuleContextExt, *, reason: str | None = None) -> Decision:
-    """O decizie defavorabilă (respingere, reținere, recuperare de la client, APP) o semnează un om. Garda nu
-    schimbă verdictul; marchează `requires_human` și adaugă temeiul."""
+    """A human signs off an adverse decision (rejection, hold, recovery from the customer, APP). The guard does
+    not change the verdict. It sets `requires_human` and adds the legal basis."""
     if not (is_unfavourable(decision, x) or reason):
         return decision
     rule_ids = decision.rule_ids if "DP-02" in decision.rule_ids else [*decision.rule_ids, "DP-02"]
-    text = reason or ("Decizia e defavorabilă clientului: o semnează un om, cu informațiile reale ca să se poată "
-                      "abate (GDPR art. 22).")
+    text = reason or ("The decision is adverse to the customer. A human with the full facts signs it off and can "
+                      "override it (GDPR art. 22).")
     cites = cite(x, ["client_fraud_score"]) if reason else []
     return decision.model_copy(update={
         "requires_human": True, "decided_by": "rules+human", "rule_ids": rule_ids,
@@ -51,12 +51,12 @@ def apply_human_review(decision: Decision, x: RuleContextExt, *, reason: str | N
     })
 
 
-@rule("DP-03", title="Fiecare decizie are regula, temeiul și explicația", basis="CJUE C-203/22 Dun & Bradstreet "
-      "Austria (27.02.2025)", confidence=S, pack="DP", source=SRC, kind="garda",
+@rule("DP-03", title="Every decision states its rule, legal basis and explanation", basis="CJEU ruling C-203/22 "
+      "Dun & Bradstreet Austria (27 Feb 2025)", confidence=S, pack="DP", source=SRC, kind="garda",
       exceptions=("DP_EXPLANATION_MISSING",), tests=("invarianti",))
 def explanation_complete(decision: Decision) -> bool:
-    """Persoana primește o explicație concisă și inteligibilă a procedurii aplicate: fără ID de regulă sau fără
-    explicație, decizia nu pleacă (merge la om cu `DP_EXPLANATION_MISSING`)."""
+    """The person gets a concise, intelligible explanation of the procedure applied. Without a rule ID or an
+    explanation, the decision does not go out (it goes to a human with `DP_EXPLANATION_MISSING`)."""
     return bool(decision.rule_ids) and bool(decision.rationale) and all(r.text.strip() for r in decision.rationale)
 
 

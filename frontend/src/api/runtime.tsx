@@ -44,7 +44,7 @@ export function RuntimeProvider({ children, fallback }: { children: ReactNode; f
 
 export function useRuntime(): Runtime {
   const rt = useContext(Ctx);
-  if (!rt) throw new Error("RuntimeProvider lipsește");
+  if (!rt) throw new Error("RuntimeProvider is missing");
   return rt;
 }
 

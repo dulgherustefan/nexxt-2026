@@ -112,7 +112,7 @@ export async function fetchJson<T>(path: string, init: RequestInit & { timeoutMs
         body = JSON.parse(text);
       } catch {
         if (!res.ok) throw new ApiError(`${res.status} ${res.statusText}`, res.status, path);
-        throw new ApiError("Răspunsul serverului nu e JSON.", res.status, path);
+        throw new ApiError("The server sent a response that isn’t JSON.", res.status, path);
       }
     }
     if (!res.ok) throw new ApiError(detailMessage(body, `${res.status} ${res.statusText}`), res.status, path);
@@ -120,9 +120,9 @@ export async function fetchJson<T>(path: string, init: RequestInit & { timeoutMs
   } catch (err) {
     if (err instanceof ApiError) throw err;
     if (err instanceof DOMException && err.name === "AbortError") {
-      throw new ApiError("Serverul nu a răspuns la timp.", 0, path);
+      throw new ApiError("The server didn’t answer in time.", 0, path);
     }
-    throw new ApiError("Serverul nu poate fi contactat.", 0, path);
+    throw new ApiError("Can’t reach the server.", 0, path);
   } finally {
     clearTimeout(timeout);
   }

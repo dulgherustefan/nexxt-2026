@@ -14,32 +14,35 @@ export interface StageSpec {
 }
 
 /**
- * Graful Judecătorului (docs/05 §7.1), în ordinea din demo:
- * Receptor → Clasificator → Ceasornicar → 4 colectori în paralel → Motor de reguli → Rambursare
- * și, pe traseul de recuperare: Procuror ‖ Avocat → Cântăritor → Recuperare → Redactor → Filtru zid → Sigiliu.
- * Pozițiile sunt o grilă pe două benzi; backend-ul poate trimite alt graf în CaseDetail.pipeline.
+ * The client-zone graph, in demo order:
+ * Intake → Classifier → Deadline clock → 4 evidence collectors in parallel → Rules engine → Refund,
+ * then on the recovery path: Prosecutor ‖ Defender → Weigher → Recovery → Letter → Letter check → Seal.
+ * Positions are a two-lane grid; the backend may send a different graph in CaseDetail.pipeline.
  */
 const W = 162;
-// ID-urile sunt cele ale nodurilor din graful LangGraph (versoml/zone_client/agents.py, PIPELINE_NODES)
+// IDs are the LangGraph node IDs (versoml/zone_client/agents.py); they never change with the language.
 export const STAGES: StageSpec[] = [
-  { id: "receptor", label: "Receptor", agent: "Judecătorul/Receptor", model: "haiku", hint: "LLM izolat, fără tool-uri: textul clientului devine câmpuri tipizate", x: 0, y: 74 },
-  { id: "clasificator", label: "Clasificator", agent: "Judecătorul/Clasificator", model: "none", hint: "M1 calibrat: canal, tip de dispută, scenariu", x: W, y: 74 },
-  { id: "ceasornicar", label: "Ceasornicar", agent: "Judecătorul/Ceasornicar", model: "none", hint: "Termene cu calendarul RO: T+1, 15/35 zile, 13 luni", x: W * 2, y: 74 },
-  { id: "colector_tranzactie", label: "Tranzacție", agent: "Judecătorul/Colector tranzacție", model: "none", hint: "bank-core: plata și beneficiarul", x: W * 3, y: -40 },
-  { id: "colector_sca", label: "Autentificare SCA", agent: "Judecătorul/Colector SCA", model: "none", hint: "sca-logs: ce a afișat ecranul de autentificare", x: W * 3, y: 36 },
-  { id: "colector_dispozitiv", label: "Dispozitiv", agent: "Judecătorul/Colector dispozitiv", model: "none", hint: "device: dispozitivul, sesiunea, momentul click-ului", x: W * 3, y: 112 },
-  { id: "colector_domeniu", label: "Domeniu fals", agent: "Judecătorul/Colector domeniu", model: "none", hint: "domain-intel: RDAP, CT, sosie M3, asemănare M4", x: W * 3, y: 188 },
-  { id: "motor_reguli", label: "Motor de reguli", agent: "Motorul de reguli", model: "none", hint: "Decide determinist, cu ID de regulă pe fiecare decizie", x: W * 4, y: 74 },
-  { id: "outbox_aml", label: "Semnal spre AML", agent: "Zidul/Diodă", model: "none", hint: "Doar DisputeFacts, semnat HMAC; victima apare ca pseudonim", x: W * 5, y: -10 },
-  { id: "rambursare", label: "Rambursare T+1", agent: "Judecătorul/Rambursare", model: "none", hint: "Doar motorul de reguli emite instrucțiunea; peste plafon semnează un om", x: W * 5, y: 150 },
-  { id: "procuror", label: "Procuror", agent: "Judecătorul/Procuror", model: "opus", hint: "Argumente pentru neglijență gravă, cu citări", x: 0, y: 292 },
-  { id: "avocat", label: "Avocat", agent: "Judecătorul/Avocat", model: "sonnet", hint: "Argumente pentru client, alt model decât Procurorul", x: 0, y: 368 },
-  { id: "cantaritor", label: "Cântăritor", agent: "Judecătorul/Cântăritor", model: "none", hint: "Rubrică deterministă; recomandarea o semnează omul", x: W, y: 330 },
-  { id: "recuperare", label: "Recuperare", agent: "Judecătorul/Recuperare", model: "sonnet", hint: "Rechemare camt.056, chargeback, raport DNSC: ciorne", x: W, y: 444 },
-  { id: "redactor", label: "Scrisoare", agent: "Judecătorul/Redactor", model: "sonnet", hint: "Răspunde la fiecare punct, cu termene și căile de sesizare", x: W * 2, y: 380 },
-  { id: "filtru_zid", label: "Filtru zid", agent: "Zidul/Filtru scrisori", model: "none", hint: "Termeni interziși, canary, date personale: blochează și trimite la om", x: W * 3, y: 380 },
-  { id: "sigiliu", label: "Sigiliu", agent: "Registrul de probe", model: "none", hint: "Rădăcină Merkle semnată Ed25519 + QR", x: W * 4, y: 380 },
+  { id: "receptor", label: "Intake", agent: "Intake", model: "haiku", hint: "An isolated model with no tools turns the customer’s message into typed fields", x: 0, y: 74 },
+  { id: "clasificator", label: "Classifier", agent: "Classifier", model: "none", hint: "Calibrated ML model: channel, dispute type, scam pattern", x: W, y: 74 },
+  { id: "ceasornicar", label: "Deadline clock", agent: "Deadline clock", model: "none", hint: "Deadlines on the Romanian calendar: next business day, 15/35 business days, 13 months", x: W * 2, y: 74 },
+  { id: "colector_tranzactie", label: "Transaction", agent: "Transaction collector", model: "none", hint: "Core banking: the payment and the payee", x: W * 3, y: -40 },
+  { id: "colector_sca", label: "Authentication (SCA)", agent: "SCA collector", model: "none", hint: "What the approval screen showed the customer", x: W * 3, y: 36 },
+  { id: "colector_dispozitiv", label: "Device", agent: "Device collector", model: "none", hint: "Device, session and the time of the click", x: W * 3, y: 112 },
+  { id: "colector_domeniu", label: "Fake website", agent: "Domain collector", model: "none", hint: "Domain age, certificate logs, look-alike score, page similarity", x: W * 3, y: 188 },
+  { id: "motor_reguli", label: "Rules engine", agent: "Rules engine", model: "none", hint: "Decides deterministically, with a rule ID on every decision", x: W * 4, y: 74 },
+  { id: "outbox_aml", label: "AML referral", agent: "Diode", model: "none", hint: "Signed dispute facts only", x: W * 5, y: -10 },
+  { id: "rambursare", label: "Refund", agent: "Refund", model: "none", hint: "Only the rules engine issues the refund; a person signs above the limit", x: W * 5, y: 150 },
+  { id: "procuror", label: "Prosecutor", agent: "Prosecutor", model: "opus", hint: "Arguments for gross negligence, each with a citation", x: 0, y: 292 },
+  { id: "avocat", label: "Defender", agent: "Defender", model: "sonnet", hint: "Arguments for the customer, from a different model", x: 0, y: 368 },
+  { id: "cantaritor", label: "Weigher", agent: "Weigher", model: "none", hint: "A fixed rubric; a person signs the recommendation", x: W, y: 330 },
+  { id: "recuperare", label: "Recovery", agent: "Recovery", model: "sonnet", hint: "Chargeback, camt.056 recall, phishing report: all drafts", x: W, y: 444 },
+  { id: "redactor", label: "Letter", agent: "Letter writer", model: "sonnet", hint: "Answers every point, with deadlines and where to complain", x: W * 2, y: 380 },
+  { id: "filtru_zid", label: "Letter check", agent: "Letter check", model: "none", hint: "Blocks banned terms and personal data, then sends the letter to a person", x: W * 3, y: 380 },
+  { id: "sigiliu", label: "Seal", agent: "Evidence ledger", model: "none", hint: "Merkle root signed with Ed25519, plus a QR code", x: W * 4, y: 380 },
 ];
+
+/** Steps that exist in the graph but are not part of the product any more (the AML referral). */
+export const HIDDEN_STEPS = new Set(["outbox_aml"]);
 
 export interface FlowEdgeSpec extends PipelineEdge {
   /** Muchiile care trec de pe banda de sus pe cea de jos coboară la această înălțime. */
@@ -116,7 +119,7 @@ export function matchNode(nodes: Pick<PipelineNode, "id" | "label" | "agent">[],
     const s = slug(e.step);
     const loose = nodes.find((n) => slug(n.id) === s || slug(n.label) === s);
     if (loose) return loose.id;
-    const tail = s.replace(/^(colector|collector|judecatorul|investigatorul|zid)/, "");
+    const tail = s.replace(/^(colector|collector|judecatorul|investigatorul|zid|judge)/, "");
     const partial = nodes.find((n) => tail.length > 2 && (slug(n.id).endsWith(tail) || slug(n.label) === tail));
     if (partial) return partial.id;
   }

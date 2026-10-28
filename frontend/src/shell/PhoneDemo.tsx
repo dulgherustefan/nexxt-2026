@@ -1,9 +1,9 @@
+import { Warning, X } from "@phosphor-icons/react";
 import qrcode from "qrcode-generator";
-import { TriangleAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cx } from "../ui/kit";
 
-/** QR desenat local (fără servicii externe), ca imagine SVG: conținutul nu se execută. */
+/** QR drawn locally (no external service), as an SVG image: nothing in it can run. */
 function QrCode({ text, label }: { text: string; label: string }) {
   const src = useMemo(() => {
     const qr = qrcode(0, "M");
@@ -11,23 +11,23 @@ function QrCode({ text, label }: { text: string; label: string }) {
     qr.make();
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }))}`;
   }, [text]);
-  return <img src={src} alt={label} className="aspect-square w-full max-w-[13rem] bg-paper [image-rendering:pixelated]" />;
+  return <img src={src} alt={label} className="aspect-square w-full max-w-[12rem] bg-paper [image-rendering:pixelated]" />;
 }
 
 function isLocal(origin: string) {
   return /\/\/(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(origin);
 }
 
-/** Codurile QR pe care jurații le scanează de pe proiector: pagina falsă, apoi Banca Demo. */
+/** The QR codes the jury scans from the projector: the fake courier page, then Demo Bank. */
 export function PhoneDemoDialog({ onClose }: { onClose: () => void }) {
   const origin = window.location.origin;
   const [client, setClient] = useState<1 | 2>(1);
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const bankUrl = client === 1 ? `${origin}/banca` : `${origin}/banca?client=CUST-DEMO-02`;
+  const bankUrl = client === 1 ? `${origin}/bank` : `${origin}/bank?client=CUST-DEMO-02`;
 
-  // o singură dată la deschidere: focus pe „Închide”, Escape închide, focusul revine unde era
+  // once, on open: focus Close, Escape closes, focus returns to where it was
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     closeRef.current?.focus();
@@ -40,48 +40,51 @@ export function PhoneDemoDialog({ onClose }: { onClose: () => void }) {
   }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/40 p-4 sm:items-center" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/30 p-4 backdrop-blur-[2px] sm:items-center" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-labelledby="phone-demo-title" onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[50rem] rounded-lg bg-paper shadow-overlay">
-        <header className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
-          <h2 id="phone-demo-title" className="text-[1.15rem] font-bold">Demo pe telefon</h2>
-          <button ref={closeRef} type="button" onClick={onClose} aria-label="Închide" className="grid size-8 place-items-center rounded-md hover:bg-hover">
-            <X className="size-4" />
+        className="w-full max-w-[48rem] animate-enter rounded-2xl bg-paper shadow-[var(--shadow-overlay)]">
+        <header className="flex items-center justify-between gap-3 px-6 pt-5 pb-2">
+          <div>
+            <h2 id="phone-demo-title" className="text-[1.15rem] font-semibold">Try it on a phone</h2>
+            <p className="text-[0.9333rem] text-muted">Two scans: the scam, then the bank app.</p>
+          </div>
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close" className="grid size-8 place-items-center rounded-full text-muted hover:bg-hover hover:text-ink">
+            <X size={16} />
           </button>
         </header>
 
-        <div className="flex flex-col gap-5 p-5">
+        <div className="flex flex-col gap-5 px-6 pt-3 pb-6">
           {isLocal(origin) && (
-            <p role="alert" className="flex gap-2.5 rounded-md border border-danger-line bg-danger-soft px-4 py-3 text-[0.9333rem]">
-              <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-danger" />
-              <span>Consola e deschisă pe {origin}, iar telefoanele nu ajung la această adresă. Deschide consola pe IP-ul laptopului din rețea (adresa „Network” din terminal).</span>
+            <p role="alert" className="flex gap-2.5 rounded-xl bg-warn-soft px-4 py-3 text-[0.9333rem] text-ink-soft">
+              <Warning aria-hidden size={18} className="mt-0.5 shrink-0 text-warn" />
+              <span>This page is open on {origin}, which phones can’t reach. Open the console on the laptop’s network address (the “Network” line in the terminal).</span>
             </p>
           )}
 
-          <ol className="grid gap-5 md:grid-cols-2">
-            <li className="flex flex-col items-center gap-3 rounded-lg border border-line p-5 text-center">
-              <p className="flex items-center gap-2 font-semibold"><Step n={1} /> Pagina falsă</p>
-              <p className="text-[0.9333rem] text-ink-soft">Linkul din SMS-ul de la „curier”. Completează datele, ca o victimă.</p>
-              <QrCode text={`${origin}/demo/livrare`} label="Cod QR spre pagina falsă de demo" />
-              <p className="break-all font-mono text-[0.8rem] text-muted">{origin}/demo/livrare</p>
+          <ol className="grid gap-4 md:grid-cols-2">
+            <li className="flex flex-col items-center gap-3 rounded-xl bg-canvas p-5 text-center">
+              <p className="flex items-center gap-2 font-medium"><Step n={1} /> The fake courier page</p>
+              <p className="text-[0.9333rem] text-muted">The link from the “courier” text message. Fill it in like a victim would.</p>
+              <QrCode text={`${origin}/demo/delivery`} label="QR code to the fake courier page" />
+              <p className="font-mono text-[0.75rem] break-all text-subtle">{origin}/demo/delivery</p>
             </li>
-            <li className="flex flex-col items-center gap-3 rounded-lg border border-line p-5 text-center">
-              <p className="flex items-center gap-2 font-semibold"><Step n={2} /> Banca Demo</p>
-              <p className="text-[0.9333rem] text-ink-soft">Apare plata de 3.200 lei. Apasă „Nu am făcut eu plata”.</p>
-              <QrCode text={bankUrl} label={`Cod QR spre Banca Demo, clientul ${client}`} />
-              <p className="break-all font-mono text-[0.8rem] text-muted">{bankUrl}</p>
-              <div role="radiogroup" aria-label="Clientul din Banca Demo" className="inline-flex rounded-md border border-line p-0.5 text-[0.8667rem]">
+            <li className="flex flex-col items-center gap-3 rounded-xl bg-canvas p-5 text-center">
+              <p className="flex items-center gap-2 font-medium"><Step n={2} /> Demo Bank</p>
+              <p className="text-[0.9333rem] text-muted">The RON 3,200.00 payment shows up. Tap “I didn’t make this payment”.</p>
+              <QrCode text={bankUrl} label={`QR code to Demo Bank, customer ${client}`} />
+              <p className="font-mono text-[0.75rem] break-all text-subtle">{bankUrl}</p>
+              <div role="radiogroup" aria-label="Demo Bank customer" className="inline-flex rounded-full bg-paper p-0.5 text-[0.8667rem] shadow-[var(--shadow-card)]">
                 {([1, 2] as const).map((n) => (
                   <button key={n} type="button" role="radio" aria-checked={client === n} onClick={() => setClient(n)}
-                    className={cx("rounded-[5px] px-3 py-1 font-medium", client === n ? "bg-ink text-paper" : "text-muted hover:text-ink")}>
-                    {n === 1 ? "Primul jurat" : "Al doilea jurat"}
+                    className={cx("rounded-full px-3 py-1 font-medium transition-colors", client === n ? "bg-ink text-paper" : "text-muted hover:text-ink")}>
+                    {n === 1 ? "First juror" : "Second juror"}
                   </button>
                 ))}
               </div>
             </li>
           </ol>
 
-          <p className="text-center text-[0.9333rem] text-muted">Contestația apare în lista de pe ecran în câteva secunde; semnezi rambursarea aici, iar telefonul arată banii returnați.</p>
+          <p className="text-center text-[0.9333rem] text-muted">The claim appears in the case list within seconds. Approve the refund here and the phone shows the money back.</p>
         </div>
       </div>
     </div>
@@ -89,5 +92,5 @@ export function PhoneDemoDialog({ onClose }: { onClose: () => void }) {
 }
 
 function Step({ n }: { n: number }) {
-  return <span aria-hidden className="grid size-6 place-items-center rounded-full bg-ink text-[0.8rem] font-bold text-paper">{n}</span>;
+  return <span aria-hidden className="grid size-5 place-items-center rounded-full bg-ink text-[0.72rem] font-semibold text-paper">{n}</span>;
 }

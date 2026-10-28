@@ -1,11 +1,11 @@
-import { ChevronDown, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { money, scenarioLabel as baseScenarioLabel } from "../../api/format";
+import { CheckCircle, X } from "@phosphor-icons/react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { dateTime, money, scenarioLabel as baseScenarioLabel } from "../../api/format";
 import type { AgentEvent, Decision, Money, PipelineNode } from "../../api/types";
-import { matchNode, normalizeStatus, STAGE_BY_ID } from "../../lib/pipeline";
-import { Button, cx, Dot, StepIcon, STEP_STATUS_LABEL, type Tone, useNowTick } from "../../ui/kit";
+import { HIDDEN_STEPS, matchNode, normalizeStatus, STAGE_BY_ID } from "../../lib/pipeline";
+import { cx, Dot, StepIcon, STEP_STATUS_LABEL, type Tone, useNowTick } from "../../ui/kit";
 
-// ---------------------------------------------------------------- un singur set de stări, în toată aplicația
+// ---------------------------------------------------------------- one set of case statuses across the app
 
 export interface StatusView {
   label: string;
@@ -17,23 +17,23 @@ export interface StatusView {
 export function caseStatus(status: string | null | undefined, requiresHuman = false): StatusView {
   switch (status) {
     case "ASTEAPTA_APROBARE":
-      return { label: "Așteaptă semnătura ta", tone: "now", group: "you" };
+      return { label: "Needs approval", tone: "now", live: true, group: "you" };
     case "NOU":
-      return { label: "Nou", tone: "neutral", group: "running" };
+      return { label: "New", tone: "neutral", group: "running" };
     case "IN_ANALIZA":
-      return { label: "În analiză", tone: "now", live: true, group: "running" };
+      return { label: "In progress", tone: "dark", live: true, group: "running" };
     case "RAMBURSAT":
-      return { label: "Rambursat", tone: "ok", group: "closed" };
+      return { label: "Refunded", tone: "ok", group: "closed" };
     case "TRASEU_APP":
-      return { label: "Recuperare (plată autorizată)", tone: "neutral", group: requiresHuman ? "you" : "closed" };
+      return { label: "APP fraud review", tone: "neutral", group: requiresHuman ? "you" : "closed" };
     case "RESPINS":
-      return { label: "Respins", tone: "neutral", group: "closed" };
+      return { label: "Rejected", tone: "neutral", group: "closed" };
     case "EXCEPTIE":
-      return { label: "Excepție semnată", tone: "danger", group: "closed" };
+      return { label: "Exception signed", tone: "danger", group: "closed" };
     case "INCHIS":
-      return { label: "Închis", tone: "neutral", group: "closed" };
+      return { label: "Closed", tone: "neutral", group: "closed" };
     case "EROARE":
-      return { label: "Eroare: repornește cazul", tone: "danger", group: "you" };
+      return { label: "Failed: restart the case", tone: "danger", group: "you" };
     default:
       return { label: status ?? "—", tone: "neutral", group: "running" };
   }
@@ -42,7 +42,7 @@ export function caseStatus(status: string | null | undefined, requiresHuman = fa
 export function StatusLine({ status, requiresHuman }: { status?: string | null; requiresHuman?: boolean }) {
   const s = caseStatus(status, requiresHuman);
   return (
-    <span className="inline-flex items-center gap-2 whitespace-nowrap">
+    <span className={cx("inline-flex items-center gap-2 whitespace-nowrap", s.tone === "danger" ? "text-danger" : s.tone === "ok" ? "text-ok" : "text-ink-soft")}>
       <Dot tone={s.tone} live={s.live} />
       {s.label}
     </span>
@@ -50,74 +50,71 @@ export function StatusLine({ status, requiresHuman }: { status?: string | null; 
 }
 
 export function scenarioLabel(s: string | null | undefined): string {
-  if (s === "demo_t1") return "Link fals de curier (demo)";
-  if (s === "demo_t1_victima2") return "„Cont sigur” (demo)";
+  if (s === "demo_t1") return "Fake delivery link (demo)";
+  if (s === "demo_t1_victima2") return "“Safe account” scam (demo)";
   return baseScenarioLabel(s);
 }
 
 export function exactTime(v: string | null | undefined): string {
-  if (!v) return "—";
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("ro-RO", { timeZone: "Europe/Bucharest", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
+  return dateTime(v);
 }
 
-// ---------------------------------------------------------------- decizia, într-o propoziție
+// ---------------------------------------------------------------- the decision, in one sentence
 
-/** `after` = ce s-a întâmplat după decizie (starea cazului, răspunsul omului), ca propoziția să treacă la trecut. */
+/** `after` is what happened next (case status, the person's answer), so the sentence moves to the past tense. */
 export function verdictSentence(
   d: Decision | undefined,
   amount: Money | null | undefined,
   after?: { status?: string; action?: string; approver?: string },
 ): { title: string; detail: string; tone: Tone } {
   const sum = money(amount ?? d?.amount ?? null);
-  const until = d?.deadline ? `până pe ${exactTime(d.deadline)}` : "în termen";
-  const who = after?.approver ?? "un om";
+  const until = d?.deadline ? exactTime(d.deadline) : "the deadline";
+  const who = after?.approver ?? "a person";
   const Who = who.charAt(0).toUpperCase() + who.slice(1);
   if (d && after?.status === "RAMBURSAT") {
     return {
-      title: `Rambursarea de ${sum} a fost emisă.`,
-      detail: d.decision === "RAMBURSEAZA" ? "Automat: sub plafon și fără semnale de risc."
-        : d.decision === "RAMBURSEAZA_CU_APROBARE" ? `Instrucțiunea a fost aprobată de ${who}, în termen.`
-          : `${Who} nu a confirmat decizia defavorabilă, așa că rambursăm în termen.`,
+      title: `Refunded ${sum}.`,
+      detail: d.decision === "RAMBURSEAZA" ? "Automatic: under the limit and no risk signals."
+        : d.decision === "RAMBURSEAZA_CU_APROBARE" ? `Approved by ${who}, before the deadline.`
+          : `${Who} didn’t confirm the decision against the customer, so the refund went out on time.`,
       tone: "ok",
     };
   }
   if (d?.decision === "RAMBURSEAZA_CU_APROBARE" && after?.action === "reject") {
-    return { title: "Rambursarea nu a fost aprobată.", detail: `${Who} a refuzat instrucțiunea. Cazul rămâne în analiză, iar termenul T+1 curge în continuare.`, tone: "danger" };
+    return { title: "The refund wasn’t approved.", detail: `${Who} declined it. The case stays open and the deadline keeps running.`, tone: "danger" };
   }
   if (d?.decision === "RESPINGE_TARDIV" && after?.status === "RESPINS") {
-    return { title: "Contestația a fost respinsă: a venit după 13 luni.", detail: `Termenul legal de notificare a expirat (art. 169). A semnat ${who}.`, tone: "neutral" };
+    return { title: "Claim rejected: reported more than 13 months after the payment.", detail: `The legal notice period had ended (art. 169). Signed by ${who}.`, tone: "neutral" };
   }
   if (d?.decision === "EXCEPTIE_FRAUDA_CLIENT" && after?.status === "EXCEPTIE") {
-    return { title: "Excepția a fost confirmată: nu rambursăm acum.", detail: `Suspiciune de fraudă a clientului, comunicată autorității. A semnat ${who}.`, tone: "danger" };
+    return { title: "Exception confirmed: no refund for now.", detail: `Suspected customer fraud, reported to the authorities. Signed by ${who}.`, tone: "danger" };
   }
   switch (d?.decision) {
     case "RAMBURSEAZA":
-      return { title: `Rambursăm ${sum} ${until}.`, detail: "Sub plafonul de rambursare automată, fără semnale de risc: motorul de reguli emite instrucțiunea fără semnătură.", tone: "ok" };
+      return { title: `Refund ${sum} by ${until}.`, detail: "Under the automatic refund limit with no risk signals, so the rules engine issues it without a signature.", tone: "ok" };
     case "RAMBURSEAZA_CU_APROBARE":
-      return { title: `Rambursăm ${sum} ${until}, cu semnătura ta.`, detail: "Legea cere rambursarea; suma sau un semnal de risc cer ca un om să confirme instrucțiunea.", tone: "now" };
+      return { title: `Refund ${sum} by ${until}, after your approval.`, detail: "The law requires the refund. A person confirms it because of the amount or a risk signal.", tone: "now" };
     case "NU_SE_APLICA_T1":
-      return { title: "Plata a fost autorizată de client: nu se rambursează la T+1.", detail: "Clientul a fost păcălit să aprobe singur plata (APP). Pornim rechemarea și îl ajutăm să recupereze banii.", tone: "neutral" };
+      return { title: "The customer authorized this payment, so the next-day refund rule doesn’t apply.", detail: "They were tricked into approving it themselves (APP fraud). VersoML starts a recall and helps them get the money back.", tone: "neutral" };
     case "RESPINGE_TARDIV":
-      return { title: "Contestația a venit după 13 luni: o respingem.", detail: "Termenul legal de notificare a expirat (art. 169). O decizie defavorabilă se semnează de un om.", tone: "danger" };
+      return { title: "Reported after 13 months: the claim will be rejected.", detail: "The legal notice period has ended (art. 169). A person signs any decision against the customer.", tone: "danger" };
     case "EXCEPTIE_FRAUDA_CLIENT":
-      return { title: "Excepție: suspiciune de fraudă a clientului, comunicată autorității.", detail: "Singura excepție de la rambursarea la T+1 (C-70/25). Se semnează de un om.", tone: "danger" };
+      return { title: "Exception: suspected customer fraud, reported to the authorities.", detail: "The only exception to the next-day refund (CJEU C-70/25). A person signs it.", tone: "danger" };
     case "INFORMATII_SUPLIMENTARE":
-      return { title: "Ne lipsesc informații pentru o decizie.", detail: "Cerem clientului datele care lipsesc; termenul legal curge în continuare.", tone: "neutral" };
+      return { title: "Information is missing for a decision.", detail: "VersoML asks the customer for the missing details. The legal deadline keeps running.", tone: "neutral" };
     default:
-      return { title: "Agenții lucrează.", detail: "Decizia apare aici imediat ce motorul de reguli termină.", tone: "neutral" };
+      return { title: "The agents are working.", detail: "The decision shows up here as soon as the rules engine finishes.", tone: "neutral" };
   }
 }
 
-// ---------------------------------------------------------------- lista de pași, cu bare pe axa de timp comună
+// ---------------------------------------------------------------- agent steps
 
-const PHASES: Array<{ label: string; ids: string[] }> = [
-  { label: "Intrare", ids: ["receptor", "clasificator", "ceasornicar"] },
-  { label: "Probe, în paralel", ids: ["colector_tranzactie", "colector_sca", "colector_dispozitiv", "colector_domeniu"] },
-  { label: "Decizie", ids: ["motor_reguli", "outbox_aml", "rambursare"] },
-  { label: "Recuperare, în paralel", ids: ["procuror", "avocat", "cantaritor", "recuperare"] },
-  { label: "Răspuns", ids: ["redactor", "filtru_zid", "sigiliu"] },
+const PHASES: Array<{ id: string; label: string; doing: string; ids: string[] }> = [
+  { id: "intake", label: "Intake", doing: "Reading the claim", ids: ["receptor", "clasificator", "ceasornicar"] },
+  { id: "evidence", label: "Evidence", doing: "Collecting evidence", ids: ["colector_tranzactie", "colector_sca", "colector_dispozitiv", "colector_domeniu"] },
+  { id: "decision", label: "Decision", doing: "Applying the rules", ids: ["motor_reguli", "rambursare"] },
+  { id: "recovery", label: "Recovery", doing: "Preparing recovery", ids: ["procuror", "avocat", "cantaritor", "recuperare"] },
+  { id: "reply", label: "Reply", doing: "Writing the reply", ids: ["redactor", "filtru_zid", "sigiliu"] },
 ];
 
 export function modelName(m: string | null | undefined): string {
@@ -126,10 +123,10 @@ export function modelName(m: string | null | undefined): string {
   if (s.includes("sonnet")) return "Sonnet";
   if (s.includes("haiku")) return "Haiku";
   if (s === "ml") return "ML";
-  return "Reguli";
+  return "Rules";
 }
 
-interface StepRow {
+export interface StepRow {
   id: string;
   label: string;
   model: string;
@@ -146,27 +143,27 @@ function ms(v: string | null | undefined): number | undefined {
   return Number.isNaN(t) ? undefined : t;
 }
 
-/** Starea fiecărui pas: întâi ce a salvat serverul, apoi ce au adus evenimentele live. */
+/** Each step's state: first what the server saved, then what the live events brought. */
 export function useStepRows(nodes: PipelineNode[] | undefined, events: AgentEvent[]): StepRow[] {
   return useMemo(() => {
     const rows = new Map<string, StepRow>();
     for (const n of nodes ?? []) {
+      if (HIDDEN_STEPS.has(n.id)) continue;
       rows.set(n.id, {
-        // eticheta din interfață are prioritate: e scrisă pentru operator, nu pentru graf
+        // the UI label wins: it is written for the operator, not for the graph
         id: n.id, label: STAGE_BY_ID[n.id]?.label ?? n.label, model: modelName(n.model), status: normalizeStatus(n.status),
-        summary: n.summary, hint: n.hint, start: ms(n.started_at), end: ms(n.finished_at),
+        summary: n.summary, hint: STAGE_BY_ID[n.id]?.hint ?? n.hint, start: ms(n.started_at), end: ms(n.finished_at),
       });
     }
-    let runStarted = false;
     for (const e of events) {
       if (e.type === "RUN_STARTED") {
-        runStarted = true;
         for (const r of rows.values()) Object.assign(r, { status: "idle", start: undefined, end: undefined, summary: undefined });
         continue;
       }
       const id = matchNode([...rows.values()].map((r) => ({ id: r.id, label: r.label, agent: undefined })), e);
-      if (!id) continue;
-      const r = rows.get(id)!;
+      if (!id || HIDDEN_STEPS.has(id)) continue;
+      const r = rows.get(id);
+      if (!r) continue;
       const t = ms(e.ts);
       if (e.type === "STEP_STARTED") {
         r.status = r.status === "done" ? r.status : "running";
@@ -182,129 +179,192 @@ export function useStepRows(nodes: PipelineNode[] | undefined, events: AgentEven
         r.status = "blocked";
       }
     }
-    void runStarted;
     return [...rows.values()];
   }, [nodes, events]);
 }
 
 function secondsText(ms0: number): string {
   const s = ms0 / 1000;
-  return s < 10 ? `${s.toFixed(1).replace(".", ",")} s` : `${Math.round(s)} s`;
+  return s < 10 ? `${s.toFixed(1)} s` : `${Math.round(s)} s`;
 }
 
-/** `settled`: rularea s-a încheiat, deci pașii care n-au pornit deloc nu se mai aplică acestui caz. */
-export function StepList({ rows: input, title = "Agenții", settled = false }: { rows: StepRow[]; title?: string; settled?: boolean }) {
-  const rows = settled ? input.map((r) => (r.status === "idle" ? { ...r, status: "skipped" } : r)) : input;
-  const now = useNowTick(500);
-  const [open, setOpen] = useState(true);
+function timing(rows: StepRow[], now: number) {
   const starts = rows.map((r) => r.start).filter((x): x is number => typeof x === "number");
   const t0 = starts.length ? Math.min(...starts) : undefined;
   const ends = rows.map((r) => (r.status === "running" ? now : r.end)).filter((x): x is number => typeof x === "number");
   const t1 = ends.length ? Math.max(...ends) : undefined;
-  const span = t0 && t1 && t1 > t0 ? t1 - t0 : 1;
-  const done = rows.filter((r) => ["done", "skipped"].includes(r.status)).length;
-  const running = rows.some((r) => r.status === "running");
-  const waiting = rows.find((r) => r.status === "waiting");
-  const stopped = rows.filter((r) => r.status === "blocked" || r.status === "error");
-  const total = t0 && t1 ? secondsText(t1 - t0) : null;
-  // un pas blocat sau eșuat încheie și el rularea, dar lista rămâne deschisă ca să se vadă care
-  const finished = rows.length > 0 && !running && !waiting && done + stopped.length === rows.length;
-  const byId = new Map(rows.map((r) => [r.id, r]));
-  const phases = PHASES.map((p) => ({ ...p, rows: p.ids.map((id) => byId.get(id)).filter(Boolean) as StepRow[] }))
-    .filter((p) => p.rows.length);
-  const known = new Set(PHASES.flatMap((p) => p.ids));
-  const extra = rows.filter((r) => !known.has(r.id));
-  if (extra.length) phases.push({ label: "Alți pași", ids: extra.map((r) => r.id), rows: extra });
+  return { t0, t1, total: t0 && t1 && t1 > t0 ? secondsText(t1 - t0) : null };
+}
 
-  useEffect(() => {
-    if (finished && !stopped.length) setOpen(false);
-  }, [finished, stopped.length]);
+/**
+ * The agents, in one line. While running: what they're doing now and five phase segments.
+ * When done: a single sentence. The full step list opens on request.
+ */
+export function AgentStatus({ rows: input, settled, waiting, onOpenTrace }: {
+  rows: StepRow[]; settled: boolean; waiting: boolean; onOpenTrace: () => void;
+}) {
+  const rows = settled ? input.map((r) => (r.status === "idle" ? { ...r, status: "skipped" } : r)) : input;
+  const now = useNowTick(250);
+  const { total } = timing(rows, now);
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const phases = PHASES.map((p) => {
+    const rs = p.ids.map((id) => byId.get(id)).filter(Boolean) as StepRow[];
+    const state = !rs.length ? "todo"
+      : rs.some((r) => r.status === "blocked" || r.status === "error") ? "stopped"
+        : rs.some((r) => r.status === "waiting") ? "waiting"
+          : rs.some((r) => r.status === "running") ? "running"
+            : rs.every((r) => r.status === "done" || r.status === "skipped") ? "done"
+              : rs.some((r) => r.status === "done") ? "running" : "todo";
+    return { ...p, state };
+  });
+  const stopped = rows.filter((r) => r.status === "blocked" || r.status === "error");
+  const doneCount = rows.filter((r) => r.status === "done" || r.status === "skipped").length;
+  const runningPhase = phases.find((p) => p.state === "running");
+  const finished = rows.length > 0 && !runningPhase && !waiting && doneCount + stopped.length === rows.length;
+
+  const headline = stopped.length
+    ? { tone: "danger" as Tone, text: `${stopped[0].label} stopped` }
+    : waiting
+      ? { tone: "now" as Tone, text: "Waiting for your approval" }
+      : finished
+        ? { tone: "ok" as Tone, text: "Agents finished" }
+        : runningPhase
+          ? { tone: "dark" as Tone, text: runningPhase.doing }
+          : { tone: "neutral" as Tone, text: "Starting" };
 
   return (
-    <section className="rounded-lg border border-line bg-paper" aria-label="Progresul agenților">
-      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 border-b border-line px-4 py-3 text-left">
-        <span>
-          <span className="font-semibold">{title}</span>
-          <span className="ml-2 tabular-nums text-muted">
-            {finished ? `${rows.length} pași${total ? ` în ${total}` : ""}` : `${done}/${rows.length} gata${total ? ` · ${total}` : ""}`}
+    <section aria-label="Agent progress" className="rounded-xl bg-paper px-4 py-3.5 shadow-[var(--shadow-card)]">
+      <div className="flex items-center gap-3">
+        {headline.tone === "ok" ? (
+          <CheckCircle size={18} weight="fill" className="shrink-0 text-ok" />
+        ) : (
+          <span className="grid size-[18px] shrink-0 place-items-center"><Dot tone={headline.tone} live={headline.tone === "now" || headline.tone === "dark"} /></span>
+        )}
+        <p className="min-w-0 flex-1 leading-tight">
+          <span className="block truncate text-[0.9333rem] font-medium">{headline.text}</span>
+          <span className="tnum mt-0.5 block text-[0.8rem] text-muted">
+            {finished ? `${rows.length} steps` : `${doneCount} of ${rows.length} steps`}
+            {total ? ` · ${total}` : ""}
           </span>
-        </span>
-        <span className="flex items-center gap-2 text-[0.8667rem] text-muted">
-          {waiting ? <><Dot tone="now" /> așteaptă semnătura</>
-            : running ? <><Dot tone="now" live /> lucrează</>
-              : stopped.length ? <><Dot tone="danger" /> {stopped.length === 1 ? `${stopped[0].label}: ${STEP_STATUS_LABEL[stopped[0].status] ?? "oprit"}` : `${stopped.length} pași opriți`}</>
-                : null}
-          <ChevronDown aria-hidden className={cx("size-4 transition-transform", open && "rotate-180")} />
-        </span>
-      </button>
-      {open && (
-        <ol className="px-4 py-2">
-          {phases.map((phase) => (
-            <li key={phase.label} className="py-2">
-              <p className="pb-1 text-[0.8rem] font-semibold text-muted">{phase.label}</p>
-              <ul className="flex flex-col">
-                {phase.rows.map((r) => {
-                  const end = r.status === "running" ? now : r.end;
-                  const left = t0 && r.start ? ((r.start - t0) / span) * 100 : 0;
-                  const width = r.start && end ? Math.max(((end - r.start) / span) * 100, 1.5) : 0;
-                  return (
-                    <li key={r.id} className="grid grid-cols-[1rem_minmax(0,1fr)_4.5rem] items-start gap-x-2.5 py-1.5" title={r.hint}>
-                      <span className="mt-0.5"><StepIcon status={r.status} /></span>
-                      <div className="min-w-0">
-                        <p className="flex items-baseline gap-2">
-                          <span className={cx("font-medium", r.status === "idle" && "text-muted")}>{r.label}</span>
-                          <span className="text-[0.8rem] text-subtle">{r.model}</span>
-                        </p>
-                        <div className="mt-1 h-1.5 rounded-full bg-hover" aria-hidden>
-                          {width > 0 && (
-                            <div className={cx("h-1.5 rounded-full", r.status === "running" ? "bg-yellow ring-1 ring-ink/30" : r.status === "waiting" ? "bg-yellow" : r.status === "blocked" || r.status === "error" ? "bg-danger" : "bg-ink")}
-                              style={{ marginLeft: `${Math.min(left, 98)}%`, width: `${Math.min(width, 100 - Math.min(left, 98))}%` }} />
-                          )}
-                        </div>
-                        {r.summary && r.status !== "idle" && (
-                          <p className="mt-1 line-clamp-2 text-[0.8667rem] text-ink-soft">{r.summary}</p>
-                        )}
-                      </div>
-                      <span className="text-right text-[0.8rem] tabular-nums text-muted">
-                        {r.start && end ? secondsText(end - r.start) : STEP_STATUS_LABEL[r.status] ?? ""}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </li>
-          ))}
-        </ol>
-      )}
+        </p>
+        <button type="button" onClick={onOpenTrace} className="shrink-0 rounded-full px-2.5 py-1 text-[0.8667rem] font-medium text-ink-soft transition-colors hover:bg-hover hover:text-ink">
+          View trace
+        </button>
+      </div>
+      <ol className="mt-3 grid grid-cols-5 gap-1.5" aria-label="Phases">
+        {phases.map((p) => (
+          <li key={p.id} className="min-w-0">
+            <span
+              aria-hidden
+              className={cx(
+                "block h-1 rounded-full transition-colors duration-300",
+                p.state === "done" ? "bg-ink" : p.state === "waiting" ? "bg-yellow" : p.state === "running" ? "bg-ink/40" : p.state === "stopped" ? "bg-danger" : "bg-line",
+              )}
+            />
+            <span className={cx("mt-1.5 block truncate text-[0.75rem]", p.state === "todo" ? "text-subtle" : "text-ink-soft")}>
+              {p.label}
+              <span className="sr-only">: {p.state === "todo" ? "not started" : p.state}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
     </section>
   );
 }
 
-// ---------------------------------------------------------------- panou lateral (contestație nouă)
+/** The full trace: every step with its model, timing bar and summary. Lives in a side sheet. */
+export function StepList({ rows: input, settled = false }: { rows: StepRow[]; settled?: boolean }) {
+  const rows = settled ? input.map((r) => (r.status === "idle" ? { ...r, status: "skipped" } : r)) : input;
+  const now = useNowTick(500);
+  const { t0, t1, total } = timing(rows, now);
+  const span = t0 && t1 && t1 > t0 ? t1 - t0 : 1;
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const phases = PHASES.map((p) => ({ ...p, rows: p.ids.map((id) => byId.get(id)).filter(Boolean) as StepRow[] })).filter((p) => p.rows.length);
+  const known = new Set(PHASES.flatMap((p) => p.ids));
+  const extra = rows.filter((r) => !known.has(r.id));
+  if (extra.length) phases.push({ id: "other", label: "Other steps", doing: "", ids: extra.map((r) => r.id), rows: extra });
 
-export function Sheet({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+  return (
+    <div>
+      <p className="tnum text-[0.9333rem] text-muted">{rows.length} steps{total ? ` · ${total} end to end` : ""}</p>
+      <ol className="mt-3">
+        {phases.map((phase) => (
+          <li key={phase.id} className="border-t border-line py-3 first:border-t-0">
+            <p className="pb-1.5 text-[0.8rem] font-medium text-muted">{phase.label}</p>
+            <ul className="flex flex-col gap-1">
+              {phase.rows.map((r) => {
+                const end = r.status === "running" ? now : r.end;
+                const left = t0 && r.start ? ((r.start - t0) / span) * 100 : 0;
+                const width = r.start && end ? Math.max(((end - r.start) / span) * 100, 1.5) : 0;
+                return (
+                  <li key={r.id} className="grid grid-cols-[1rem_minmax(0,1fr)_4rem] items-start gap-x-3 py-1.5" title={r.hint}>
+                    <span className="mt-0.5"><StepIcon status={r.status} /></span>
+                    <div className="min-w-0">
+                      <p className="flex items-baseline gap-2">
+                        <span className={cx("text-[0.9333rem] font-medium", r.status === "idle" && "text-muted")}>{r.label}</span>
+                        <span className="text-[0.75rem] text-subtle">{r.model}</span>
+                      </p>
+                      <div className="mt-1.5 h-1 rounded-full bg-hover" aria-hidden>
+                        {width > 0 && (
+                          <div
+                            className={cx("h-1 rounded-full", r.status === "running" || r.status === "waiting" ? "bg-yellow" : r.status === "blocked" || r.status === "error" ? "bg-danger" : "bg-ink/70")}
+                            style={{ marginLeft: `${Math.min(left, 98)}%`, width: `${Math.min(width, 100 - Math.min(left, 98))}%` }}
+                          />
+                        )}
+                      </div>
+                      {r.summary && r.status !== "idle" && <p className="mt-1.5 line-clamp-2 text-[0.8667rem] text-muted">{r.summary}</p>}
+                    </div>
+                    <span className="tnum text-right text-[0.8rem] text-muted">
+                      {r.start && end ? secondsText(end - r.start) : STEP_STATUS_LABEL[r.status] ?? ""}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- side sheet
+
+export function Sheet({ title, onClose, children, footer, description }: {
+  title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; description?: ReactNode;
+}) {
   const ref = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     ref.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
       prev?.focus?.();
     };
-  }, [onClose]);
+  }, []);
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={title}>
-      <button type="button" aria-label="Închide" className="absolute inset-0 bg-ink/35" onClick={onClose} />
-      <div ref={ref} tabIndex={-1} className="absolute inset-y-0 right-0 flex w-full max-w-[34rem] flex-col bg-paper shadow-[var(--shadow-overlay)] outline-none animate-enter">
-        <header className="flex items-center justify-between border-b border-line px-5 py-4">
-          <h2 className="text-[1.15rem] font-bold">{title}</h2>
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Închide"><X className="size-4" /></Button>
+      <button type="button" aria-label="Close" className="absolute inset-0 bg-ink/25 animate-[fade-in_200ms_var(--ease-out)]" onClick={onClose} />
+      <div
+        ref={ref}
+        tabIndex={-1}
+        className="absolute inset-y-2 right-2 flex w-[calc(100%-1rem)] max-w-[32rem] flex-col rounded-2xl bg-paper shadow-[var(--shadow-overlay)] outline-none animate-[sheet-in_300ms_var(--ease-drawer)]"
+      >
+        <header className="flex items-start justify-between gap-4 px-6 pt-5 pb-3">
+          <div>
+            <h2 className="text-[1.15rem] font-semibold">{title}</h2>
+            {description && <p className="mt-0.5 text-[0.9333rem] text-muted">{description}</p>}
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="grid size-8 place-items-center rounded-full text-muted transition-colors hover:bg-hover hover:text-ink">
+            <X size={16} />
+          </button>
         </header>
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
-        {footer && <footer className="flex justify-end gap-2 border-t border-line px-5 py-3">{footer}</footer>}
+        <div className="flex-1 overflow-y-auto px-6 pb-6">{children}</div>
+        {footer && <footer className="flex justify-end gap-2 border-t border-line px-6 py-4">{footer}</footer>}
       </div>
     </div>
   );

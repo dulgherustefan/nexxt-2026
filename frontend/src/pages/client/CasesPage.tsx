@@ -1,10 +1,10 @@
-import { DeviceMobile, Play, Plus } from "@phosphor-icons/react";
-import { useMemo, useState } from "react";
+import { CheckCircle, DeviceMobile, Hourglass, Play, Plus, Signature, Spinner } from "@phosphor-icons/react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { dateTime, duration, hasAmount, money, verdictLabel } from "../../api/format";
 import { useApi, useResource } from "../../api/runtime";
 import type { CaseSummary, Stats } from "../../api/types";
-import { Button, cx, DeadlineText, EmptyState, ErrorNote, PageHeader, Skeleton, Tabs } from "../../ui/kit";
+import { Button, cx, DeadlineText, EmptyState, ErrorNote, PageHeader, Skeleton } from "../../ui/kit";
 import { caseStatus, scenarioLabel, StatusLine } from "./caseUi";
 
 type Filter = "you" | "running" | "today" | "closed" | "all";
@@ -71,7 +71,7 @@ export default function CasesPage() {
     <>
       <PageHeader
         title="Cases"
-        description="Most urgent first. You only approve the exceptions."
+        description={<>Most urgent first. You only approve the exceptions{stats.data?.avg_decision_seconds ? <>; a decision takes <span className="tnum">{duration(stats.data.avg_decision_seconds)}</span> on average</> : null}.</>}
         actions={
           <>
             <Button icon={<Play size={14} weight="fill" />} busy={starting} onClick={() => startCase("demo_t1")}>Run demo case</Button>
@@ -81,24 +81,20 @@ export default function CasesPage() {
       />
       {startError && <div className="mb-5"><ErrorNote error={startError} what="the new case" onRetry={() => startCase("demo_t1")} /></div>}
 
-      <Summary stats={stats.data} counts={counts} />
+      <Lanes stats={stats.data} counts={counts} value={filter} onChange={setFilter} loading={!cases.data} />
 
-      <div className="mt-8">
-        <Tabs<Filter>
-          label="Filter cases"
-          value={filter}
-          onChange={setFilter}
-          tabs={[
-            { id: "all", label: "All", count: counts.all },
-            { id: "you", label: "Needs approval", count: counts.you },
-            { id: "running", label: "In progress", count: counts.running },
-            { id: "today", label: "Due within 24 h", count: counts.today },
-            { id: "closed", label: "Closed", count: counts.closed },
-          ]}
-        />
+      <div className="mt-8 mb-3 flex items-baseline justify-between gap-4">
+        <h2 className="text-[1.1rem] font-semibold tracking-[-0.015em]">
+          {LANE_TITLE[filter]} <span className="tnum font-normal text-muted">{filter === "all" ? counts.all : visible.length}</span>
+        </h2>
+        {filter !== "all" && (
+          <button type="button" onClick={() => setFilter("all")} className="text-[0.9333rem] font-medium text-ink-soft underline decoration-line-strong underline-offset-2 transition-colors hover:text-ink hover:decoration-ink">
+            Show all cases
+          </button>
+        )}
       </div>
 
-      <div className="mt-4">
+      <div>
         {cases.error && !cases.data ? (
           <ErrorNote error={cases.error} what="the cases" onRetry={cases.reload} />
         ) : !cases.data ? (
@@ -121,7 +117,7 @@ export default function CasesPage() {
         ) : visible.length === 0 ? (
           <EmptyState title="Nothing in this view">Pick another filter, or go back to All.</EmptyState>
         ) : (
-          <CaseList cases={visible} onOpen={(id) => navigate(caseHref(id))} />
+          <div key={filter} className="animate-enter"><CaseList cases={visible} onOpen={(id) => navigate(caseHref(id))} /></div>
         )}
       </div>
       {cases.error && cases.data && (
@@ -132,33 +128,66 @@ export default function CasesPage() {
   );
 }
 
-// ---------------------------------------------------------------- summary card
+// ---------------------------------------------------------------- the four lanes: what needs a person, what is urgent, what runs, what is done
 
-function Summary({ stats, counts }: { stats?: Stats; counts: Record<Filter, number> }) {
-  const refunded = stats ? money(stats.amount_refunded) : null;
-  const parts = [
-    counts.you ? `${counts.you} need${counts.you === 1 ? "s" : ""} approval` : null,
-    counts.running ? `${counts.running} in progress` : null,
-    stats?.deadlines_at_risk ? `${stats.deadlines_at_risk} at risk of missing the deadline` : null,
-  ].filter(Boolean);
+const LANE_TITLE: Record<Filter, string> = {
+  all: "All cases",
+  you: "Waiting for you",
+  today: "Due within 24 hours",
+  running: "In progress",
+  closed: "Closed",
+};
+
+function Lanes({ stats, counts, value, onChange, loading }: {
+  stats?: Stats; counts: Record<Filter, number>; value: Filter; onChange: (f: Filter) => void; loading: boolean;
+}) {
+  const lanes: Array<{ id: Filter; icon: ReactNode; title: string; note: string; strong?: boolean }> = [
+    {
+      id: "you", icon: <Signature size={18} />, title: "Waiting for you",
+      note: counts.you ? "Approve a refund or pick a payment" : "Nothing to sign", strong: counts.you > 0,
+    },
+    {
+      id: "today", icon: <Hourglass size={18} />, title: "Due within 24 h",
+      note: stats?.deadlines_at_risk ? `${stats.deadlines_at_risk} with under 6 hours left` : "Under 24 hours left to refund",
+    },
+    { id: "running", icon: <Spinner size={18} />, title: "In progress", note: "The agents are working on them" },
+    {
+      id: "closed", icon: <CheckCircle size={18} />, title: "Closed",
+      note: stats ? `${money(stats.amount_refunded)} refunded` : "Refunded, rejected or signed",
+    },
+  ];
   return (
-    <section aria-label="Summary" className="grid gap-6 rounded-2xl bg-yellow px-6 py-5 text-on-yellow md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-      <div>
-        <p className="text-[0.9333rem] font-medium text-on-yellow-muted">Refunded so far</p>
-        {refunded ? (
-          <p className="mt-1 text-[2.2rem] leading-none font-semibold tracking-[-0.03em]">{refunded}</p>
-        ) : (
-          <div aria-hidden className="mt-2 h-9 w-56 animate-pulse rounded-md bg-on-yellow/10" />
-        )}
-        <p className="mt-2.5 text-[0.9333rem] text-on-yellow-muted">
-          {stats ? `${stats.refunded} of ${stats.cases_total} case${stats.cases_total === 1 ? "" : "s"} refunded` : " "}
-          {stats?.avg_decision_seconds ? ` · average time to a decision ${duration(stats.avg_decision_seconds)}` : ""}
-        </p>
-      </div>
-      <p className="text-[0.9333rem] font-medium md:text-right">
-        {parts.length ? parts.join(" · ") : counts.all ? "Nothing waiting on you." : ""}
-      </p>
-    </section>
+    <div role="group" aria-label="Filter cases" className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-4">
+      {lanes.map((l) => {
+        const on = value === l.id;
+        return (
+          <button
+            key={l.id}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(on ? "all" : l.id)}
+            className={cx(
+              "press group flex min-w-0 flex-col gap-2 rounded-xl px-3.5 py-3 text-left sm:gap-3 sm:px-4 sm:py-3.5 transition-[background-color,box-shadow] duration-150",
+              l.strong
+                ? "bg-yellow text-on-yellow hover:bg-yellow-hover"
+                : "bg-paper shadow-[var(--shadow-card)] hover:bg-hover",
+              on && (l.strong ? "ring-2 ring-on-yellow ring-offset-2 ring-offset-paper" : "ring-2 ring-ink"),
+            )}
+          >
+            <span className="flex items-center justify-between gap-3">
+              <span className={cx("truncate text-[0.8667rem] font-medium sm:text-[0.9333rem]", !l.strong && "text-ink-soft")}>{l.title}</span>
+              <span className={cx(l.strong ? "text-on-yellow" : "text-subtle")}>{l.icon}</span>
+            </span>
+            <span className="flex items-baseline gap-2">
+              {loading
+                ? <span aria-hidden className="h-8 w-10 animate-pulse rounded-md bg-hover" />
+                : <span className="tnum text-[1.9rem] leading-none font-semibold tracking-[-0.03em]">{counts[l.id]}</span>}
+            </span>
+            <span className={cx("hidden truncate text-[0.8rem] sm:block", l.strong ? "text-on-yellow-muted" : "text-muted")}>{l.note}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

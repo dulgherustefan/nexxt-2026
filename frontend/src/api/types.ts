@@ -664,9 +664,12 @@ export interface KbAnswer {
 }
 
 export interface KbStats {
-  chunks: Record<string, number>;
+  /** The server sends the total here and the split in `by_kind`; the offline build sends the split here. */
+  chunks: number | Record<string, number>;
+  by_kind?: Record<string, number>;
   embedding_model?: string | null;
   dense?: boolean;
+  dense_available?: boolean;
   built_at?: ISODate | null;
 }
 
@@ -755,12 +758,17 @@ export interface VerifyCheck {
 export interface VerifyResult {
   valid: boolean;
   checks: VerifyCheck[];
+  count?: number;
+  sealed?: boolean;
+  root?: string;
+  verified_at?: ISODate;
 }
 
 export interface LedgerResponse {
   facts: Fact[];
   seal: Seal | null;
   verify: VerifyResult;
+  sealed?: boolean;
 }
 
 export interface RuleCatalogEntry {

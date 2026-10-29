@@ -21,6 +21,7 @@ import { useApi, useResource, useRuntime } from "../api/runtime";
 import { cx, Dot } from "../ui/kit";
 import { Logo, LogoMark } from "../ui/Logo";
 import { ThemeToggle, usePageTheme } from "../ui/ThemeToggle";
+import { caseStatus } from "../pages/client/caseUi";
 import { PhoneDemoDialog } from "./PhoneDemo";
 
 interface NavItem {
@@ -90,14 +91,15 @@ function SystemStatus() {
   );
 }
 
+/** The same count as the "Waiting for you" lane: approvals, payments to pick and missing details. */
 function NeedsYou({ active }: { active: boolean }) {
   const api = useApi();
   const { zone } = useRuntime();
-  const stats = useResource(zone === "client" ? () => api.stats() : null, [zone], { pollMs: 8000 });
-  const n = stats.data?.awaiting_human ?? 0;
+  const cases = useResource(zone === "client" ? () => api.cases() : null, [zone], { pollMs: 8000 });
+  const n = (cases.data ?? []).filter((c) => caseStatus(String(c.status), c.requires_human, c.verdict).group === "you").length;
   if (!n) return null;
   return (
-    <span className={cx("tnum ml-auto grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[0.75rem] font-semibold", active ? "bg-on-yellow text-yellow" : "bg-yellow text-on-yellow")} title={`${n} waiting for approval`}>
+    <span className={cx("tnum ml-auto grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[0.75rem] font-semibold", active ? "bg-on-yellow text-yellow" : "bg-yellow text-on-yellow")} title={`${n} waiting for you`}>
       {n}
     </span>
   );

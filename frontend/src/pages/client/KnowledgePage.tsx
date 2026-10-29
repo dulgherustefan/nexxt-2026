@@ -2,7 +2,7 @@ import { BookOpenText, CaretDown, MagnifyingGlass, Warning } from "@phosphor-ico
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { dateTime, num, plural } from "../../api/format";
 import { useApi, useResource, useRuntime } from "../../api/runtime";
-import type { KbAnswer, KbHit } from "../../api/types";
+import type { KbAnswer, KbHit, KbStats } from "../../api/types";
 import { Button, cx, EmptyState, ErrorNote, PageHeader, Skeleton, Tabs } from "../../ui/kit";
 import { CitedText, HitList, HitRow, PassageSheet } from "./knowledgeUi";
 
@@ -261,9 +261,10 @@ function ResultSkeleton({ ask }: { ask: boolean }) {
   );
 }
 
-function StatsLine({ stats }: { stats?: { chunks?: Record<string, number>; embedding_model?: string | null; dense?: boolean; built_at?: string | null } }) {
-  if (!stats?.chunks) return null;
-  const entries = Object.entries(stats.chunks).filter(([, n]) => typeof n === "number" && n > 0);
+function StatsLine({ stats }: { stats?: KbStats }) {
+  const split = stats?.by_kind ?? (typeof stats?.chunks === "object" ? stats.chunks : undefined);
+  if (!stats || !split) return null;
+  const entries = Object.entries(split).filter(([, n]) => typeof n === "number" && n > 0);
   const total = entries.reduce((s, [, n]) => s + n, 0);
   const parts = entries.map(([k, n]) => {
     const [one, many] = KIND_PLURAL[k] ?? [k.replace(/_/g, " "), k.replace(/_/g, " ")];
@@ -272,7 +273,7 @@ function StatsLine({ stats }: { stats?: { chunks?: Record<string, number>; embed
   return (
     <p className="mt-12 text-[0.8rem] leading-relaxed text-subtle">
       {num(total)} passages: {parts.join(", ")}.{" "}
-      {stats.dense === false ? "Keyword search only." : `Meaning search on${stats.embedding_model ? ` (${stats.embedding_model})` : ""}.`}
+      {(stats.dense_available ?? stats.dense) === false ? "Keyword search only." : `Search by keyword and by meaning${stats.embedding_model ? ` (${stats.embedding_model})` : ""}.`}
       {stats.built_at ? ` Index built ${dateTime(stats.built_at)}.` : ""}
     </p>
   );

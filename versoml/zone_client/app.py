@@ -12,7 +12,7 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -396,6 +396,16 @@ def demo_reset() -> dict:
 
 
 MCP_APP = None
+
+
+@app.get("/mcp", include_in_schema=False)
+def mcp_page(request: Request):
+    """`/mcp` is also the console page that explains MCP: a browser gets the website, an MCP client goes to `/mcp/`.
+    Declared before the mount, so it wins for the bare path only."""
+    index = DIST / "index.html"
+    if "text/html" in request.headers.get("accept", "") and index.exists():
+        return FileResponse(index)
+    return RedirectResponse("/mcp/", status_code=307)
 
 
 def _mount_mcp() -> None:

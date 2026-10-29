@@ -41,7 +41,7 @@ AML_ACTIONS = ["aml.graph.neighborhood", "aml.osint.web_search", "aml.osint.news
                "aml.osint.dns_records", "aml.osint.lookalike_score", "aml.osint.fetch_page",
                "aml.osint.openphish_check", "aml.osint.phone_intel", "aml.osint.validate_iban"]
 MCP_CLIENT = ["mcp.rules.catalog", "mcp.rules.deadline", "mcp.ledger.verify", "mcp.cases.read", "mcp.cases.create",
-              "mcp.cases.approve", "mcp.rules.evaluate", "mcp.wall.read", "letters.check_letter",
+              "mcp.cases.propose", "mcp.rules.evaluate", "mcp.wall.read", "letters.check_letter",
               "domain-intel.lookalike_score"]
 MCP_AML = ["mcp.rules.catalog", "mcp.rules.deadline", "mcp.ledger.verify", "aml.leads.read", "aml.leads.decide",
            "aml.osint.web_search", "aml.osint.anaf_company", "aml.sanctions.screen"]
@@ -118,6 +118,38 @@ def test_nobody_else_can_refund(principal):
 
 def test_motor_reguli_cannot_refund_in_aml_zone():
     assert not allowed("MotorReguli", "refund.issue", Zone.AML, {"approved_by_human": True})
+
+
+# ------------------------------------------------------------ semnătura umană
+
+SIGNOFF = ["cases.approve", "mcp.cases.approve", "rules.set_params"]
+
+
+@pytest.mark.parametrize("principal", [p for p in ALL_PRINCIPALS if p != "Operator"] + ["Necunoscut/X"])
+def test_only_a_person_signs_or_changes_the_rules(principal):
+    for action, zone in itertools.product(SIGNOFF, Zone):
+        decision = decide(principal, action, zone, {"approved_by_human": True})
+        assert not decision.allowed, (principal, action, zone)
+    ref = parse_principal(principal)
+    if ref.type in ("Mcp", "Agent", "System"):
+        decision = decide(principal, "cases.approve", Zone.CLIENT)
+        assert "only-a-person-signs" in decision.policy_ids
+
+
+def test_an_operator_signs_in_the_client_zone_only():
+    assert allowed("Operator", "cases.approve", Zone.CLIENT) and allowed("Operator", "rules.set_params", Zone.CLIENT)
+    assert not allowed("Operator", "cases.approve", Zone.AML)
+    assert not allowed("Operator", "mcp.cases.approve", Zone.CLIENT)  # the MCP form is nobody's
+
+
+def test_an_mcp_client_proposes_but_never_approves():
+    approve = authorize("Mcp/client", "mcp.cases.approve", Zone.CLIENT, {"via": "mcp"})
+    assert not approve.allowed and approve.policy_ids == ["only-a-person-signs"]
+    assert "MCP client" in approve.reason and "propose" in approve.reason
+    assert allowed("Mcp/client", "mcp.cases.propose", Zone.CLIENT)
+    assert not allowed("Mcp/aml", "mcp.cases.propose", Zone.CLIENT)
+    for agent in JUDGES:
+        assert not allowed(agent, "cases.approve", Zone.CLIENT, {"approved_by_human": True})
 
 
 # ------------------------------------------------------------ dioda

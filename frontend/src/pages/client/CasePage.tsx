@@ -478,6 +478,10 @@ const SIGN_COPY: Record<string, { yes: string; no: string; consequence: string }
   EXCEPTIE_FRAUDA_CLIENT: { yes: "Confirm exception", no: "Don’t confirm, refund", consequence: "No refund for now. Only use this if the authorities have been notified." },
 };
 
+// The reason sent with a signature until the console lets the person pick one (approve: the facts support the
+// decision; reject: they do not).
+const DEFAULT_REASON = { approve: "FACTS_CONFIRMED", reject: "FACTS_DISPUTED" } as const;
+
 interface Signature {
   copy: { yes: string; no: string; consequence: string };
   busy: "approve" | "reject" | null;
@@ -499,7 +503,8 @@ function useSignature(d: CaseDetail | undefined, caseId: string, onDone: () => P
     setBusy(action);
     setError(null);
     try {
-      await api.approve(caseId, { action, approver: "OPERATOR-01" });
+      // the signer is the console's operator session; the token binds the signature to the decision on screen
+      await api.approve(caseId, { action, reason_code: DEFAULT_REASON[action], approval_token: it?.approval_token ?? undefined });
       await onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : "The signature wasn’t recorded");

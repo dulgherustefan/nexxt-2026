@@ -52,6 +52,8 @@ RULES: tuple[Rule, ...] = (
      and (_ctx_true(r, "within_auto_cap") or _ctx_true(r, "approved_by_human"))),
     ("mcp-client-tools", "permit",
      lambda r: r.is_("Mcp", "client") and "mcp_client_tools" in r.groups and r.zone == "client"),
+    ("operator-signoff", "permit",
+     lambda r: r.is_("Human", "Operator") and r.action in ("cases.approve", "rules.set_params") and r.zone == "client"),
     # zona AML
     ("aml-agents-tools", "permit",
      lambda r: r.role("aml_agent") and "aml_tools" in r.groups and r.zone == "aml"),
@@ -72,6 +74,7 @@ RULES: tuple[Rule, ...] = (
     ("facts-only-from-client", "forbid", lambda r: r.action == "diode.send_facts" and r.principal.zone != "client"),
     ("mcp-no-effects", "forbid",
      lambda r: r.principal.type == "Mcp" and ("client_effects" in r.groups or "diode" in r.groups)),
+    ("only-a-person-signs", "forbid", lambda r: "signoff" in r.groups and r.principal.type != "Human"),
 )
 
 

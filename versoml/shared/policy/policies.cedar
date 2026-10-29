@@ -33,6 +33,15 @@ when {
 @id("mcp-client-tools")
 permit (principal == Mcp::"client", action in Action::"mcp_client_tools", resource == Zone::"client");
 
+// O semnătură pe decizia unui caz și o schimbare a parametrilor regulilor: operatorul uman, dintr-o sesiune
+// semnată (serviciul verifică sesiunea și rolul ei înainte să întrebe).
+@id("operator-signoff")
+permit (
+  principal == Human::"Operator",
+  action in [Action::"cases.approve", Action::"rules.set_params"],
+  resource == Zone::"client"
+);
+
 // ------------------------------------------------------------------ zona AML
 
 @id("aml-agents-tools")
@@ -83,3 +92,8 @@ unless { principal has zone && principal.zone == "client" };
 
 @id("mcp-no-effects")
 forbid (principal is Mcp, action in [Action::"client_effects", Action::"diode"], resource);
+
+// Doar un om semnează. Un client MCP sau un agent LLM poate propune o decizie (mcp.cases.propose), nu o aprobă.
+@id("only-a-person-signs")
+forbid (principal, action in Action::"signoff", resource)
+unless { principal is Human };

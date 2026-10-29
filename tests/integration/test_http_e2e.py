@@ -67,6 +67,12 @@ def zones(tmp_path_factory):
                 p.kill()
 
 
+def _operator(client: str) -> dict:
+    """The console's demo operator session, as the website gets it."""
+    token = httpx.post(f"{client}/api/session/demo", timeout=10).json()["token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
 def _until(fn, timeout: float = 120, every: float = 0.5):
     deadline = time.time() + timeout
     last = None
@@ -91,22 +97,37 @@ def test_demo_flow_refund_and_aml_lead(zones):
     case_id = httpx.post(f"{client}/api/bank/CUST-DEMO-01/dispute",
                          json={"transaction_id": tx["transaction_id"], "text": None}, timeout=30).json()["case_id"]
 
+    operator = _operator(client)
+    signed = []
+
     def finished():
         detail = httpx.get(f"{client}/api/cases/{case_id}", timeout=10).json()
-        if detail["interrupt"].get("pending"):
-            httpx.post(f"{client}/api/cases/{case_id}/approve", json={"action": "approve", "approver": "OPERATOR-TEST"})
+        token = detail["interrupt"].get("approval_token")
+        if detail["interrupt"].get("pending") and token:
+            # without a session the signature is refused; the body's approver is never the signer
+            assert httpx.post(f"{client}/api/cases/{case_id}/approve",
+                              json={"action": "approve", "approver": "OPERATOR-90"}).status_code == 401
+            signed.append(httpx.post(f"{client}/api/cases/{case_id}/approve", headers=operator,
+                                     json={"action": "approve", "approval_token": token}).status_code)
         return detail if detail["ledger"].get("sealed") else None
 
     detail = _until(finished, timeout=180)
     assert detail, "cazul nu s-a terminat"
+    assert all(code == 200 for code in signed)
     t1 = next(d for d in detail["decisions"] if d["question"] == "rambursare_t1")
     assert t1["decision"] in ("RAMBURSEAZA", "RAMBURSEAZA_CU_APROBARE")
     assert detail["summary"]["status"] == "RAMBURSAT"
     assert all(d["rule_ids"] for d in detail["decisions"])
     bank = httpx.get(f"{client}/api/bank/CUST-DEMO-01").json()
     assert any(n["text"].startswith("We refunded RON ") for n in bank["notifications"])
-    verify = httpx.get(f"{client}/api/ledger/{case_id}").json()["verify"]
+    assert httpx.get(f"{client}/api/ledger/{case_id}").status_code == 401
+    verify = httpx.get(f"{client}/api/ledger/{case_id}", headers=operator).json()["verify"]
     assert verify["valid"] is True
+    # the seal's QR code: {site}/verify/{case_id}#{root}; the public check answers only to that root
+    root = detail["ledger"]["root"]
+    check = httpx.post(f"{client}/api/verify/seal", json={"case_id": case_id, "root": root}).json()
+    assert check["intact"] and check["signature_valid"] and "facts" not in check
+    assert httpx.post(f"{client}/api/verify/seal", json={"case_id": case_id, "root": "0" * 64}).status_code == 404
 
     leads = _until(lambda: httpx.get(f"{aml}/api/aml/leads").json(), timeout=60)
     assert leads, "pista AML nu a apărut prin diodă"
@@ -167,7 +188,7 @@ def test_free_form_case_without_identifiers_takes_the_declared_path(zones):
     assert {"scenario_phrase", "approved_by", "approved_at"} <= set(detail["summary"])
     assert isinstance(httpx.get(f"{client}/api/cases/{case_id}/precedents").json(), list)
     assert httpx.get(f"{client}/api/cases/CT-2026-000000/precedents").status_code == 404
-    bad = httpx.post(f"{client}/api/cases/{case_id}/approve", json={"action": "pay_now"})
+    bad = httpx.post(f"{client}/api/cases/{case_id}/approve", json={"action": "pay_now"}, headers=_operator(client))
     assert bad.status_code == 400
 
 

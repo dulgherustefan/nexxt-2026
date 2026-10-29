@@ -26,6 +26,7 @@ import type {
   McpInfo,
   Meta,
   MoneyGraph,
+  OperatorInfo,
   OsintKind,
   OsintResult,
   PolicyDecision,
@@ -34,6 +35,7 @@ import type {
   RuleCatalogEntry,
   RuleParams,
   ScenarioInfo,
+  SealCheck,
   Stats,
   VerifyResult,
   WallState,
@@ -54,7 +56,7 @@ export interface Api {
   caseDetail(id: string): Promise<CaseDetail>; // GET /api/cases/{id}
   runCase(id: string): Promise<{ run_id: string }>; // POST /api/cases/{id}/run
   caseEvents(id: string): StreamSource; // GET /api/cases/{id}/events (SSE)
-  approve(id: string, body: ApproveBody): Promise<{ ok: boolean; status: string }>; // POST /api/cases/{id}/approve
+  approve(id: string, body: ApproveBody): Promise<{ ok: boolean; status: string }>; // POST /api/cases/{id}/approve (operator session)
   precedents(id: string): Promise<Precedent[]>; // GET /api/cases/{id}/precedents
   intakePreview(body: IntakePreviewBody): Promise<IntakePreview>; // POST /api/intake/preview
   customers(q: string): Promise<CustomerHit[]>; // GET /api/customers?q=
@@ -63,11 +65,12 @@ export interface Api {
   kbStats(): Promise<KbStats>; // GET /api/kb/stats
   counterfactual(id: string, body: { field: string; value: unknown }): Promise<CounterfactualResult>; // POST /api/cases/{id}/counterfactual
   letterCheck(id: string, body: { body: string }): Promise<FilterResult>; // POST /api/cases/{id}/letter/check
-  ledger(caseId: string): Promise<LedgerResponse>; // GET /api/ledger/{case_id}
+  ledger(caseId: string): Promise<LedgerResponse>; // GET /api/ledger/{case_id} (operator session)
   verify(dossier: unknown): Promise<VerifyResult>; // POST /api/verify
+  verifySeal(caseId: string, root: string): Promise<SealCheck>; // POST /api/verify/seal (public, needs the QR root)
   rules(): Promise<RuleCatalogEntry[]>; // GET /api/rules
   ruleParams(): Promise<RuleParams>; // GET /api/rules/params
-  putRuleParams(params: RuleParams): Promise<RuleParams>; // PUT /api/rules/params
+  putRuleParams(params: RuleParams): Promise<RuleParams>; // PUT /api/rules/params (operator session, rules role)
   wall(): Promise<WallState>; // GET /api/wall
   wallAttack(body: { kind: AttackKind; payload?: unknown }): Promise<AttackResult>; // POST /api/wall/attack
   evalReport(): Promise<Record<string, unknown>>; // GET /api/eval
@@ -148,7 +151,6 @@ export async function fetchJson<T>(path: string, init: RequestInit & { timeoutMs
 const enc = encodeURIComponent;
 const post = <T>(path: string, body?: unknown, timeoutMs?: number) =>
   fetchJson<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body), timeoutMs });
-const put = <T>(path: string, body: unknown) => fetchJson<T>(path, { method: "PUT", body: JSON.stringify(body) });
 const get = <T>(path: string) => fetchJson<T>(path);
 
 /** "?q=refund&k=6": empty values are left out. */
@@ -162,6 +164,74 @@ function query(params: Record<string, string | number | undefined | null>): stri
 // The intake preview and the grounded answer may call a model: give them longer than the default 20 s.
 const MODEL_TIMEOUT_MS = 60_000;
 
+// ---------------------------------------------------------------- the operator session
+
+/**
+ * Who signs in this console. Signatures, rule changes and the evidence file need a signed session from the server,
+ * sent as a bearer token; the signer is never taken from the request body. In demo mode the server names a demo
+ * operator for each console tab, and every signature made with it says it came from a demo session.
+ */
+interface SessionGrant {
+  token: string;
+  operator: OperatorInfo;
+}
+
+const SESSION_KEY = "versoml.operator.session";
+let grant: SessionGrant | null = null;
+let asking: Promise<SessionGrant> | null = null;
+
+function keep(next: SessionGrant | null): void {
+  grant = next;
+  try {
+    if (next) sessionStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    else sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* no sessionStorage: the session lives in memory for this page */
+  }
+}
+
+function stored(): SessionGrant | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as SessionGrant) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The console's operator session; a new demo one when there is none or it is about to expire. */
+export async function operatorSession(): Promise<SessionGrant> {
+  grant ??= stored();
+  if (grant && Date.parse(grant.operator.expires_at) - Date.now() > 60_000) return grant;
+  asking ??= fetchJson<SessionGrant>("/api/session/demo", { method: "POST" })
+    .then((next) => {
+      keep(next);
+      return next;
+    })
+    .finally(() => {
+      asking = null;
+    });
+  return asking;
+}
+
+/** A call made as the signed-in operator. A 401 (a restarted server, an expired session) gets one fresh session
+ * and one retry. */
+async function asOperator<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
+  const call = async () =>
+    fetchJson<T>(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${(await operatorSession()).token}` } });
+  try {
+    return await call();
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.status !== 401) throw err;
+    keep(null);
+    return call();
+  }
+}
+
+const opGet = <T>(path: string) => asOperator<T>(path);
+const opPost = <T>(path: string, body: unknown) => asOperator<T>(path, { method: "POST", body: JSON.stringify(body) });
+const opPut = <T>(path: string, body: unknown) => asOperator<T>(path, { method: "PUT", body: JSON.stringify(body) });
+
 export function createHttpApi(): Api {
   return {
     mode: "live",
@@ -173,7 +243,7 @@ export function createHttpApi(): Api {
     caseDetail: (id) => get(`/api/cases/${enc(id)}`),
     runCase: (id) => post(`/api/cases/${enc(id)}/run`),
     caseEvents: (id) => (h) => openEventStream(`/api/cases/${enc(id)}/events`, h),
-    approve: (id, body) => post(`/api/cases/${enc(id)}/approve`, body),
+    approve: (id, body) => opPost(`/api/cases/${enc(id)}/approve`, body),
     precedents: (id) => get(`/api/cases/${enc(id)}/precedents`),
     intakePreview: (body) => post("/api/intake/preview", body, MODEL_TIMEOUT_MS),
     customers: (q) => get(`/api/customers${query({ q })}`),
@@ -182,11 +252,12 @@ export function createHttpApi(): Api {
     kbStats: () => get("/api/kb/stats"),
     counterfactual: (id, body) => post(`/api/cases/${enc(id)}/counterfactual`, body),
     letterCheck: (id, body) => post(`/api/cases/${enc(id)}/letter/check`, body),
-    ledger: (caseId) => get(`/api/ledger/${enc(caseId)}`),
-    verify: (dossier) => post("/api/verify", dossier),
+    ledger: (caseId) => opGet(`/api/ledger/${enc(caseId)}`),
+    verify: (dossier) => opPost("/api/verify", dossier),
+    verifySeal: (caseId, root) => post("/api/verify/seal", { case_id: caseId, root }),
     rules: () => get("/api/rules"),
     ruleParams: () => get("/api/rules/params"),
-    putRuleParams: (params) => put("/api/rules/params", params),
+    putRuleParams: (params) => opPut("/api/rules/params", params),
     wall: () => get("/api/wall"),
     wallAttack: (body) => post("/api/wall/attack", body),
     evalReport: () => get("/api/eval"),

@@ -67,8 +67,11 @@ AML_TOOLS = (
 ANALYST_TOOLS = ("aml.leads.read", "aml.leads.decide", "ledger.read_aml")
 MCP_CLIENT_TOOLS = (
     "mcp.rules.catalog", "mcp.rules.deadline", "mcp.ledger.verify", "mcp.cases.read", "mcp.cases.create",
-    "mcp.cases.approve", "mcp.rules.evaluate", "mcp.wall.read", "letters.check_letter", "domain-intel.lookalike_score",
+    "mcp.cases.propose", "mcp.rules.evaluate", "mcp.wall.read", "letters.check_letter", "domain-intel.lookalike_score",
 )
+# A person's own acts: a signature on a case decision (approve, reject, pick the payment) and a change of the rules'
+# parameters. Only a human principal, from a signed operator session; an MCP client or an agent can only propose.
+SIGNOFF_ACTIONS = ("cases.approve", "mcp.cases.approve", "rules.set_params")
 MCP_AML_TOOLS = (
     "mcp.rules.catalog", "mcp.rules.deadline", "mcp.ledger.verify", "aml.leads.read", "aml.leads.decide",
     "aml.osint.web_search", "aml.osint.anaf_company", "aml.sanctions.screen",
@@ -79,12 +82,12 @@ DIODE_ACTIONS = ("diode.send_facts", "diode.send_hold")
 WILDCARDS = {"domain-intel.": "client_tools", "aml.graph.": "aml_tools", "aml.osint.": "aml_tools"}
 # Ce acțiuni aparțin unei zone (folosit de forbid-urile zidului, inclusiv pentru tool-uri necunoscute)
 CLIENT_ZONE_PREFIXES = ("bank-core.", "sca-logs.", "device.", "domain-intel.", "recall.", "letters.", "refund.")
-CLIENT_ZONE_EXACT = frozenset({"ledger.read_client", "diode.send_facts"})
+CLIENT_ZONE_EXACT = frozenset({"ledger.read_client", "diode.send_facts", "cases.approve", "rules.set_params"})
 AML_ZONE_PREFIXES = ("aml.",)
 AML_ZONE_EXACT = frozenset({"ledger.read_aml", "diode.send_hold"})
 
 GROUPS = ("client_tools", "client_effects", "aml_tools", "analyst_tools", "mcp_client_tools", "mcp_aml_tools",
-          "diode", "client_zone", "aml_zone")
+          "diode", "signoff", "client_zone", "aml_zone")
 ROOT_GROUP = "any_tool"
 
 _GROUP_MEMBERS = {
@@ -95,6 +98,7 @@ _GROUP_MEMBERS = {
     "mcp_client_tools": frozenset(MCP_CLIENT_TOOLS),
     "mcp_aml_tools": frozenset(MCP_AML_TOOLS),
     "diode": frozenset(DIODE_ACTIONS),
+    "signoff": frozenset(SIGNOFF_ACTIONS),
 }
 KNOWN_ACTIONS = tuple(sorted(set().union(*_GROUP_MEMBERS.values())))
 

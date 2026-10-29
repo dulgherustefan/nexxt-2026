@@ -47,6 +47,7 @@ POLICY_TEXT: dict[str, str] = {
     "motor-system-tools": "the rules engine reads the ledger, checks letters and sends facts through the diode",
     "motor-refund": "only the rules engine issues a refund, under the cap or after a person approves it",
     "mcp-client-tools": "the client zone's MCP client has only its own list of tools",
+    "operator-signoff": "a person signs case decisions and changes rule parameters, from a signed operator session",
     "aml-agents-tools": "the Investigator's agents use the AML zone tools",
     "analyst-aml-tools": "the AML analyst reads and decides the leads",
     "analyst-hold": "only the AML analyst, a person, sends the HOLD signal to the client zone",
@@ -60,6 +61,8 @@ POLICY_TEXT: dict[str, str] = {
     "hold-only-analyst": "only the AML analyst sends the HOLD signal",
     "facts-only-from-client": "facts cross the diode only from the client zone to the AML zone",
     "mcp-no-effects": "an MCP client never moves money and never uses the diode",
+    "only-a-person-signs": "only a person signs a decision or changes a rule parameter; an MCP client or an LLM "
+                           "agent can only propose a decision",
     "default-deny": "no policy allows the request (default deny)",
     "invalid-request": "the request is invalid (unknown zone or action name)",
 }

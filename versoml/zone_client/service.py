@@ -11,9 +11,11 @@ from typing import Any
 from langgraph.types import Command
 
 from versoml.contracts import (
-    Attachment, Channel, Complaint, DisputeFacts, HoldSignal, Question, RuleContext, Verdict, Zone,
+    Attachment, Channel, Complaint, DisputeFacts, HoldSignal, Labels, Question, RuleContext, Trust, Verdict, Zone,
 )
 from versoml.shared.events import Emitter, now
+from versoml.shared.policy import sessions
+from versoml.shared.policy.sessions import OperatorSession
 from versoml.zone_client import agents as A
 from versoml.zone_client import fmt
 from versoml.zone_client.graph import build_graph
@@ -43,6 +45,10 @@ QUESTION_LABELS = {"rambursare_t1": "the next-business-day refund", "recuperare_
 MANUAL_QUEUE = "COADA_MANUALA"
 # the refund (or the rejection) is settled: no deadline left to watch
 SETTLED = ("RAMBURSAT", "RESPINS", "EXCEPTIE", "INCHIS")
+# the ledger stream of rule parameter changes: who changed which parameter, from what to what, and when
+PARAMS_LOG = "RULES-PARAMS"
+# proposals from outside the console (MCP) kept per case: enough to read, too few to flood the ledger
+MAX_PROPOSALS = 5
 
 
 def deadline_escalation(doc: dict, at: datetime) -> dict | None:
@@ -286,19 +292,33 @@ class ClientService:
                            f"({fmt.fmt_datetime(deadline)}) still applies")
 
     async def approve(self, case_id: str, action: str, note: str | None = None, approver: str | None = None,
-                      tx_id: str | None = None, reason_code: str | None = None) -> dict:
+                      tx_id: str | None = None, reason_code: str | None = None, *,
+                      session: OperatorSession | None = None, approval_token: str | None = None) -> dict:
+        """A person's answer to a pending decision. From the console, `session` is the signed-in operator: the
+        approver is theirs, and a signature must echo the approval token of the decision it was shown."""
         doc = self.rt.cases.get(case_id) or {}
         pending = doc.get("interrupt") or {}
+        if not doc:
+            return {"ok": False, "code": "missing", "status": None, "detail": "No such case."}
         if not pending.get("pending") or pending.get("resuming"):
-            return {"ok": False, "status": doc.get("status"), "detail": "No decision needs approval."}
+            return {"ok": False, "code": "stale", "status": doc.get("status"),
+                    "detail": "No decision needs approval: it was answered or the case moved on. Reload the case."}
         picking = pending.get("kind") == "pick_transaction"
         if picking != (action == "pick_transaction"):
-            return {"ok": False, "status": doc.get("status"),
+            return {"ok": False, "code": "wrong_action", "status": doc.get("status"),
                     "detail": "Pick a payment (or none of these) first." if picking
                     else "This case waits for approve or reject, not for a payment pick."}
         if picking and tx_id is not None and tx_id not in {c.get("tx_id") for c in pending.get("candidates") or []}:
-            return {"ok": False, "status": doc.get("status"), "detail": "That payment is not one of the candidates."}
+            return {"ok": False, "code": "candidate", "status": doc.get("status"),
+                    "detail": "That payment is not one of the candidates."}
+        if session is not None:
+            refused = self._check_signer(case_id, doc, pending, action, session, approval_token)
+            if refused:
+                return {"ok": False, "status": doc.get("status"), **refused}
+            approver = session.operator_id
         answer = {"action": action, "note": note, "approver": approver or "OPERATOR-01"}
+        if session is not None:
+            answer["session"] = {k: session.public()[k] for k in ("session_id", "operator_id", "demo")}
         if picking:
             answer["tx_id"] = tx_id
         else:
@@ -306,14 +326,158 @@ class ClientService:
             # person answered), sealed in the ledger with it
             reason = A.signature_reason(action, reason_code, note, pending.get("prompt"))
             if "error" in reason:
-                return {"ok": False, "status": doc.get("status"), "detail": reason["error"]}
+                return {"ok": False, "code": "reason", "status": doc.get("status"), "detail": reason["error"]}
             answer.update(reason)
+        if session is not None:
+            try:
+                self._record_session(case_id, pending, action, session, approval_token)
+            except Exception as exc:  # noqa: BLE001 - no signature without its record in the ledger
+                log.warning("session fact for %s: %s", case_id, type(exc).__name__)
+                return {"ok": False, "code": "ledger", "status": doc.get("status"),
+                        "detail": "The signature could not be written to the evidence file, so nothing was signed."}
         # one resume per thread: a double click does not start two resumes of the same graph
         self.rt.cases.update(case_id, {"interrupt": {**pending, "resuming": True}})
         run_id = doc.get("run_id", "run")
         resume = Command(resume=answer)
         self._spawn(self._drive(case_id, run_id, resume))
         return {"ok": True, "status": "IN_ANALIZA"}
+
+    @staticmethod
+    def approval_token(doc: dict) -> str | None:
+        """The token of the decision a case waits on, bound to what the console shows with it. None when nothing
+        waits for a person."""
+        pending = doc.get("interrupt") or {}
+        if not doc.get("case_id") or not pending.get("pending") or pending.get("resuming"):
+            return None
+        return sessions.approval_token(doc["case_id"], doc.get("run_id"), pending)
+
+    def _check_signer(self, case_id: str, doc: dict, pending: dict, action: str, session: OperatorSession,
+                      token: str | None) -> dict | None:
+        """Why this operator cannot send this answer now ({code, detail}), or None when they can."""
+        if not session.has(sessions.APPROVER):
+            return {"code": "role", "detail": f"{session.operator_id} has no approver role, so cannot sign decisions."}
+        decision = self.rt.authorize("Operator", "cases.approve", Zone.CLIENT,
+                                     {"case_id": case_id, "demo_session": session.demo})
+        if not decision.allowed:
+            return {"code": "policy", "detail": decision.reason}
+        # a payment pick binds to its candidates when the console sends the token; a signature always sends it
+        if action != "pick_transaction" or token:
+            if not token:
+                return {"code": "token", "detail": "Send the approval_token that came with the decision, so the "
+                                                   "signature is bound to what you were shown."}
+            if not sessions.same_token(token, self.approval_token(doc)):
+                return {"code": "token", "detail": "The decision changed since you opened it (verdict, amount or "
+                                                   "deadline). Reload the case and sign what it shows now."}
+        if action != "pick_transaction":
+            clash = self._separation_of_duties(case_id, session)
+            if clash:
+                return {"code": "separation_of_duties", "detail": clash}
+        return None
+
+    def _record_session(self, case_id: str, pending: dict, action: str, session: OperatorSession,
+                        token: str | None) -> None:
+        """The session behind an answer goes into the ledger before the graph resumes, a demo one marked as such."""
+        what = pending.get("verdict") or ("payment pick" if pending.get("kind") == "pick_transaction" else "case")
+        how = "a demo session, not the bank's sign-in" if session.demo else "a signed operator session"
+        content = {"operator": session.public(), "action": action, "kind": pending.get("kind"),
+                   "verdict": pending.get("verdict"), "amount": pending.get("amount"),
+                   "deadline": pending.get("deadline"), "approval_token": "matched" if token else "not sent"}
+        self.rt.ledger.append(case_id, "human.session", "console.session", {"session_id": session.session_id},
+                              content, f"{session.operator_id} answered {action} on the {what} decision, from {how}")
+
+    # ------------------------------------------------------------ separation of duties
+
+    def _params_setters(self, until: datetime) -> dict[str, dict]:
+        """Who set each rule parameter that was in effect at `until`: the last change before then. Putting a
+        parameter back to its default (the reviewed baseline in git) clears its setter."""
+        setters: dict[str, dict] = {}
+        for fact in self.rt.ledger.facts(PARAMS_LOG):
+            at = A.parse_dt(fact.content.get("at")) or fact.retrieved_at
+            if fact.kind != "rules.params_changed" or at > until:
+                continue
+            who = (fact.content.get("operator") or {}).get("operator_id")
+            for name, change in (fact.content.get("changed") or {}).items():
+                if change.get("default"):
+                    setters.pop(name, None)
+                else:
+                    setters[name] = {"operator_id": who, "at": at.isoformat(), "fact_id": fact.fact_id}
+        return setters
+
+    def _separation_of_duties(self, case_id: str, session: OperatorSession) -> str | None:
+        """The rule: whoever set a rule parameter that a case was decided under does not sign that case. The case
+        was decided when its rules ran (its latest rules.outcome entry)."""
+        decided = [f.retrieved_at for f in self.rt.ledger.facts(case_id) if f.kind == "rules.outcome"]
+        if not decided:
+            return None
+        mine = sorted(name for name, s in self._params_setters(decided[-1]).items()
+                      if s["operator_id"] == session.operator_id)
+        if not mine:
+            return None
+        return (f"Separation of duties: this case was decided under {A.join_and(mine)}, which "
+                f"{session.operator_id} set. Another operator signs it.")
+
+    # ------------------------------------------------------------ the rules' parameters
+
+    def set_rule_params(self, updates: Any, session: OperatorSession) -> dict:
+        """Changes the rules' parameters for an operator with the rules role, and writes who changed which
+        parameter (from what, to what) to the ledger. Raises PermissionError, or ValueError for bad values."""
+        from versoml.shared.rules import get_params, set_params
+        from versoml.shared.rules.params import defaults
+
+        if not session.has(sessions.RULES):
+            raise PermissionError(f"{session.operator_id} has no rules role, so cannot change rule parameters.")
+        decision = self.rt.authorize("Operator", "rules.set_params", Zone.CLIENT, {"demo_session": session.demo})
+        if not decision.allowed:
+            raise PermissionError(decision.reason)
+        at = now()  # before the write: a case run in between counts as decided under the change
+        before = get_params()
+        after = set_params(updates)
+        base = defaults()
+        changed = {name: {"from": before.get(name), "to": after.get(name), "default": after.get(name) == base.get(name)}
+                   for name in sorted(set(before) | set(after)) if before.get(name) != after.get(name)}
+        if changed:
+            self.rt.ledger.append(PARAMS_LOG, "rules.params_changed", "console.rules",
+                                  {"session_id": session.session_id, "params": list(changed)},
+                                  {"operator": session.public(), "at": at.isoformat(), "changed": changed},
+                                  f"{session.operator_id} changed {', '.join(changed)}"
+                                  + (" (demo session)" if session.demo else ""))
+        return after
+
+    def rule_changes(self, limit: int = 50) -> list[dict]:
+        """The latest rule parameter changes, newest first: who, when, which parameters, from what to what."""
+        out = [{"fact_id": f.fact_id, "at": f.content.get("at"), "operator": f.content.get("operator"),
+                "changed": f.content.get("changed")}
+               for f in self.rt.ledger.facts(PARAMS_LOG) if f.kind == "rules.params_changed"]
+        return out[::-1][:limit]
+
+    # ------------------------------------------------------------ proposals from outside the console
+
+    def propose(self, case_id: str, action: str, note: str | None, source: str = "mcp") -> dict:
+        """A suggested answer to a pending decision, from a client that cannot sign (an MCP client): written to the
+        ledger as untrusted and kept on the case for a person, who signs in the console. Nothing resumes."""
+        doc = self.rt.cases.get(case_id)
+        if not doc:
+            return {"ok": False, "code": "missing", "detail": "No such case."}
+        pending = doc.get("interrupt") or {}
+        if action not in ("approve", "reject"):
+            return {"ok": False, "code": "action", "detail": "A proposal is approve or reject."}
+        if not pending.get("pending") or pending.get("kind") == "pick_transaction":
+            return {"ok": False, "code": "stale", "detail": "No decision on this case waits for a signature."}
+        proposals = list(doc.get("proposals") or [])
+        if len(proposals) >= MAX_PROPOSALS:
+            return {"ok": False, "code": "limit", "detail": f"This case already has {MAX_PROPOSALS} proposals."}
+        entry = {"action": action, "note": (note or "").strip()[:1000] or None, "source": source,
+                 "at": now().isoformat(), "verdict": pending.get("verdict"), "amount": pending.get("amount"),
+                 "deadline": pending.get("deadline"), "signed": False}
+        fact = self.rt.ledger.append(
+            case_id, "decision.proposal", f"{source}.versoml_approve", {"source": source}, entry,
+            f"Proposal from outside the console ({source}): {action} the {pending.get('verdict')} decision. "
+            "Not a signature: a person signs in the console", Labels(trust=Trust.UNTRUSTED))
+        entry["fact_id"] = fact.fact_id
+        self.rt.cases.update(case_id, {"proposals": [*proposals, entry]})
+        return {"ok": True, "signed": False, "proposal": entry,
+                "detail": f"Recorded as proposal {fact.fact_id}. It is not a signature: a person signs the decision in "
+                          f"the console, from an operator session."}
 
     # ------------------------------------------------------------ reading
 
@@ -381,7 +545,8 @@ class ClientService:
             "rule_context": doc.get("rule_context"), "clock": doc.get("clock"),
             "debate": doc.get("debate") or {"ran": False}, "recovery": doc.get("recovery") or {},
             "letter": doc.get("letter"), "pipeline": {"nodes": nodes, "edges": edges},
-            "interrupt": doc.get("interrupt") or {"pending": False}, "hold": doc.get("hold") or {"received": False},
+            "interrupt": self._interrupt_view(doc), "proposals": doc.get("proposals") or [],
+            "hold": doc.get("hold") or {"received": False},
             "ledger": self.rt.ledger.summary(case_id),
             "aml_referral": doc.get("aml_referral"), "decision_seconds": doc.get("decision_seconds"),
             "llm_mode": doc.get("llm_mode"), "classification_conflict": doc.get("classification_conflict"),
@@ -389,6 +554,18 @@ class ClientService:
             "manual_queue": doc.get("manual_queue"),
             "story": self._story(doc, facts),
         }
+
+    def _interrupt_view(self, doc: dict) -> dict:
+        """The pending decision as the console shows it, with the approval token its signature must send back."""
+        view = dict(doc.get("interrupt") or {"pending": False})
+        try:
+            token = self.approval_token(doc)
+        except sessions.SessionError as exc:  # a misconfigured secret: the case still shows, nobody can sign it
+            log.warning("approval token for %s: %s", doc.get("case_id"), exc)
+            token = None
+        if token:
+            view["approval_token"] = token
+        return view
 
     @staticmethod
     def _story(doc: dict, facts: list[dict]) -> list[dict]:

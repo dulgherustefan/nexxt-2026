@@ -8,9 +8,9 @@ import logging
 import re
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -24,6 +24,8 @@ from versoml.contracts import Zone
 from versoml.secrets import install_log_redaction
 from versoml.shared import ratelimit
 from versoml.shared.events import TICKER
+from versoml.shared.policy import sessions
+from versoml.shared.policy.sessions import OperatorSession
 from versoml.zone_client.service import get_service
 
 log = logging.getLogger("versoml.client.app")
@@ -36,10 +38,23 @@ class CreateCase(BaseModel):
 
 
 class Approve(BaseModel):
+    """A person's answer. The signer comes from the operator session; an `approver` in the body is ignored."""
+
     action: str
     note: str | None = None
-    approver: str | None = None
     tx_id: str | None = None
+    reason_code: str | None = None
+    approval_token: str | None = None
+
+
+class Proposal(BaseModel):
+    action: str
+    note: str | None = None
+
+
+class SealCheck(BaseModel):
+    case_id: str
+    root: str = ""
 
 
 class IntakePreview(BaseModel):
@@ -144,6 +159,37 @@ def svc():
     return get_service()
 
 
+def operator_session(request: Request) -> OperatorSession:
+    """The signed-in person behind a call (Authorization: Bearer <session>), or 401."""
+    header = request.headers.get("authorization", "")
+    token = header[7:].strip() if header[:7].lower() == "bearer " else None
+    try:
+        return sessions.read(token)
+    except sessions.SessionError as exc:
+        raise HTTPException(401, str(exc), headers={"WWW-Authenticate": "Bearer"}) from exc
+
+
+Operator = Annotated[OperatorSession, Depends(operator_session)]
+
+
+# ---------------------------------------------------------------- operator sessions
+
+
+@app.post("/api/session/demo")
+def demo_session() -> dict:
+    """Demo mode: a named demo operator for this console. Every signature made with it says it was a demo one."""
+    try:
+        token, session = sessions.issue_demo()
+    except sessions.SessionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    return {"token": token, "operator": session.public()}
+
+
+@app.get("/api/session")
+def session_info(session: Operator) -> dict:
+    return {"operator": session.public()}
+
+
 # ---------------------------------------------------------------- meta and statistics
 
 
@@ -229,11 +275,29 @@ async def ticker(request: Request):
     return EventSourceResponse(stream(), ping=15)
 
 
+# why an answer was refused -> its HTTP status; anything else (a stale or changed decision) is a conflict
+REFUSED = {"missing": 404, "candidate": 400, "reason": 400, "action": 400, "role": 403, "policy": 403,
+           "separation_of_duties": 403, "ledger": 503}
+
+
+def _refused(result: dict) -> dict:
+    if not result.get("ok"):
+        raise HTTPException(REFUSED.get(str(result.get("code")), 409), result.get("detail") or "Refused.")
+    return result
+
+
 @app.post("/api/cases/{case_id}/approve")
-async def approve(case_id: str, body: Approve) -> dict:
+async def approve(case_id: str, body: Approve, session: Operator) -> dict:
     if body.action not in ("approve", "reject", "pick_transaction"):
         raise HTTPException(400, "action must be approve, reject or pick_transaction")
-    return await svc().approve(case_id, body.action, body.note, body.approver, tx_id=body.tx_id)
+    return _refused(await svc().approve(case_id, body.action, body.note, tx_id=body.tx_id, reason_code=body.reason_code,
+                                        session=session, approval_token=body.approval_token))
+
+
+@app.post("/api/cases/{case_id}/proposals")
+def propose(case_id: str, body: Proposal) -> dict:
+    """A suggested approve or reject from a client that cannot sign (the MCP tool): recorded, never applied."""
+    return _refused(svc().propose(case_id, body.action, body.note))
 
 
 @app.get("/api/cases/{case_id}/precedents")
@@ -292,7 +356,11 @@ def letter_check(case_id: str, body: LetterCheck) -> dict:
 # ---------------------------------------------------------------- the evidence ledger
 
 
-@app.get("/api/ledger/{case_id}")
+# The evidence file holds the transaction, the device session and the payee's IBAN: only an operator reads it, and
+# reading it never seals. The public check behind the seal's QR code is /api/verify/seal.
+
+
+@app.get("/api/ledger/{case_id}", dependencies=[Depends(operator_session)])
 def ledger(case_id: str) -> dict:
     rt = svc().rt
     snapshot = rt.ledger.snapshot(case_id)
@@ -300,21 +368,50 @@ def ledger(case_id: str) -> dict:
     return snapshot
 
 
-@app.get("/api/ledger/{case_id}/export")
+@app.get("/api/ledger/{case_id}/export", dependencies=[Depends(operator_session)])
 def ledger_export(case_id: str) -> dict:
-    return svc().rt.ledger.export_dossier(case_id)
+    from versoml.shared.ledger import LedgerError
+
+    try:
+        return svc().rt.ledger.export_dossier(case_id)
+    except LedgerError as exc:
+        raise HTTPException(409, "The case is not sealed yet, so there is no evidence file to export.") from exc
 
 
 @app.post("/api/verify")
 async def verify(request: Request) -> dict:
-    from versoml.shared.ledger import verify_dossier
+    """A whole evidence file (with `zone`) is checked as sent, by anyone. The console's short form
+    {case_id, facts, seal} fills the rest from the ledger, so it needs an operator session."""
+    from versoml.shared.ledger import LedgerError, verify_dossier
 
     body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Send an evidence file (a JSON object).")
     rt = svc().rt
     if "zone" not in body and body.get("case_id"):
-        # the website sends {case_id, facts, seal} from /api/ledger; the rest of the file comes from the ledger
-        body = {**rt.ledger.export_dossier(body["case_id"]), **{k: v for k, v in body.items() if v is not None}}
+        operator_session(request)
+        try:
+            stored = rt.ledger.export_dossier(str(body["case_id"]))
+        except LedgerError as exc:
+            raise HTTPException(409, "The case is not sealed yet.") from exc
+        body = {**stored, **{k: v for k, v in body.items() if v is not None}}
     return verify_dossier(body, public_key=rt.ledger.public_key())
+
+
+@app.post("/api/verify/seal")
+def verify_seal(body: SealCheck) -> dict:
+    """The page the seal's QR code opens ({site}/verify/{case_id}#{root}) sends the case ID and the root from the
+    code. The answer is whether the root matches a seal, the signature, the time and the counts; never the
+    evidence. Without the right root it is the same 404 whether or not the case exists."""
+    root = body.root.strip().lower()
+    if not root:
+        raise HTTPException(400, "Send the root from the QR code.")
+    if not re.fullmatch(r"[0-9a-f]{64}", root):
+        raise HTTPException(400, "The root from the QR code is 64 hexadecimal characters.")
+    result = svc().rt.ledger.seal_check(body.case_id.strip(), root)
+    if result is None:
+        raise HTTPException(404, "No sealed evidence file matches this code.")
+    return result
 
 
 # ---------------------------------------------------------------- rules
@@ -335,13 +432,20 @@ def rules_params() -> dict:
 
 
 @app.put("/api/rules/params")
-async def rules_params_set(request: Request) -> dict:
-    from versoml.shared.rules import set_params
-
+async def rules_params_set(request: Request, session: Operator) -> dict:
+    """Needs the rules role. Who changed which parameter goes to the ledger, and that person does not sign the
+    cases decided under their change."""
     try:
-        return set_params(await request.json())
+        return svc().set_rule_params(await request.json(), session)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
     except (ValueError, KeyError) as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/rules/changes", dependencies=[Depends(operator_session)])
+def rules_changes() -> list[dict]:
+    return svc().rule_changes()
 
 
 # ---------------------------------------------------------------- the wall

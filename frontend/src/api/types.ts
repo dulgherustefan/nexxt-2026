@@ -577,6 +577,8 @@ export interface Interrupt {
   recommendation?: string | null;
   /** `kind: "pick_transaction"`: the payments a person picks from. */
   candidates?: TxCandidate[];
+  /** Bound to what is shown with the decision (verdict, amount, deadline); the signature sends it back. */
+  approval_token?: string | null;
   /** Some backends nest the interrupt's own data one level down. */
   payload?: { kind?: string; prompt?: string; candidates?: TxCandidate[]; [k: string]: unknown } | null;
 }
@@ -620,6 +622,20 @@ export interface CaseDetail {
   refund?: RefundRecord | null;
   signature?: SignatureReason | null;
   manual_queue?: { since: ISODate; reason: string; deadline: ISODate } | null;
+  /** Suggested answers from outside the console (an MCP client): never a signature. */
+  proposals?: DecisionProposal[];
+}
+
+export interface DecisionProposal {
+  action: "approve" | "reject";
+  note?: string | null;
+  source: string;
+  at: ISODate;
+  verdict?: string | null;
+  amount?: number | null;
+  deadline?: ISODate | null;
+  fact_id?: string;
+  signed: boolean;
 }
 
 // ------------------------------------------------------------------ identification, routing, knowledge
@@ -815,11 +831,26 @@ export type ApproveAction = "approve" | "reject" | "pick_transaction";
 export interface ApproveBody {
   action: ApproveAction;
   note?: string;
+  /** Ignored by the server: the signer comes from the operator session. */
   approver?: string;
   /** With approve or reject: why (e.g. FACTS_CONFIRMED, FACTS_DISPUTED, OTHER with a note). */
   reason_code?: string;
   /** With `pick_transaction`: the payment the person picked, or null for "none of these". */
   tx_id?: string | null;
+  /** The `interrupt.approval_token` of the decision shown; required with approve or reject. */
+  approval_token?: string;
+}
+
+/** The signed-in person, as the server describes the operator session (never the token). */
+export interface OperatorInfo {
+  session_id: string;
+  operator_id: string;
+  name: string;
+  roles: Array<"approver" | "rules">;
+  /** A demo session: no bank sign-in, and every signature says so in the ledger. */
+  demo: boolean;
+  issued_at: ISODate;
+  expires_at: ISODate;
 }
 
 export interface DecisionBrief {
@@ -855,6 +886,24 @@ export interface VerifyResult {
   count?: number;
   sealed?: boolean;
   root?: string;
+  verified_at?: ISODate;
+}
+
+/** The public check behind the seal's QR code: only for the root in the code, and never the evidence itself. */
+export interface SealCheck {
+  case_id: string;
+  root: string;
+  /** False when the code is for an earlier seal of the file. */
+  current: boolean;
+  intact: boolean;
+  signature_valid: boolean;
+  sealed_at: ISODate;
+  /** Items under this seal. */
+  count: number;
+  entries_now: number;
+  latest: { sealed_at: ISODate; count: number } | null;
+  public_key: string;
+  checks: VerifyCheck[];
   verified_at?: ISODate;
 }
 

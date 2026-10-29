@@ -18,6 +18,7 @@ import type {
   Meta,
   MoneyGraph,
   PolicyDecision,
+  SealCheck,
   Stats,
   VerifyResult,
   Zone,
@@ -431,6 +432,28 @@ export function createMockApi(zone: Zone): Api {
     async verify(dossier) {
       clientOnly("/api/verify");
       return delay(verifyDossier(dossier), 500);
+    },
+    async verifySeal(caseId, root): Promise<SealCheck> {
+      const path = "/api/verify/seal";
+      clientOnly(path);
+      const c = read().cases[caseId];
+      // as on the server: without the root from the code, an unknown case and a wrong root look the same
+      if (!c?.seal || c.seal.root !== root) throw new ApiError("No sealed evidence file matches this code.", 404, path);
+      const facts = c.detail.facts ?? [];
+      const check = verifyDossier({ case_id: caseId, facts, seal: c.seal });
+      return delay({
+        case_id: caseId,
+        root,
+        current: true,
+        intact: check.valid,
+        signature_valid: check.checks.some((k) => k.name === "Ed25519 signature" && k.ok),
+        sealed_at: c.seal.sealed_at,
+        count: c.seal.count,
+        entries_now: facts.length,
+        latest: null,
+        public_key: c.seal.public_key,
+        checks: check.checks,
+      }, 500);
     },
     async rules() {
       clientOnly("/api/rules");

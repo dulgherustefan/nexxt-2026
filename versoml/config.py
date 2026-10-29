@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     # Secretul comun doar pentru dioda de date (generat la prima rulare dacă lipsește)
     versoml_diode_secret: SecretStr | None = None
 
+    # Operator sessions: who signs a decision or changes a rule parameter (never the request body).
+    # "demo" gives each console a named demo operator, and every signature made with one says so in the ledger;
+    # "strict" accepts only sessions the bank's sign-in issues with the same secret. The secret signs sessions and
+    # approval tokens; when it is unset, each process draws a random one (a restart signs everyone out).
+    versoml_operator_mode: Literal["demo", "strict"] = "demo"
+    versoml_operator_secret: SecretStr | None = None
+    versoml_session_hours: float = 4.0
+
     # Zona procesului curent: un proces de zonă nu poate deschide baza celeilalte zone (stratul 1 al zidului)
     versoml_zone: Literal["client", "aml", "all"] = "all"
 

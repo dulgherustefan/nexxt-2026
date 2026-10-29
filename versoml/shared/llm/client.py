@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from versoml.config import Settings, get_settings
 from versoml.secrets import install_log_redaction, load_bedrock_key, redact, register_secret
+from versoml.shared.privacy import RawPIIError, assert_llm_safe
 
 log = logging.getLogger("versoml.llm")
 T = TypeVar("T", bound=BaseModel)
@@ -156,11 +157,8 @@ class ReplayStore:
 
 
 def _guard(payload: str) -> None:
-    """Garda de date personale (PrivacyProxy). Dacă modulul lipsește, nu blocăm, dar logăm."""
-    try:
-        from versoml.shared.privacy import assert_llm_safe
-    except ImportError:  # modulul de confidențialitate nu e încă disponibil
-        return
+    """The personal-data guard (PrivacyProxy) before every live call. It fails closed: raw personal data raises
+    RawPIIError, and without the privacy module nothing is sent (the import fails with this module)."""
     assert_llm_safe(payload)
 
 
@@ -352,9 +350,9 @@ class LLMClient:
                     self.replay.put(key, {"agent": agent, "role": role.value, "model": model,
                                           "schema": schema.__name__, "output": parsed.model_dump(mode="json")})
                     return parsed, self._record(info)
+                except RawPIIError:
+                    raise
                 except Exception as exc:  # noqa: BLE001 - încercăm modelul următor, apoi replay/offline
-                    if type(exc).__name__ == "RawPIIError":
-                        raise
                     last_error = redact(f"{type(exc).__name__}: {exc}")[:300]
                     log.warning("LLM call %s on %s (%s) failed: %s", agent, model, provider, last_error)
                     if self._provider_failed(provider, exc):
@@ -428,9 +426,9 @@ class LLMClient:
                     self.replay.put(key, {"agent": agent, "role": role.value, "model": model,
                                           "schema": "text", "output": text})
                     return text, self._record(info)
+                except RawPIIError:
+                    raise
                 except Exception as exc:  # noqa: BLE001
-                    if type(exc).__name__ == "RawPIIError":
-                        raise
                     last_error = redact(f"{type(exc).__name__}: {exc}")[:300]
                     log.warning("LLM text call %s on %s (%s) failed: %s", agent, model, provider, last_error)
                     if self._provider_failed(provider, exc):
@@ -555,9 +553,9 @@ class LLMClient:
                     blocks.append({"type": "tool_result", "tool_use_id": call.id,
                                    "content": json.dumps(result, ensure_ascii=False, default=str)[:6000]})
                 messages.append({"role": "user", "content": blocks})
+        except RawPIIError:
+            raise
         except Exception as exc:  # noqa: BLE001
-            if type(exc).__name__ == "RawPIIError":
-                raise
             log.warning("tool_loop %s on %s (%s) failed: %s", agent, model, provider, redact(str(exc))[:200])
             self._provider_failed(provider, exc)
         return None

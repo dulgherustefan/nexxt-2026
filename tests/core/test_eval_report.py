@@ -111,3 +111,20 @@ def test_case_run_times_come_from_the_stored_documents(tmp_path, monkeypatch):
     assert live["to_sealed_file_without_wait"] == {"runs": 2, "median_s": 50.0, "p90_s": 60.0, "max_s": 60.0}
     assert [r["value"] for r in out["summary_rows"]] == ["3.0 / 5.0 (3 runs)", "50.0 / 60.0 (2 runs)"]
     assert "not reported" in out["cost"]
+
+
+def test_only_ratio_rows_are_printed_as_percentages():
+    rows = [{"name": "Injections detected", "value": 0.975, "target": "100%", "unit": "ratio"},
+            {"name": "Letter check: tipping-off recall", "value": 1, "target": "100%", "unit": "ratio"},
+            {"name": "Inference latency, median (s)", "value": 0.4, "target": "measured"},
+            {"name": "ms per case", "value": 0.8125, "target": "measured"},
+            {"name": "M5 money mules: AUC", "value": 0.87342, "target": ">= 0.85"},
+            {"name": "Leaks across the wall", "value": 0, "target": "0"},
+            {"name": "Not measured", "value": None, "target": "100%", "unit": "ratio"}]
+    md = run._markdown({"at": "2026-10-29T10:00:00Z", "llm_mode": "offline", "summary": {"rows": rows},
+                        "sections": {}})
+    table = {line.split(" | ")[0][2:]: line.split(" | ")[1] for line in md.splitlines() if line.startswith("| ")}
+    assert table["Injections detected"] == "97.5%" and table["Letter check: tipping-off recall"] == "100.0%"
+    assert table["Inference latency, median (s)"] == "0.4" and table["ms per case"] == "0.812"
+    assert table["M5 money mules: AUC"] == "0.873" and table["Leaks across the wall"] == "0"
+    assert table["Not measured"] == "n/a"

@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import pytest
 from pydantic import BaseModel, SecretStr
 
 from versoml.config import Settings
 from versoml.shared.llm.client import LLMClient, Role, first_party_id
+from versoml.shared.privacy import RawPIIError
 
 
 class Out(BaseModel):
@@ -85,3 +87,27 @@ def test_the_api_key_never_reaches_the_logs(tmp_path):
 
     _client(tmp_path, "sk-ant-api03-SECRETVALUE")
     assert "SECRETVALUE" not in redact("failed with key sk-ant-api03-SECRETVALUE")
+
+
+class _RenamedPIIError(RawPIIError):
+    """A subclass with another name: still a personal-data stop, caught by type, not by name."""
+
+    def __init__(self, message: str):
+        super().__init__([{"type": "IBAN"}])
+
+
+def test_raw_personal_data_never_leaves_and_never_falls_back(tmp_path):
+    llm, seen = _client(tmp_path, "sk-ant-test"), []
+    _wire(llm, None, seen)
+    with pytest.raises(RawPIIError):
+        asyncio.run(llm.structured(role=Role.OPUS, agent="t", system="s", schema=Out,
+                                   user="Plătiți în IBAN RO49 AAAA 1B31 0075 9384 0000, vă rog."))
+    assert seen == []                                                   # the guard ran before any provider
+
+
+def test_a_pii_stop_raised_by_a_provider_call_is_not_retried_elsewhere(tmp_path):
+    llm, seen = _client(tmp_path, "sk-ant-test"), []
+    _wire(llm, _RenamedPIIError, seen)
+    with pytest.raises(_RenamedPIIError):
+        asyncio.run(llm.structured(role=Role.OPUS, agent="t", system="s", user="u", schema=Out))
+    assert [p for p, _ in seen] == ["bedrock"]                          # no next model, no Claude API, no replay

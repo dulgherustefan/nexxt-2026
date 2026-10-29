@@ -311,33 +311,33 @@ def _rows_summary(sections: dict) -> list[dict]:
     xling = ((honest.get("cross_lingual_en_to_ro") or {}).get("scenario") or {}).get("ensemble_served") or {}
     rows = [
         {"name": "Rules engine vs oracle: refund verdict on the golden set (40)", "value": rules.get("verdict_accuracy"),
-         "target": "100%"},
+         "target": "100%", "unit": "ratio"},
         {"name": "Rules engine vs oracle: verdict on 300 generated cases", "value": gen.get("verdict_accuracy"),
-         "target": "100%"},
+         "target": "100%", "unit": "ratio"},
         {"name": "Rules engine vs oracle: verdict on the typology cases", "value": typ.get("verdict_accuracy"),
-         "target": "100%"},
-        {"name": "Rules engine vs oracle: refund deadlines", "value": rules.get("deadline_accuracy"), "target": "100%"},
+         "target": "100%", "unit": "ratio"},
+        {"name": "Rules engine vs oracle: refund deadlines", "value": rules.get("deadline_accuracy"), "target": "100%", "unit": "ratio"},
         {"name": "Rules engine vs oracle: recall of escalations to a person", "value": rules.get("escalation_recall"),
          "target": "≥ 0.95"},
         {"name": "Non-interference: leaks across the wall", "value": ni.get("leaks"), "target": "0"},
         {"name": "Non-interference: decisions changed by the AML zone", "value": ni.get("mismatches"), "target": "0"},
         {"name": "Raw personal data left after pseudonymization (independent check)", "value": priv.get("raw_pii_to_llm"),
          "target": "0"},
-        {"name": "Injections detected", "value": inj.get("detection_rate"), "target": "100%"},
+        {"name": "Injections detected", "value": inj.get("detection_rate"), "target": "100%", "unit": "ratio"},
         {"name": "Injections that moved a decision their way (deterministic path)",
          "value": inj.get("decision_moved_toward_injection"), "target": "0"},
-        {"name": "Letter check: tipping-off recall", "value": letters.get("tipping_off_recall"), "target": "100%"},
+        {"name": "Letter check: tipping-off recall", "value": letters.get("tipping_off_recall"), "target": "100%", "unit": "ratio"},
         {"name": "Letter check: clean letters blocked by mistake", "value": letters.get("false_blocks"), "target": "0"},
-        {"name": "Injections: false alarms on clean complaints", "value": inj.get("false_positive_rate"), "target": "≈ 0"},
+        {"name": "Injections: false alarms on clean complaints", "value": inj.get("false_positive_rate"), "target": "≈ 0", "unit": "ratio"},
         {"name": "M1 scenario on held-out templates: macro-F1", "value": (m1.get("scenario") or {}).get("macro_f1"), "target": "≥ 0.90"},
         {"name": "M1 scenario calibration on held-out templates: ECE", "value": (m1.get("scenario") or {}).get("ece"), "target": "≤ 0.05"},
-        {"name": "M1 scenario, trained on templates, tested on free text", "value": free.get("accuracy"), "target": "comparison"},
-        {"name": "M1 scenario, trained on English, tested on Romanian", "value": xling.get("accuracy"), "target": "comparison"},
+        {"name": "M1 scenario, trained on templates, tested on free text", "value": free.get("accuracy"), "target": "comparison", "unit": "ratio"},
+        {"name": "M1 scenario, trained on English, tested on Romanian", "value": xling.get("accuracy"), "target": "comparison", "unit": "ratio"},
         {"name": "M2 client-fraud signal: AUC, temporal split", "value": ((m2.get("temporal_split") or {}).get("ensemble") or {}).get("auc"), "target": "≥ 0.80"},
         {"name": "M5 money mules: AUC, temporal split (ensemble)", "value": m5_auc, "target": "≥ 0.85"},
         {"name": "M5 money mules: AUC, rules only (baseline)", "value": m5_rules_auc, "target": "comparison"},
         {"name": "M5: false alarms on hard negatives", "value": (m5t.get("false_positive_rate_hard_negatives") if m5t else
-                                                            m5.get("false_positive_rate_hard_negatives") if isinstance(m5, dict) else None), "target": "≈ 0"},
+                                                            m5.get("false_positive_rate_hard_negatives") if isinstance(m5, dict) else None), "target": "≈ 0", "unit": "ratio"},
     ]
     for key in sections:   # extension sections bring their own rows
         extra = sections[key].get("summary_rows") if isinstance(sections[key], dict) else None
@@ -618,8 +618,10 @@ def _markdown(report: dict) -> str:
              "| Metric | Value | Target |", "|---|---|---|"]
     for row in report["summary"]["rows"]:
         value = row["value"]
-        if isinstance(value, float) and value <= 1:
-            value = f"{value * 100:.1f}%"
+        if row.get("unit") == "ratio" and isinstance(value, (int, float)):
+            value = f"{value * 100:.1f}%"   # a share of cases; seconds, counts and scores are printed as they are
+        elif isinstance(value, float):
+            value = f"{round(value, 3):g}"
         lines.append(f"| {row['name']} | {value if value is not None else 'n/a'} | {row['target']} |")
     lines += READING_NOTES
     lines += ml_markdown(report["sections"].get("ml") or {})

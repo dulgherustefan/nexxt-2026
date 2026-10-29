@@ -16,15 +16,17 @@ import logging
 import re
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
 
 from langgraph.types import interrupt
 
 from versoml.contracts import (
     AttackRef, BeneficiaryRef, Channel, Classification, ClaimPoint, Complaint, Decision, DisputeFacts,
-    DisputeType, ExtractedClaim, Labels, Money, Question, RuleContext, Scenario, Sink, Trust, Verdict, Zone,
+    DisputeType, ExtractedClaim, Labels, Money, Question, RuleContext, Scenario, Sink, StandardRecord, Trust, Verdict,
+    Zone,
 )
+from versoml.shared import canonical as K
 from versoml.shared.events import Emitter, now
 from versoml.shared.llm import Role
 from versoml.zone_client import prompts as P
@@ -522,6 +524,7 @@ async def receptor(state: dict) -> dict:
     )
     restore = lambda s: c.rt.privacy.restore(s, vault) if s else s  # noqa: E731
     injection_quote = out.injection_quote or deterministic_injection
+    amounts, phones, hosts = _standard_mentions(complaint, out, restore)
     extracted = ExtractedClaim(
         claims_unauthorized=out.claims_unauthorized,
         client_admits_sharing_credentials=out.client_admits_sharing_credentials,
@@ -532,7 +535,7 @@ async def receptor(state: dict) -> dict:
         mentioned_amounts=out.mentioned_amounts, requested_remedy=out.requested_remedy,
         points=[ClaimPoint(text=p.text, quote=p.quote) for p in out.points],
         injection_suspected=bool(out.injection_suspected or deterministic_injection),
-        language=guess_language(body),
+        language=guess_language(body), amounts=amounts, phones_e164=phones, hosts=hosts,
     )
     model = {"determinist": "deterministic"}.get(info.model or "", info.model) or "deterministic"
     fid = await c.fact("receptor", "complaint.extracted", f"llm.{info.mode}.{model}",
@@ -554,6 +557,29 @@ async def receptor(state: dict) -> dict:
                    {"llm": info.as_dict(), "injection": extracted.injection_suspected})
     return {"pseudo": {"text": pseudo_text, "vault": vault}, "extracted": extracted.model_dump(mode="json"),
             "fact_map": fact_map}
+
+
+def _standard_mentions(complaint: Complaint, out: "P.ReceptorOut",
+                       restore: Callable[[str], str]) -> tuple[list[Money], list[str], list[str]]:
+    """The amounts, phone numbers and websites in the complaint, in standard form. The deterministic parser reads the
+    original text, currencies included; what the LLM listed is normalized the same way and added. The customer's own
+    phone number is left out: it is not an indicator."""
+    from versoml.zone_client import matcher as M
+
+    try:
+        clues = M.parse_clues(complaint.text, [a.model_dump() for a in complaint.attachments],
+                              received_at=complaint.received_at)
+    except Exception as exc:  # noqa: BLE001 - the LLM's lists alone, normalized
+        log.info("clue parsing failed: %s", type(exc).__name__)
+        clues = M.Clues()
+    amounts = [Money(value=round(a.value, 2), currency=a.currency) for a in clues.amounts]
+    if not amounts:
+        amounts = [m for v in out.mentioned_amounts if (m := K.money(v))]
+    own = {K.e164(p) for p, role in clues.phones if role == "self"}
+    phones = [restore(p) for p in out.mentioned_phones] + [p for p, role in clues.phones if role != "self"]
+    sites = [restore(u) for u in out.mentioned_urls] + [*clues.urls, *clues.domains]
+    return (amounts[:8], [x for x in dict.fromkeys(map(K.e164, phones)) if x and x not in own][:8],
+            [x for x in dict.fromkeys(map(K.host, sites)) if x][:8])
 
 
 def customer_alias(customer_ref: str | None) -> str:
@@ -920,6 +946,18 @@ async def colector_tranzactie(state: dict) -> dict:
                                {"customer": customer_ref}, {"beneficiary_new": not bool(seen)},
                                "New payee for this customer" if not seen else "The customer has paid this payee before")
             fact_map["beneficiary_new"] = fid
+        card_id = g(tx, "card_id", default=None)
+        if channel == "card" and card_id and hasattr(c.rt.repo, "get_card"):
+            card = await c.call("colector_tranzactie", "colector", "bank-core.get_transaction",
+                                lambda: c.rt.repo.get_card(card_id), {"card_id": card_id, "op": "get_card"})
+            if card and card.get("scheme"):
+                records["card_scheme"] = str(card["scheme"]).lower()
+                fact_map["card_scheme"] = await c.fact(
+                    "colector_tranzactie", "bank.card", "bank-core.get_card", {"card_id": card_id},
+                    {"scheme": records["card_scheme"], "product": card.get("product"), "last4": card.get("last4")},
+                    f"Paid with a {records['card_scheme'].title()} {card.get('product') or 'card'} card ending "
+                    f"{card.get('last4') or '••••'}",
+                    Labels(conf="client", trust=Trust.TRUSTED, sinks=[Sink.CLIENT]))
         dups = []
         if g(tx, "channel", "type", default="") == "card":
             dups = await c.call("colector_tranzactie", "colector", "bank-core.get_transaction",
@@ -944,6 +982,29 @@ async def colector_tranzactie(state: dict) -> dict:
     return {"records": records, "fact_map": fact_map}
 
 
+def sca_from_events(events: list[dict]) -> dict:
+    """What the SCA log says about the payment. Only a successful authentication counts as SCA: a declined or
+    expired attempt, a "none" method or a card token provisioning is not one (the same rule as the scenarios)."""
+    approved = [e for e in events if g(e, "result", default="approved") in ("approved", "success", "authenticated")
+                and g(e, "method", default="") != "none" and g(e, "purpose", default="payment") != "token_provisioning"]
+    payment_ok = next((e for e in approved if g(e, "purpose", default="payment") == "payment"), None)
+    payment_auth = payment_ok or next((e for e in events if g(e, "purpose", default="payment") == "payment"), None)
+    enrollment = next((e for e in approved if g(e, "purpose") == "device_enrollment"), None)
+    # the authentication that counts: the payment's own, else enrolling the device the payment came from
+    used = payment_ok or enrollment
+    shown = None
+    if payment_auth:
+        shown = bool(g(payment_auth, "screen_showed_amount_and_payee", "dynamic_linking", default=False))
+    elif enrollment:
+        shown = False  # the payment left from an enrolled device; the SCA step never showed the amount
+    cavv = g(payment_auth or {}, "cavv_present", "cavv")
+    return {"sca_performed": bool(approved),
+            "sca_method": g(used or payment_auth or {}, "method", default="none"),
+            "sca_step": "payment" if payment_ok else "device_enrollment" if enrollment else None,
+            "screen_showed_amount_and_payee": shown, "eci": K.eci_code(g(payment_auth or {}, "eci")),
+            "cavv_present": None if cavv is None else bool(cavv)}
+
+
 async def colector_sca(state: dict) -> dict:
     c = Ctx(state)
     await c.start("colector_sca", "Reading the SCA log: the method and what the customer saw on screen")
@@ -952,16 +1013,9 @@ async def colector_sca(state: dict) -> dict:
                           lambda: c.rt.repo.get_auth_events(tx_id) if tx_id else [], {"tx_id": tx_id}) or []
     records: dict = {"auth_events": events}
     fact_map: dict = {}
-    payment_auth = next((e for e in events if g(e, "purpose", default="payment") == "payment"), None)
-    enrollment = next((e for e in events if g(e, "purpose") == "device_enrollment"), None)
-    shown = None
-    if payment_auth:
-        shown = bool(g(payment_auth, "screen_showed_amount_and_payee", "dynamic_linking", default=False))
-    elif enrollment:
-        shown = False  # the payment left from an enrolled device; the SCA step never showed the amount
-    method = g(payment_auth or enrollment or {}, "method", default="none")
-    records.update({"sca_performed": bool(events), "sca_method": method, "screen_showed_amount_and_payee": shown,
-                    "eci": g(payment_auth or {}, "eci"), "cavv_present": g(payment_auth or {}, "cavv_present", "cavv")})
+    sca = sca_from_events(events)
+    shown = sca["screen_showed_amount_and_payee"]
+    records.update(sca)
     for event in events[:4]:
         purpose = g(event, "purpose", default="payment")
         fid = await c.fact(
@@ -1285,7 +1339,7 @@ async def motor_reguli(state: dict) -> dict:
     executed = parse_dt(g(tx, "executed_at", "ts", "timestamp")) or now()
     notified = parse_dt(state["complaint"]["received_at"]) or now()
     extracted = state.get("extracted") or {}
-    claimed = extracted.get("mentioned_amounts") or []
+    claimed = [m for m in (K.money(x) for x in extracted.get("amounts") or extracted.get("mentioned_amounts") or []) if m]
     main = _main_tx_id(state)
     refs = {main} if main else set()
     other_dispute = any(d.get("case_id") not in (None, c.case_id) and d.get("status") not in ("EROARE",)
@@ -1297,7 +1351,10 @@ async def motor_reguli(state: dict) -> dict:
         value = stated.get("amount") or {}
         amount = Money(value=float(value.get("value") or 0), currency=value.get("currency") or "RON")
         day = stated.get("date")
-        executed = parse_dt(f"{day}T12:00:00+02:00") if day else notified
+        try:  # noon in Bucharest that day, with the day's real offset (summer time is +03:00)
+            executed = K.local_noon(date.fromisoformat(str(day)[:10])) if day else notified
+        except ValueError:
+            executed = notified
         claimed = []
         hinted = stated.get("channel")
         if not tx and hinted in ("card", "transfer", "transfer_instant"):
@@ -1309,17 +1366,18 @@ async def motor_reguli(state: dict) -> dict:
         classification_ambiguous=ambiguous,
         beneficiary_iban=g(tx, "beneficiary_iban", "counterparty_iban", "to_iban"),
         complaint_received_at=notified,
-        card_scheme="visa" if channel == Channel.CARD else None,
+        # from the bank's card record; unknown leaves the rules' documented default (Visa)
+        card_scheme=records.get("card_scheme") if channel == Channel.CARD else None,
         processing_date=executed.date(),
         injection_suspected=bool(extracted.get("injection_suspected")),
-        # the claimed amount = the one in the text closest to the log (the text also mentions the RON 2.99 bait fee)
-        claimed_amount=float(min(claimed, key=lambda v: abs(float(v) - float(g(tx, "amount", "value", default=0)))))
-        if claimed else None,
+        # the claimed amount = the one in the text in the payment's currency and closest to the log (the text also
+        # mentions the RON 2.99 bait fee); an amount in another currency isn't compared
+        claimed_amount=_claimed_amount(claimed, amount),
         case_id=c.case_id, now=now(), channel=channel, dispute_type=dispute_type,
         scenario=Scenario(scenario) if scenario in Scenario._value2member_map_ else None,
         amount=amount, executed_at=executed, notified_at=notified,
         sca_performed=records.get("sca_performed"), sca_method=records.get("sca_method"),
-        eci=records.get("eci") or g(tx, "eci"), cavv_present=records.get("cavv_present"),
+        eci=K.eci_code(records.get("eci") or g(tx, "eci")), cavv_present=records.get("cavv_present"),
         screen_showed_amount_and_payee=records.get("screen_showed_amount_and_payee"),
         device_known=records.get("device_known"), seconds_after_click=records.get("seconds_after_click"),
         sim_swap_hours_before=records.get("sim_swap_hours_before"), beneficiary_new=records.get("beneficiary_new"),
@@ -1355,6 +1413,12 @@ async def motor_reguli(state: dict) -> dict:
                        f"Rules engine: {plural(len(outcome.hits), 'rule')} fired, "
                        f"{plural(len(decisions), 'decision')}")
     t1 = next((d for d in decisions if d.question == Question.RAMBURSARE_T1), None)
+    standard = standard_record(ctx, extracted, pos_entry_mode=g(tx, "pos_entry_mode", default=None),
+                               sca_step=records.get("sca_step"))
+    await c.fact("motor_reguli", "case.standard", "canonical.v1", {"schema": standard.schema_version},
+                 standard.model_dump(mode="json"), _standard_summary(standard),
+                 Labels(conf="client", trust=Trust.TRUSTED, sinks=[Sink.CLIENT]))
+    c.save({"standard": standard.model_dump(mode="json")})
     c.save({"rule_context": ctx.model_dump(mode="json"), "rules": outcome.model_dump(mode="json"),
             "decisions": [d.model_dump(mode="json") for d in decisions],
             "verdict": t1.decision.value if t1 else None, "channel": channel.value,
@@ -1431,6 +1495,71 @@ async def _send_facts(rt: ClientRuntime, facts: DisputeFacts) -> dict:
 
 def _decision(state: dict, question: Question) -> dict | None:
     return next((d for d in state.get("decisions", []) if d.get("question") == question.value), None)
+
+
+def _claimed_amount(mentions: list[Money], amount: Money) -> float | None:
+    pick = K.closest_amount(mentions, amount)
+    return pick.value if pick and pick.currency == amount.currency else None
+
+
+CONTACT_STANDARD = {"sms": "sms", "apel": "call", "email": "email", "mesagerie": "messaging", "site": "website",
+                    "necunoscut": "unknown"}
+PAYMENT_TYPE = {Channel.CARD: "card", Channel.TRANSFER: "credit_transfer", Channel.TRANSFER_INSTANT: "instant_credit_transfer"}
+
+
+def standard_record(ctx: RuleContext, extracted: dict, *, pos_entry_mode: str | None = None,
+                    sca_step: str | None = None) -> StandardRecord:
+    """The case in published codes (ISO 4217, ISO 8601, ISO 13616, ISO 18245, E.164, EBA fraud types, the card
+    scheme's ECI table), with a plain list of what the data didn't let it read."""
+    issues: list[str] = []
+    card = ctx.channel == Channel.CARD
+    scheme = getattr(ctx, "card_scheme", None) if card else None
+    scheme = scheme if scheme in ("visa", "mastercard") else None
+    if card and not scheme:
+        issues.append("The card's scheme isn't in the bank's records, so the rules assume Visa")
+    three = K.three_ds(ctx.eci, scheme) if card else None
+    if card and ctx.eci and scheme and three is None:
+        issues.append(f"ECI {ctx.eci} isn't a {scheme.title()} code, so the 3-D Secure outcome can't be read from it")
+    payee = getattr(ctx, "beneficiary_iban", None)
+    if payee and not re.match(r"[A-Za-z]{2}[0-9]{2}", payee.replace(" ", "")):
+        payee = None  # a cash withdrawal records "NUMERAR" there, not an account
+    valid = (K.iban(payee) is not None) if payee else None
+    if valid is False:
+        issues.append("The payee's IBAN fails its check digits (ISO 13616)")
+    claimed_value = getattr(ctx, "claimed_amount", None)
+    claimed = Money(value=claimed_value, currency=ctx.amount.currency) if claimed_value is not None else None
+    if claimed and abs(claimed.value - ctx.amount.value) > 0.005:
+        issues.append(f"The customer mentions {money(claimed.value, claimed.currency)}; the bank's record says "
+                      f"{money(ctx.amount.value, ctx.amount.currency)}")
+    executed = K.local(ctx.executed_at) if ctx.executed_at else None
+    reported = K.local(ctx.notified_at) if ctx.notified_at else None
+    fraud = K.eba_fraud_type(ctx.channel, ctx.dispute_type, ctx.scenario, pos_entry_mode)
+    return StandardRecord(
+        case_id=ctx.case_id, payment_type=PAYMENT_TYPE[ctx.channel], amount=ctx.amount,
+        executed_at=executed, reported_at=reported,
+        days_to_report=(reported.date() - executed.date()).days if executed and reported else None,
+        fraud_type=fraud, fraud_type_label=K.EBA_LABELS.get(fraud) if fraud else None,
+        authentication="sca" if ctx.sca_performed else "no_sca" if ctx.sca_performed is False else "unknown",
+        sca_method=ctx.sca_method if ctx.sca_method not in (None, "none") else None,
+        sca_step=sca_step if ctx.sca_performed else None,
+        card_scheme=scheme, eci=ctx.eci if card else None, three_ds=three,
+        merchant_mcc=str(ctx.merchant_mcc) if ctx.merchant_mcc else None,
+        payee_iban=K.mask_iban(payee) if payee else None, payee_iban_valid=valid,
+        contact_channel=CONTACT_STANDARD.get(extracted.get("contacted_by") or "", None),
+        claimed_amount=claimed,
+        phones=[m for p in extracted.get("phones_e164") or [] if (m := K.mask_phone(p))],
+        websites=list(extracted.get("hosts") or []), issues=issues,
+    )
+
+
+def _standard_summary(r: StandardRecord) -> str:
+    parts = [r.fraud_type_label or "Not a fraud case", r.payment_type.replace("_", " "),
+             money(r.amount.value, r.amount.currency) if r.amount else "no amount",
+             {"sca": "SCA done", "no_sca": "no SCA", "unknown": "SCA unknown"}[r.authentication]]
+    if r.three_ds:
+        parts.append(f"3-D Secure {r.three_ds.replace('_', ' ')}")
+    tail = f"; {plural(len(r.issues), 'data issue')}" if r.issues else ""
+    return "Standard record: " + " · ".join(parts) + tail
 
 
 async def rambursare(state: dict) -> dict:

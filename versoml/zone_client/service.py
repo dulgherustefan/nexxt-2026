@@ -305,6 +305,7 @@ class ClientService:
                           "received_at": complaint.get("received_at"), "transaction_refs": complaint.get("transaction_refs", []),
                           "customer_ref": complaint.get("customer_ref"), "source": complaint.get("source")},
             "match": doc.get("match"), "routing": doc.get("routing") or [], "grounding": doc.get("grounding") or [],
+            "standard": doc.get("standard"),
             "numeric_check": doc.get("numeric_check"), "campaign": doc.get("campaign"),
             "reasons": decision_reasons(doc.get("decisions"), doc.get("rule_context") or {}, doc.get("extracted"),
                                         rules.get("hits")),

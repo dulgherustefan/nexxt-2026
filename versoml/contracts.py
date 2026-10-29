@@ -180,6 +180,41 @@ class ExtractedClaim(BaseModel):
     points: list[ClaimPoint] = Field(default_factory=list)
     injection_suspected: bool = False             # textul conține instrucțiuni către sistem
     language: str = "ro"
+    # the same mentions in standard form (versoml.shared.canonical): ISO 4217 amounts, E.164 phones, canonical hosts
+    amounts: list[Money] = Field(default_factory=list)
+    phones_e164: list[str] = Field(default_factory=list)
+    hosts: list[str] = Field(default_factory=list)
+
+
+class StandardRecord(BaseModel):
+    """The case in published codes, the same shape for every case: what a supervisor, another bank or a model reads
+    without knowing VersoML. Built from the rule context, never from free text (versoml.shared.canonical)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["versoml.case.v1"] = "versoml.case.v1"
+    case_id: str
+    payment_type: Literal["card", "credit_transfer", "instant_credit_transfer"]
+    amount: Money | None = None                   # ISO 4217
+    executed_at: datetime | None = None           # ISO 8601, Bucharest time with that day's offset
+    reported_at: datetime | None = None
+    days_to_report: int | None = None
+    fraud_type: str | None = None                 # EBA/GL/2018/05 category; None when it isn't fraud
+    fraud_type_label: str | None = None
+    authentication: Literal["sca", "no_sca", "unknown"] = "unknown"
+    sca_method: str | None = None
+    sca_step: Literal["payment", "device_enrollment"] | None = None   # what the SCA was for
+    card_scheme: Literal["visa", "mastercard"] | None = None
+    eci: str | None = None
+    three_ds: Literal["authenticated", "attempted", "not_authenticated"] | None = None
+    merchant_mcc: str | None = None               # ISO 18245
+    payee_iban: str | None = None                 # masked
+    payee_iban_valid: bool | None = None          # ISO 13616 check digits
+    contact_channel: Literal["sms", "call", "email", "messaging", "website", "unknown"] | None = None
+    claimed_amount: Money | None = None
+    phones: list[str] = Field(default_factory=list)     # E.164, masked
+    websites: list[str] = Field(default_factory=list)   # canonical hosts
+    issues: list[str] = Field(default_factory=list)     # what the standard couldn't read, in plain words
 
 
 class Classification(BaseModel):

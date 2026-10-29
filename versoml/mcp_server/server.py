@@ -150,8 +150,8 @@ def _client_tools(server) -> None:
         await _api(zone, "POST", f"/api/cases/{created['case_id']}/run")
         return {"case_id": created["case_id"], "ui": f"{_base(zone)}/cases/{created['case_id']}"}
 
-    @server.tool(description="A case's status: verdict, deadline, decisions with rule IDs, and what waits for a "
-                             "person's signature.")
+    @server.tool(description="A case's status: verdict, deadline, decisions with rule IDs, what waits for a "
+                             "person's signature, and the case in standard codes (EBA fraud type, ISO 4217, E.164).")
     async def versoml_case_status(case_id: str) -> dict:
         _authorize(zone, "mcp.cases.read")
         detail = await _api(zone, "GET", f"/api/cases/{case_id}")
@@ -159,7 +159,9 @@ def _client_tools(server) -> None:
             {"question": d["question"], "decision": d["decision"], "rule_ids": d.get("rule_ids"),
              "deadline": d.get("deadline"), "requires_human": d.get("requires_human"),
              "rationale": [r.get("text") for r in d.get("rationale", [])][:3]} for d in detail.get("decisions", [])],
-            "interrupt": detail.get("interrupt"), "letter_status": (detail.get("letter") or {}).get("status")}
+            "interrupt": detail.get("interrupt"), "letter_status": (detail.get("letter") or {}).get("status"),
+            # the case in published codes (EBA fraud type, ISO 4217, ISO 13616, E.164), schema versoml.case.v1
+            "standard": detail.get("standard")}
 
     @server.tool(description="The evidence in the case ledger: ID, kind, source, summary, hash.")
     async def versoml_case_evidence(case_id: str) -> list[dict]:

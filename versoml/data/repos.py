@@ -337,6 +337,12 @@ class ClientRepo(_Repo):
             return [r[0] for r in c.execute("SELECT customer_ref FROM customers WHERE lower(email)=lower(?) "
                                             "ORDER BY customer_ref", ((email or "").strip(),))]
 
+    def get_card(self, card_id: str) -> dict | None:
+        """The card a payment was made with: scheme, product, masked number."""
+        with self._conn() as c:
+            return row_to_dict(c.execute("SELECT card_id, customer_ref, scheme, product, last4, status FROM cards "
+                                         "WHERE card_id=?", (card_id,)).fetchone())
+
     def customer_cards_last4(self, customer_ref: str) -> dict[str, str]:
         """card_id -> ultimele 4 cifre, pentru cardurile clientului."""
         with self._conn() as c:

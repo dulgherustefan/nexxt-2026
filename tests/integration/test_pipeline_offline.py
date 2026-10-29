@@ -47,6 +47,7 @@ async def run(sid, action="approve"):
             "messages": [e.message for e in s.rt.bus.history(case_id)],
             "nodes": {n["id"]: n.get("status") for n in d["pipeline"]["nodes"]},
             "rejected_by": d["summary"].get("rejected_by"), "finished": bool((s.rt.cases.get(case_id) or {}).get("finished_at")),
+            "standard": d.get("standard"),
             "verify": s.rt.ledger.verify(case_id).get("valid")}
 
 async def main():
@@ -93,6 +94,16 @@ def test_declined_refund_ends_and_hands_the_case_to_a_person(results):
     # no letter promising a refund nobody approved: the person handling the case writes to the customer
     assert r["letter"] is None and r["nodes"]["redactor"] == "skipped"
     assert r["verify"] is True
+
+
+def test_every_case_gets_a_standard_record(results):
+    r = results["demo_t1"]["standard"]
+    assert r["schema_version"] == "versoml.case.v1" and r["case_id"].startswith("CT-")
+    assert r["payment_type"] in ("credit_transfer", "instant_credit_transfer")
+    assert r["fraud_type"] == "payment_order_issued_by_fraudster" and r["amount"]["currency"] == "RON"
+    assert r["websites"] == ["livrare-bancademo.example"]
+    # a late claim is still classified, and the record says how many days passed
+    assert results["reclamatie_tardiva"]["standard"]["days_to_report"] > 395
 
 
 def test_all_pipeline_steps_ran(results):

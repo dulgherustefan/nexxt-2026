@@ -229,7 +229,7 @@ function CaseList({ cases, onOpen }: { cases: CaseSummary[]; onOpen: (id: string
               >
                 <span className="flex min-w-0 items-center gap-3">
                   <span className={cx(
-                    "grid size-9 shrink-0 place-items-center rounded-full text-[0.75rem] font-semibold",
+                    "hidden size-9 shrink-0 place-items-center rounded-full text-[0.75rem] font-semibold md:grid",
                     s.group === "you" ? "bg-yellow-tint text-ink ring-1 ring-inset ring-yellow-line" : "bg-hover text-ink-soft",
                   )}>
                     {initials(c.customer_alias)}

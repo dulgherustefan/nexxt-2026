@@ -59,7 +59,7 @@ export default function FakePage() {
   }
 
   return (
-    <div className="min-h-dvh bg-canvas text-ink">
+    <div className="font-native min-h-dvh bg-canvas text-ink">
       <div role="note" className="sticky top-0 z-50 bg-danger px-4 pt-[max(0.625rem,env(safe-area-inset-top))] pb-2.5 text-paper">
         <p className="mx-auto flex max-w-md items-center justify-center gap-2 text-center text-[0.9333rem] font-semibold">
           <Warning aria-hidden size={18} weight="bold" className="shrink-0" />
@@ -215,10 +215,10 @@ function Result({ amount, bankHref }: { amount: number; bankHref: string }) {
 
       <Link
         to={bankHref}
-        className="press group mt-6 inline-flex h-[3.25rem] w-full items-center justify-center gap-2.5 rounded-full bg-ink pr-2 pl-6 text-[1rem] font-medium text-paper shadow-[0_1px_2px_rgb(18_19_22/0.15)] transition-colors hover:bg-ink-soft"
+        className="press group mt-6 inline-flex h-[3.25rem] w-full items-center justify-center gap-2.5 rounded-full bg-yellow pr-2 pl-6 text-[1rem] font-semibold text-on-yellow shadow-[0_1px_2px_rgb(18_19_22/0.12)] transition-colors hover:bg-yellow-hover"
       >
         <span className="flex-1 text-center">Open Demo Bank</span>
-        <span className="grid size-9 place-items-center rounded-full bg-paper text-ink transition-transform duration-200 ease-[var(--ease-out)] group-hover:translate-x-0.5">
+        <span className="grid size-9 place-items-center rounded-full bg-on-yellow text-yellow transition-transform duration-200 ease-[var(--ease-out)] group-hover:translate-x-0.5">
           <ArrowRight aria-hidden size={16} weight="bold" />
         </span>
       </Link>

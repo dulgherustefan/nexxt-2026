@@ -556,6 +556,8 @@ export interface CaseDetail {
   numeric_check?: NumericCheck | null;
   /** Other disputes that share indicators with this one (same payee, same link). */
   campaign?: CaseCampaign | null;
+  /** The case in published codes (EBA fraud type, ISO 4217, ISO 13616, E.164…), the same shape for every case. */
+  standard?: StandardRecord | null;
   /** One plain-language sentence per decision, with the rule behind it. */
   reasons?: DecisionReason[];
 }
@@ -665,6 +667,32 @@ export interface KbAnswer {
   citations: KbHit[];
   grounded: boolean;
   mode: "live" | "replay" | "offline" | string;
+}
+
+export interface StandardRecord {
+  schema_version: "versoml.case.v1";
+  case_id: string;
+  payment_type: "card" | "credit_transfer" | "instant_credit_transfer";
+  amount: Money | null;
+  executed_at: ISODate | null;
+  reported_at: ISODate | null;
+  days_to_report: number | null;
+  fraud_type: string | null;
+  fraud_type_label: string | null;
+  authentication: "sca" | "no_sca" | "unknown";
+  sca_method: string | null;
+  sca_step: "payment" | "device_enrollment" | null;
+  card_scheme: "visa" | "mastercard" | null;
+  eci: string | null;
+  three_ds: "authenticated" | "attempted" | "not_authenticated" | null;
+  merchant_mcc: string | null;
+  payee_iban: string | null;
+  payee_iban_valid: boolean | null;
+  contact_channel: "sms" | "call" | "email" | "messaging" | "website" | "unknown" | null;
+  claimed_amount: Money | null;
+  phones: string[];
+  websites: string[];
+  issues: string[];
 }
 
 export interface KbStats {

@@ -4,11 +4,11 @@
  * Each one stays quiet until it has something to say.
  */
 import { CaretDown, Check, Warning, X } from "@phosphor-icons/react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import { money, pct, plural, statusLabel, toMoney, verdictLabel } from "../../api/format";
+import { dateTime, money, pct, plural, statusLabel, toMoney, verdictLabel } from "../../api/format";
 import { useApi, useResource } from "../../api/runtime";
-import type { AgentEvent, CaseDetail, Decision, DecisionReason, GroundingEntry, KbHit, NumericCheck, Precedent, TxCandidate } from "../../api/types";
+import type { AgentEvent, CaseDetail, Decision, DecisionReason, GroundingEntry, KbHit, NumericCheck, Precedent, StandardRecord, TxCandidate } from "../../api/types";
 import { Banner, Button, cx, ErrorNote, IdTag, Panel, Skeleton } from "../../ui/kit";
 import { CandidateList, NONE } from "./intakeUi";
 import { HitList, HitRow, PassageSheet } from "./knowledgeUi";
@@ -207,6 +207,79 @@ export function LinkedCasesPanel({ d }: { d: CaseDetail }) {
       <p className="mt-3 text-[0.8rem] text-muted">
         Grouped as campaign <span className="id-text">{c.campaign_id}</span> · the shared details match <span className="tnum">{pct(c.similarity)}</span>
       </p>
+    </Panel>
+  );
+}
+
+// ---------------------------------------------------------------- the standard record
+
+const PAYMENT_TYPE: Record<StandardRecord["payment_type"], string> = {
+  card: "Card payment", credit_transfer: "Credit transfer", instant_credit_transfer: "Instant credit transfer",
+};
+const CONTACT: Record<string, string> = { sms: "Text message", call: "Phone call", email: "Email", messaging: "Messaging app", website: "Website", unknown: "Not stated" };
+const SCA_METHOD: Record<string, string> = { app_push: "approval in the app", sms_otp: "SMS code", biometric: "biometrics", password: "password" };
+const THREE_DS: Record<string, string> = { authenticated: "3-D Secure authenticated", attempted: "3-D Secure attempted", not_authenticated: "no 3-D Secure" };
+
+/**
+ * The case in published codes, the same shape for every case: what a supervisor, another bank or a model reads
+ * without knowing VersoML. Built by the rules step from facts, never from free text.
+ */
+export function StandardRecordPanel({ d }: { d: CaseDetail }) {
+  const r = d.standard;
+  const [copied, setCopied] = useState(false);
+  if (!r) return null;
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(r, null, 2));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  }
+  const how = r.sca_method ? `, ${SCA_METHOD[r.sca_method] ?? r.sca_method.replace(/_/g, " ")}` : "";
+  const auth = r.authentication === "sca"
+    ? r.sca_step === "device_enrollment" ? `SCA only to enrol a new device${how}; none for the payment` : `SCA done${how}`
+    : r.authentication === "no_sca" ? "No SCA" : "Not in the log";
+  const rows: Array<[string, ReactNode, string?]> = [
+    ["Fraud type", r.fraud_type_label ?? "Not fraud: a dispute about the payment itself", r.fraud_type ? "EBA/GL/2018/05" : undefined],
+    ["Payment", <>{PAYMENT_TYPE[r.payment_type]}{r.amount ? <> · <span className="tnum">{money(r.amount)}</span></> : null}</>, "ISO 4217"],
+    ["Paid, then reported", <>{dateTime(r.executed_at)} → {dateTime(r.reported_at)}{r.days_to_report != null ? <span className="text-muted"> · {r.days_to_report === 0 ? "same day" : `${plural(r.days_to_report, "day", "days")} later`}</span> : null}</>, "ISO 8601"],
+    ["Authentication", <>{auth}{r.card_scheme ? <span className="text-muted"> · {r.card_scheme === "visa" ? "Visa" : "Mastercard"}{r.eci ? `, ECI ${r.eci}` : ""}{r.three_ds ? `, ${THREE_DS[r.three_ds]}` : ""}</span> : null}</>],
+  ];
+  if (r.payee_iban) rows.push(["Payee account", <><span className="tnum">{r.payee_iban}</span>{r.payee_iban_valid != null && <span className={r.payee_iban_valid ? "text-muted" : "text-danger"}> · {r.payee_iban_valid ? "check digits valid" : "check digits wrong"}</span>}</>, "ISO 13616"]);
+  if (r.merchant_mcc) rows.push(["Merchant category", <span className="tnum">MCC {r.merchant_mcc}</span>, "ISO 18245"]);
+  if (r.contact_channel) rows.push(["First contact", CONTACT[r.contact_channel] ?? r.contact_channel]);
+  if (r.websites.length || r.phones.length) {
+    rows.push(["Indicators", (
+      <span className="flex flex-wrap gap-1.5">
+        {r.websites.map((w) => <IdTag key={w}>{w}</IdTag>)}
+        {r.phones.map((p) => <IdTag key={p}>{p}</IdTag>)}
+      </span>
+    ), "E.164, IDNA"]);
+  }
+  return (
+    <Panel
+      title="Standard record"
+      description="The same codes for every case, so reports and other systems read it without VersoML."
+      actions={<Button size="sm" onClick={copy}>{copied ? <><Check size={14} weight="bold" /> Copied</> : "Copy JSON"}</Button>}
+    >
+      <dl className="grid gap-x-6 gap-y-3 text-[0.9333rem] sm:grid-cols-[10rem_minmax(0,1fr)]">
+        {rows.map(([label, value, standard]) => (
+          <div key={label} className="contents">
+            <dt className="text-[0.8rem] text-muted sm:pt-0.5">{label}{standard && <span className="block text-[0.7rem] text-subtle">{standard}</span>}</dt>
+            <dd className="min-w-0 break-words">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {r.issues.length > 0 && (
+        <ul className="mt-4 flex flex-col gap-1.5 rounded-xl bg-warn-soft px-4 py-3 text-[0.8667rem] text-ink-soft" aria-label="What the data didn't let VersoML read">
+          {r.issues.map((i) => (
+            <li key={i} className="flex gap-2"><Warning size={16} className="mt-0.5 shrink-0 text-warn" />{i}</li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-4 text-[0.75rem] text-subtle"><span className="id-text">{r.schema_version}</span> · sealed with the evidence file</p>
     </Panel>
   );
 }

@@ -27,7 +27,7 @@ import {
 } from "../../ui/kit";
 import {
   IdentificationPanel, isPickPending, LegalSourcesPanel, LinkedCasesPanel, NumericCheckItem, NumericMismatches, PickPaymentBanner, PrecedentsPanel,
-  ReasonLine, reasonFor, usedInNote,
+  ReasonLine, reasonFor, StandardRecordPanel, usedInNote,
 } from "./caseInsights";
 import { AgentStatus, scenarioLabel, Sheet, StatusLine, StepList, useRouting, useStepRows, verdictSentence } from "./caseUi";
 import { PassageSheet, SourceChips } from "./knowledgeUi";
@@ -143,6 +143,7 @@ export default function CasePage() {
                 <SectionBoundary label="Customer and payment"><IdentificationPanel d={d} /></SectionBoundary>
               </div>
               <SectionBoundary label="Linked cases"><div className="mt-4 empty:hidden"><LinkedCasesPanel d={d} /></div></SectionBoundary>
+              <SectionBoundary label="Standard record"><div className="mt-4 empty:hidden"><StandardRecordPanel d={d} /></div></SectionBoundary>
             </CaseSection>
 
             <CaseSection id="refund" n={2} title="Refund decision" meta={<RefundMeta d={d} />}>

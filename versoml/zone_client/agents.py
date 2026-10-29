@@ -2990,6 +2990,10 @@ def _numbers_allowed(c: "Ctx", state: dict):
                         currency)
     for d in state.get("decisions") or []:
         allowed.add_content({"deadline": d.get("deadline"), "amount": d.get("amount")}, currency)
+    # amounts the customer wrote (the RON 2.99 bait fee): the letter may answer them, never as the refund or payment
+    for m in (state.get("extracted") or {}).get("amounts") or []:
+        if isinstance(m, dict) and m.get("value"):
+            allowed.amounts.add((round(float(m["value"]), 2), str(m.get("currency") or currency).upper()))
     back = state.get("refund") or {}
     if back.get("done") and back.get("amount") is not None:
         allowed.add_content({k: back.get(k) for k in ("amount", "debited", "payer_liability", "currency")},

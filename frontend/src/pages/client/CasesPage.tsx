@@ -246,7 +246,7 @@ function CaseList({ cases, onOpen }: { cases: CaseSummary[]; onOpen: (id: string
                   <StatusLine status={String(c.status)} requiresHuman={c.requires_human} verdict={c.verdict} />
                 </span>
                 <span className="text-right text-[0.8667rem] md:text-left md:text-[0.9333rem]">
-                  <DeadlineText deadline={c.deadline} done={isClosed(c)} />
+                  <DeadlineText deadline={c.deadline} done={isClosed(c) && c.status !== "REFUZAT"} />
                 </span>
                 <span className="tnum hidden text-right font-medium md:block">{hasAmount(c.amount) ? money(c.amount) : "—"}</span>
               </button>

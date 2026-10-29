@@ -199,6 +199,7 @@ const STATUS: Record<CaseStatus, string> = {
   RESPINS: "Rejected",
   TRASEU_APP: "APP fraud review",
   INCHIS: "Closed",
+  REFUZAT: "Declined",
 };
 
 export function statusLabel(s: string | null | undefined): string {

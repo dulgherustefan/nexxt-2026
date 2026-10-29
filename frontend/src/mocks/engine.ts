@@ -775,8 +775,13 @@ export function buildTimeline(story: Story, ctx?: StoryCtx): Timeline {
       const dec = x.c.detail.decisions?.find((d) => d.question === "rambursare_t1");
       x.c.detail.interrupt = { pending: false, kind: x.c.detail.interrupt?.kind, options: [] };
       x.c.detail.interrupt.answer = { action: ap.action, approver: ap.approver, note: ap.note };
-      x.c.detail.summary.approved_by = ap.approver;
-      x.c.detail.summary.approved_at = isoRo(ap.at);
+      if (ap.action === "approve") {
+        x.c.detail.summary.approved_by = ap.approver;
+        x.c.detail.summary.approved_at = isoRo(ap.at);
+      } else {
+        x.c.detail.summary.rejected_by = ap.approver;
+        x.c.detail.summary.rejected_at = isoRo(ap.at);
+      }
       emit(x, "CUSTOM", { step: "rambursare", name: "interrupt", message: ap.action === "approve" ? `Approved by ${ap.approver}.` : `Rejected by ${ap.approver}.`, data: { pending: false, resolution: ap.action, approver: ap.approver } });
       const isRefund = story.refund === "approval";
       if ((isRefund && ap.action === "approve") || (!isRefund && ap.action === "reject" && story.verdict === "EXCEPTIE_FRAUDA_CLIENT")) {
@@ -799,8 +804,9 @@ export function buildTimeline(story: Story, ctx?: StoryCtx): Timeline {
           dec.requires_human = true;
           dec.next_actions = ["Give the reason for the rejection: a refusal needs a suspicion of fraud reported to the authority (DSP-05). The refund deadline still applies."];
         }
-        x.c.detail.summary.status = "EXCEPTIE";
-        finish(x, "rambursare", `Rejected by ${ap.approver}: the case becomes an exception, and the refund deadline still applies.`, "blocked", { blocked: true });
+        // same as the server: VersoML stops, and the person handling the case meets the deadline
+        x.c.detail.summary.status = "REFUZAT";
+        finish(x, "rambursare", `Refund declined by ${ap.approver}: no refund from VersoML. A person handles the case; the refund deadline still applies.`);
       } else {
         if (dec) {
           dec.decided_by = "rules+human";

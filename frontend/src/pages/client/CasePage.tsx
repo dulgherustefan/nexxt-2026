@@ -7,6 +7,7 @@ import {
   CheckCircle,
   CreditCard,
   Gavel,
+  Hand,
   ShieldWarning,
   SealCheck,
   SealWarning,
@@ -101,6 +102,7 @@ export default function CasePage() {
         {isPickPending(d)
           ? <PickPaymentBanner d={d} caseId={id} events={stream.events} onDone={detail.reload} />
           : pending && <SignatureBanner d={d} sign={sign} />}
+        {d.summary.status === "REFUZAT" && <DeclinedBanner d={d} />}
         {!d.interrupt?.pending && d.letter?.filter?.passed === false && (
           <Banner
             tone="danger"
@@ -225,6 +227,7 @@ function journey(d: CaseDetail): JourneyStep[] {
           : status === "RESPINS" ? { state: "done", note: "Rejected" }
             : status === "EXCEPTIE" ? { state: "done", note: "Exception signed" }
               : status === "TRASEU_APP" ? { state: "done", note: "Recall route" }
+                : status === "REFUZAT" ? { state: "done", note: "Declined" }
                 : refund ? { state: "done", note: verdictLabel(refund.decision, refund.question) }
                   : pick ? { state: "todo", note: "After the payment is picked" }
                     : working ? { state: "running", note: "Applying the rules" } : { state: "todo", note: "Not yet" }),
@@ -241,7 +244,8 @@ function journey(d: CaseDetail): JourneyStep[] {
     {
       id: "letter", label: "Letter",
       ...(d.letter ? (d.letter.filter?.passed === false ? { state: "stopped", note: "Stopped by the check" } : { state: "done", note: "Passed the check" })
-        : later("Writing")),
+        : status === "REFUZAT" ? { state: "done", note: "Left to the person" }
+          : later("Writing")),
     },
     {
       id: "evidence", label: "Evidence",
@@ -455,6 +459,18 @@ function CaseSkeleton() {
 
 // ---------------------------------------------------------------- signature
 
+/** After "Decline": VersoML has stopped, and the legal deadline is now the person's to meet. */
+function DeclinedBanner({ d }: { d: CaseDetail }) {
+  const who = d.summary.rejected_by ?? d.interrupt?.answer?.approver ?? "A person";
+  const deadline = d.clock?.t1_deadline ?? d.summary.deadline;
+  return (
+    <Banner tone="neutral" icon={<Hand size={20} className="text-ink-soft" />} title={`${who} declined the refund${d.summary.rejected_at ? ` on ${dateTime(d.summary.rejected_at)}` : ""}. VersoML stopped here.`}>
+      No money went out and no letter was written; the person handling the case writes to the customer.
+      {deadline ? <> The deadline still applies: by {dateTime(deadline)} the bank refunds, or reports suspected fraud to the authorities (DSP-05).</> : null}
+    </Banner>
+  );
+}
+
 const SIGN_COPY: Record<string, { yes: string; no: string; consequence: string }> = {
   RAMBURSEAZA_CU_APROBARE: { yes: "Approve refund", no: "Decline", consequence: "When you approve, the rules engine issues the refund right away." },
   RESPINGE_TARDIV: { yes: "Confirm rejection", no: "Don’t confirm, refund", consequence: "The customer gets a rejection letter with the legal basis and how to appeal." },
@@ -561,7 +577,7 @@ function DecisionPanel({ d, onCite, onRules, onPassage }: { d: CaseDetail; onCit
     approver: answer?.approver ?? d.summary.approved_by ?? undefined,
   });
   // while the decision is open, the rules engine's own sentence explains it; once it is final, the outcome does
-  const final = ["RAMBURSAT", "RESPINS", "EXCEPTIE"].includes(String(d.summary.status)) || answer?.action === "reject";
+  const final = ["RAMBURSAT", "RESPINS", "EXCEPTIE", "REFUZAT"].includes(String(d.summary.status)) || answer?.action === "reject";
   const reason = reasonFor(refund, d.reasons);
   const others = decisions.filter((x) => x.question !== "rambursare_t1" && x.question !== "pista_aml" && x.question !== "rts");
   return (
@@ -857,7 +873,9 @@ function LetterTab({ d, caseId, onCite, onPassage }: { d: CaseDetail; caseId: st
   return (
     <div className="flex flex-col gap-5">
       {!letter ? (
-        <EmptyState title="The letter isn’t ready">The letter writer drafts it after the decision and the recovery step, then the letter check reads it.</EmptyState>
+        d.summary.status === "REFUZAT"
+          ? <EmptyState title="No letter: the refund was declined">A letter now would promise money nobody approved. The person handling the case writes to the customer.</EmptyState>
+          : <EmptyState title="The letter isn’t ready">The letter writer drafts it after the decision and the recovery step, then the letter check reads it.</EmptyState>
       ) : (
         <Panel
           title={letter.subject}

@@ -379,7 +379,9 @@ export type CaseStatus =
   | "EXCEPTIE"
   | "RESPINS"
   | "TRASEU_APP"
-  | "INCHIS";
+  | "INCHIS"
+  /** A person declined the refund: VersoML stopped and the case is handled by hand. */
+  | "REFUZAT";
 
 export type ModelRole = "opus" | "sonnet" | "haiku";
 
@@ -446,6 +448,8 @@ export interface CaseSummary {
   /** The situation in a few plain words, e.g. "Paid after a fake courier text". */
   scenario_phrase?: string | null;
   approved_by?: string | null;
+  rejected_by?: string | null;
+  rejected_at?: ISODate | null;
   approved_at?: ISODate | null;
 }
 

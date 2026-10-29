@@ -39,6 +39,9 @@ export function caseStatus(status: string | null | undefined, requiresHuman = fa
       return { label: "Exception signed", tone: "danger", group: "closed" };
     case "INCHIS":
       return { label: "Closed", tone: "neutral", group: "closed" };
+    case "REFUZAT":
+      // VersoML's part is over; the refund deadline still runs for the person handling it
+      return { label: "Declined, with a person", tone: "neutral", group: "closed" };
     case "EROARE":
       return { label: "Failed: restart the case", tone: "danger", group: "you" };
     default:

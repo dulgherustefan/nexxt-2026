@@ -240,7 +240,7 @@ export interface Step {
   mark?: "recover" | "wait" | "stop" | "closed" | "pause";
 }
 
-export const FINAL = new Set(["RAMBURSAT", "TRASEU_APP", "EXCEPTIE", "RESPINS", "INCHIS"]);
+export const FINAL = new Set(["RAMBURSAT", "TRASEU_APP", "EXCEPTIE", "RESPINS", "INCHIS", "REFUZAT"]);
 
 /** Always three steps: Received → Under review → Refunded (or the outcome that replaces the refund). */
 export function stepsFor(status: string, verdict: string | null | undefined): Step[] {
@@ -260,6 +260,8 @@ export function stepsFor(status: string, verdict: string | null | undefined): St
       return [received, reviewed, { label: "Recovery", state: "info", mark: "recover", note: "You approved this payment yourself, so we're helping you get the money back." }];
     case "EXCEPTIE":
       return [received, reviewed, { label: "More checks", state: "info", mark: "wait", note: "We need to run more checks. We'll write to you." }];
+    case "REFUZAT":
+      return [received, reviewed, { label: "With a colleague", state: "info", mark: "wait", note: "A colleague is looking at your claim by hand. We'll write to you." }];
     case "RESPINS":
       return [received, reviewed, { label: "Not accepted", state: "info", mark: "stop", note: "We couldn't accept your claim. We'll explain why in writing." }];
     case "INCHIS":

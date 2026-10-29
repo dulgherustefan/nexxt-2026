@@ -1,36 +1,41 @@
 # VersoML evaluation report
 
-Generated: 2026-10-28T23:28:25.286598+00:00 · LLM mode: offline
+Generated: 2026-10-29T05:15:36.871802+00:00 · LLM mode: offline
 
 | Metric | Value | Target |
 |---|---|---|
-| Rules: refund verdict on the golden set (40) | 100.0% | 100% |
-| Rules: verdict on 300 generated cases | 100.0% | 100% |
-| Rules: verdict on the typology cases | 100.0% | 100% |
-| Correct refund deadlines | 100.0% | 100% |
-| Recall of escalations to a person | 100.0% | ≥ 0.95 |
+| Rules engine vs oracle: refund verdict on the golden set (40) | 100.0% | 100% |
+| Rules engine vs oracle: verdict on 300 generated cases | 100.0% | 100% |
+| Rules engine vs oracle: verdict on the typology cases | 100.0% | 100% |
+| Rules engine vs oracle: refund deadlines | 100.0% | 100% |
+| Rules engine vs oracle: recall of escalations to a person | 100.0% | ≥ 0.95 |
 | Non-interference: leaks across the wall | 0 | 0 |
 | Non-interference: decisions changed by the AML zone | 0 | 0 |
-| Raw personal data sent to the LLM | 0 | 0 |
+| Raw personal data left after pseudonymization (independent check) | 0 | 0 |
 | Injections detected | 100.0% | 100% |
+| Injections that moved a decision their way (deterministic path) | 0 | 0 |
 | Letter check: tipping-off recall | 100.0% | 100% |
 | Letter check: clean letters blocked by mistake | 0 | 0 |
 | Injections: false alarms on clean complaints | 0.0% | ≈ 0 |
 | M1 scenario on held-out templates: macro-F1 | 97.0% | ≥ 0.90 |
 | M1 scenario calibration on held-out templates: ECE | 1.2% | ≤ 0.05 |
-| M1 scenario, trained on templates, tested on free text | 81.9% | comparison |
-| M1 scenario, trained on English, tested on Romanian | 65.5% | comparison |
+| M1 scenario, trained on templates, tested on free text | 81.8% | comparison |
+| M1 scenario, trained on English, tested on Romanian | 65.3% | comparison |
 | M2 client-fraud signal: AUC, temporal split | 88.5% | ≥ 0.80 |
 | M5 money mules: AUC, temporal split (ensemble) | 98.7% | ≥ 0.85 |
 | M5 money mules: AUC, rules only (baseline) | 75.3% | comparison |
-| M5: false alarms on hard negatives | 0.4% | ≈ 0 |
-| Knowledge base Recall@5 (bm25) | 78.2% |  |
+| M5: false alarms on hard negatives | 0.5% | ≈ 0 |
+| Live case runs: seconds to the refund decision, median / p90 | 3.1 / 6.2 (30 runs) | measured |
+| Live case runs: seconds to the sealed file without the wait for a person, median / p90 | 39.7 / 87.5 (27 runs) | measured |
+| Knowledge base Recall@5 (bm25) | 79.6% |  |
 | Knowledge base Recall@5 (dense) | 89.3% |  |
 | Knowledge base Recall@5 (hybrid) | 88.4% | >= 0.80 |
 | Knowledge base answers fully cited | 100.0% | 1.0 |
 | Free-form intake: right payment on clear cases | 100.0% | >= 0.95 |
 | Free-form intake: ambiguous or unknown sent to a person | 100.0% | 1.0 |
 | Free-form intake: wrong automatic matches | 0 | 0 |
+
+**Rules engine vs oracle** rows run the rules engine on stored rule contexts and compare its answers with `versoml/data/oracle.py`, a reference reading of the same decision table. They show that the engine follows the table. Intake, classification and the collectors are skipped, so these rows do not say how well the pipeline reads a complaint. The privacy, injection and case-run rows are explained in their sections below.
 
 ## Models: old vs new
 
@@ -46,15 +51,15 @@ Generated: 2026-10-28T23:28:25.286598+00:00 · LLM mode: offline
 
 | Split | char | word | cnb | emb | ensemble_fallback | ensemble_full | ensemble_served | n |
 |---|---|---|---|---|---|---|---|---|
-| held_out_templates | 0.972 | 0.951 | 0.903 | 0.848 | 0.973 | 0.962 | 0.973 | 1580 |
+| held_out_templates | 0.972 | 0.951 | 0.903 | 0.848 | 0.974 | 0.962 | 0.973 | 1580 |
 | typo_noise | 0.965 | 0.948 | 0.903 | n/a | 0.975 | n/a | 0.975 | 1580 |
 | held_out_llm_batch | 0.920 | 0.918 | 0.911 | 0.833 | 0.928 | 0.933 | 0.933 | 461 |
-| cross_lingual_en_to_ro | 0.580 | 0.432 | 0.466 | 0.617 | 0.655 | 0.486 | 0.655 | 2369 |
-| templates_to_llm_paraphrases | 0.742 | 0.752 | 0.792 | 0.710 | 0.819 | 0.715 | 0.819 | 1260 |
+| cross_lingual_en_to_ro | 0.580 | 0.432 | 0.466 | 0.617 | 0.653 | 0.486 | 0.653 | 2369 |
+| templates_to_llm_paraphrases | 0.742 | 0.752 | 0.792 | 0.710 | 0.818 | 0.714 | 0.818 | 1260 |
 | hard_negatives | 0.319 | 0.325 | 0.275 | 0.275 | 0.381 | 0.425 | 0.381 | 160 |
 | random_split_leaky | 0.986 | 0.975 | 0.939 | n/a | 0.993 | n/a | 0.993 | 805 |
 
-Ambiguity flag on hard negatives: vague or multi-issue complaints flagged 0.475, clear ones flagged 0.050.
+Ambiguity flag on hard negatives: vague or multi-issue complaints flagged 0.487, clear ones flagged 0.050.
 
 ### M2 client-fraud signal: members vs ensemble (temporal split)
 
@@ -73,32 +78,59 @@ Train: 30-day windows ending 2026-09-21, 2026-08-22, 2026-07-23; test: 2026-09-2
 |---|---|---|---|
 | rules_only | 0.753 | 0.263 | 0.341 |
 | gbdt_no_graph | 0.962 | 0.740 | 0.680 |
-| gbdt_graph | 0.988 | 0.894 | 0.828 |
+| gbdt_graph | 0.988 | 0.894 | 0.859 |
 | ppr_alone | 0.867 | 0.417 | n/a |
 | iforest_alone | 0.742 | 0.153 | n/a |
-| ensemble | 0.987 | 0.895 | 0.839 |
+| ensemble | 0.987 | 0.894 | 0.847 |
 
 Typology hold-out (trained without that typology, tested on its mules in the last window):
 
 | Typology | Mules | Ensemble AUC | Ensemble recall | Rules-only AUC |
 |---|---|---|---|---|
 | behavioural_change | 3 | 0.999 | 1.000 | 0.879 |
-| bipartite | 38 | 0.947 | 0.368 | 0.713 |
+| bipartite | 38 | 0.950 | 0.368 | 0.713 |
 | cycle | 3 | 1.000 | 1.000 | 0.711 |
 | demo_ring | 1 | 1.000 | 1.000 | 1.000 |
 | fan_in | 13 | 1.000 | 1.000 | 0.974 |
-| fan_out | 21 | 0.992 | 0.619 | 0.598 |
+| fan_out | 21 | 0.992 | 0.667 | 0.598 |
 | gather_scatter | 11 | 1.000 | 1.000 | 0.665 |
 | layered_fan_out | 6 | 0.999 | 0.833 | 0.701 |
 | random | 15 | 0.999 | 0.933 | 0.841 |
-| rapid_pass_through | 8 | 0.987 | 0.500 | 0.909 |
+| rapid_pass_through | 8 | 0.987 | 0.625 | 0.909 |
 | scatter_gather | 24 | 0.992 | 0.833 | 0.782 |
 | smurfing | 4 | 1.000 | 1.000 | 1.000 |
-| stack | 4 | 0.997 | 0.750 | 0.354 |
+| stack | 4 | 0.998 | 0.750 | 0.354 |
 
-Inference latency (median of repeated calls, warm): M1 4.1 ms, M2 8.5 ms, M5 (demo neighbourhood) 10.7 ms.
+Inference latency (median of repeated calls, warm): M1 1.4 ms, M2 5.1 ms, M5 (demo neighbourhood) 5.9 ms.
 
 Notes: every number is on synthetic data. Methods follow docs/08_cercetare_rag_ml_agenti.md: stacking on out-of-fold predictions (Wolpert 1992; scikit-learn stacking docs), IsolationForest as a stacked feature (Liu, Ting, Zhou 2008), sigmoid / temperature calibration with few positives (Niculescu-Mizil and Caruana 2005), group splits on unseen templates and temporal splits with a gap (ULB fraud-detection handbook, ch. 5), LLM paraphrases added on top of templates, never instead of them (Li et al. 2023; Gerstgrasser et al. 2024), AML typologies after AMLworld (Altman et al. 2023, data at github.com/IBM/AML-Data), PPR as guilt by association (Koutra et al. 2011).
+
+## Privacy: raw personal data left after pseudonymization
+
+140 complaints are pseudonymized, then checked by `versoml/shared/privacy/crosscheck.py`. It shares no code with the recognizers that did the masking: it finds its own candidates and validates them with python-stdnum (CNP, IBAN, Luhn for cards) and the E.164 lengths for phones.
+
+| | E-mail | IBAN | Card | CNP | Phone |
+|---|---|---|---|---|---|
+| Found by the checker in the raw text | 12 | 4 | 0 | 0 | 33 |
+| Left after pseudonymization | 0 | 0 | 0 | 0 | 0 |
+
+Complaints with anything left: 0. The masking recognizers, run again on their own output, find something in 0. Names are not measured here: the checker matches only the names it is given (in the pipeline, the customer's names from the bank record), and this run gives it none.
+
+## Injections: does the text move the decision?
+
+Each of the 28 complaints with planted instructions goes through the deterministic path twice: as written, and with the instructions cut out. The path is the offline intake (`fallback_extract`, the injection detector, the amount in the text) on top of the stored rule context, then the rules engine. The scenario label comes from the stored context, not from the classifier.
+
+| Same refund decision | A person's sign-off added | Moved the way the text asked | Other change |
+|---|---|---|---|
+| 18 | 10 | 0 | 0 |
+
+## Case runs stored in the client zone
+
+30 case documents in `var/client_zone.db`, runs from 2026-10-28T23:58 to 2026-10-29T03:37 UTC, grouped by the LLM mode of the intake step. Model cost is not reported: the step events do not record every model call.
+
+| LLM mode | To the refund decision: runs, median, p90, max (s) | To the sealed file without the wait for a person: runs, median, p90, max (s) |
+|---|---|---|
+| live | 30, 3.1, 6.2, 64.4 | 27, 39.7, 87.5, 100.2 |
 
 ## Knowledge base retrieval
 
@@ -106,9 +138,9 @@ Notes: every number is on synthetic data. Methods follow docs/08_cercetare_rag_m
 
 | Method | R@1 | R@5 | MRR@10 | nDCG@10 |
 |---|---|---|---|---|
-| bm25 | 0.472 | 0.782 | 0.666 | 0.691 |
+| bm25 | 0.465 | 0.796 | 0.658 | 0.685 |
 | dense | 0.597 | 0.893 | 0.808 | 0.818 |
-| hybrid | 0.583 | 0.884 | 0.800 | 0.816 |
+| hybrid | 0.583 | 0.884 | 0.800 | 0.817 |
 | hybrid_offline | 0.474 | 0.759 | 0.654 | 0.666 |
 
 
@@ -128,7 +160,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
   "escalation_recall": 1.0,
   "deadline_accuracy": 1.0,
   "recovery_accuracy": 1.0,
-  "ms_per_case": 5.816,
+  "ms_per_case": 1.044,
   "failures": []
  },
  "rules_generated": {
@@ -138,7 +170,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
   "escalation_recall": 1.0,
   "deadline_accuracy": 1.0,
   "recovery_accuracy": 1.0,
-  "ms_per_case": 0.662,
+  "ms_per_case": 0.158,
   "failures": []
  },
  "rules_typologies": {
@@ -148,21 +180,111 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
   "escalation_recall": 1.0,
   "deadline_accuracy": 1.0,
   "recovery_accuracy": 1.0,
-  "ms_per_case": 0.506,
+  "ms_per_case": 0.149,
   "failures": []
  },
  "privacy": {
   "complaints_checked": 140,
   "raw_pii_to_llm": 0,
-  "pseudonyms_created": 125
+  "pseudonyms_created": 125,
+  "checker": "versoml/shared/privacy/crosscheck.py",
+  "checker_found_in_raw_text": {
+   "EMAIL": 12,
+   "TELEFON": 33,
+   "IBAN": 4
+  },
+  "checker_found_after_pseudonymization": {},
+  "masking_recognizers_find_again": 0,
+  "not_measured": "names in free text (the checker matches only the names it is given)",
+  "markdown": [
+   "## Privacy: raw personal data left after pseudonymization",
+   "",
+   "140 complaints are pseudonymized, then checked by `versoml/shared/privacy/crosscheck.py`. It shares no code with the recognizers that did the masking: it finds its own candidates and validates them with python-stdnum (CNP, IBAN, Luhn for cards) and the E.164 lengths for phones.",
+   "",
+   "| | E-mail | IBAN | Card | CNP | Phone |",
+   "|---|---|---|---|---|---|",
+   "| Found by the checker in the raw text | 12 | 4 | 0 | 0 | 33 |",
+   "| Left after pseudonymization | 0 | 0 | 0 | 0 | 0 |",
+   "",
+   "Complaints with anything left: 0. The masking recognizers, run again on their own output, find something in 0. Names are not measured here: the checker matches only the names it is given (in the pipeline, the customer's names from the bank record), and this run gives it none."
+  ]
  },
  "injection": {
   "injection_cases": 28,
   "detected": 28,
   "detection_rate": 1.0,
   "false_positive_rate": 0.0,
-  "decision_changed_by_injection": 0,
-  "note": "The complaint text does not go into RuleContext, so the text cannot change the decision."
+  "twins_compared": 28,
+  "decision_changed_by_injection": 10,
+  "decision_moved_toward_injection": 0,
+  "sign_off_added_by_injection": 10,
+  "other_changes": 0,
+  "changed_examples": [
+   {
+    "id": "G11",
+    "as_written": [
+     "RAMBURSEAZA_CU_APROBARE",
+     true
+    ],
+    "instructions_cut": [
+     "RAMBURSEAZA",
+     false
+    ]
+   },
+   {
+    "id": "G35",
+    "as_written": [
+     "RAMBURSEAZA_CU_APROBARE",
+     true
+    ],
+    "instructions_cut": [
+     "RAMBURSEAZA",
+     false
+    ]
+   },
+   {
+    "id": "N023",
+    "as_written": [
+     "RAMBURSEAZA_CU_APROBARE",
+     true
+    ],
+    "instructions_cut": [
+     "RAMBURSEAZA",
+     false
+    ]
+   },
+   {
+    "id": "N035",
+    "as_written": [
+     "RAMBURSEAZA_CU_APROBARE",
+     true
+    ],
+    "instructions_cut": [
+     "RAMBURSEAZA",
+     false
+    ]
+   },
+   {
+    "id": "N095",
+    "as_written": [
+     "RAMBURSEAZA_CU_APROBARE",
+     true
+    ],
+    "instructions_cut": [
+     "RAMBURSEAZA",
+     false
+    ]
+   }
+  ],
+  "markdown": [
+   "## Injections: does the text move the decision?",
+   "",
+   "Each of the 28 complaints with planted instructions goes through the deterministic path twice: as written, and with the instructions cut out. The path is the offline intake (`fallback_extract`, the injection detector, the amount in the text) on top of the stored rule context, then the rules engine. The scenario label comes from the stored context, not from the classifier.",
+   "",
+   "| Same refund decision | A person's sign-off added | Moved the way the text asked | Other change |",
+   "|---|---|---|---|",
+   "| 18 | 10 | 0 | 0 |"
+  ]
  },
  "letter_filter": {
   "adversarial": 20,
@@ -174,14 +296,14 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
  },
  "ml": {
   "seed": 7,
-  "generated_at": "2026-10-29T01:11:25+02:00",
-  "seconds_total": 106.36,
+  "generated_at": "2026-10-29T01:38:34+02:00",
+  "seconds_total": 53.16,
   "seconds": {
-   "world": 11.31,
-   "m2": 55.38,
-   "m1": 96.48,
-   "m5": 94.75,
-   "m6_m7": 0.3
+   "world": 0.3,
+   "m2": 40.33,
+   "m1": 44.94,
+   "m5": 52.82,
+   "m6_m7": 0.04
   },
   "m1_classifier": {
    "model_version": "m1-stack-4bad97e8",
@@ -234,7 +356,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
     },
     "scenario": {
      "full": 0.9567,
-     "fallback_same_rows": 0.9493
+     "fallback_same_rows": 0.9502
     }
    },
    "eval_only_rows": 80,
@@ -339,7 +461,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
       "ensemble_served": {
        "accuracy": 0.9949,
        "macro_f1": 0.9935,
-       "ece": 0.0035,
+       "ece": 0.0036,
        "n": 1580
       },
       "best_text_member": "cnb"
@@ -364,9 +486,9 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
        "n": 1580
       },
       "ensemble_fallback": {
-       "accuracy": 0.9734,
-       "macro_f1": 0.9704,
-       "ece": 0.0111,
+       "accuracy": 0.9741,
+       "macro_f1": 0.9709,
+       "ece": 0.0107,
        "n": 1580
       },
       "emb": {
@@ -376,15 +498,15 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
        "n": 290
       },
       "fallback_same_rows": {
-       "accuracy": 0.9655,
-       "macro_f1": 0.9652,
-       "ece": 0.0142,
+       "accuracy": 0.969,
+       "macro_f1": 0.9687,
+       "ece": 0.0113,
        "n": 290
       },
       "ensemble_full": {
        "accuracy": 0.9621,
        "macro_f1": 0.9616,
-       "ece": 0.0186,
+       "ece": 0.0187,
        "n": 290
       },
       "ensemble_served": {
@@ -420,13 +542,13 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
       "ensemble_fallback": {
        "accuracy": 0.9753,
        "macro_f1": 0.9719,
-       "ece": 0.0077,
+       "ece": 0.0083,
        "n": 1580
       },
       "ensemble_served": {
        "accuracy": 0.9753,
        "macro_f1": 0.9719,
-       "ece": 0.0077,
+       "ece": 0.0083,
        "n": 1580
       },
       "best_text_member": "char"
@@ -525,13 +647,13 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
       "ensemble_full": {
        "accuracy": 0.987,
        "macro_f1": 0.9803,
-       "ece": 0.0092,
+       "ece": 0.0074,
        "n": 461
       },
       "ensemble_served": {
        "accuracy": 0.987,
        "macro_f1": 0.9803,
-       "ece": 0.0092,
+       "ece": 0.0074,
        "n": 461
       },
       "best_text_member": "cnb"
@@ -558,7 +680,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
       "ensemble_fallback": {
        "accuracy": 0.9284,
        "macro_f1": 0.9123,
-       "ece": 0.0289,
+       "ece": 0.0291,
        "n": 461
       },
       "emb": {
@@ -570,7 +692,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
       "fallback_same_rows": {
        "accuracy": 0.9284,
        "macro_f1": 0.9123,
-       "ece": 0.0289,
+       "ece": 0.0291,
        "n": 461
       },
       "ensemble_full": {
@@ -611,9 +733,9 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
        "n": 2369
       },
       "ensemble_fallback": {
-       "accuracy": 0.6551,
-       "macro_f1": 0.6391,
-       "ece": 0.0762,
+       "accuracy": 0.6534,
+       "macro_f1": 0.6371,
+       "ece": 0.0777,
        "n": 2369
       },
       "emb": {
@@ -623,9 +745,9 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
        "n": 1181
       },
       "fallback_same_rows": {
-       "accuracy": 0.5385,
-       "macro_f1": 0.5187,
-       "ece": 0.129,
+       "accuracy": 0.536,
+       "macro_f1": 0.5152,
+       "ece": 0.1304,
        "n": 1181
       },
       "ensemble_full": {
@@ -635,9 +757,9 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
        "n": 1181
       },
       "ensemble_served": {
-       "accuracy": 0.6551,
-       "macro_f1": 0.6391,
-       "ece": 0.0762,
+       "accuracy": 0.6534,
+       "macro_f1": 0.6371,
+       "ece": 0.0777,
        "n": 2369
       },
       "best_text_member": "char"
@@ -666,9 +788,9 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
        "n": 1260
       },
       "ensemble_fallback": {
-       "accuracy": 0.819,
-       "macro_f1": 0.7818,
-       "ece": 0.0829,
+       "accuracy": 0.8175,
+       "macro_f1": 0.7795,
+       "ece": 0.0826,
        "n": 1260
       },
       "emb": {
@@ -678,21 +800,21 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
        "n": 1260
       },
       "fallback_same_rows": {
-       "accuracy": 0.819,
-       "macro_f1": 0.7818,
-       "ece": 0.0829,
+       "accuracy": 0.8175,
+       "macro_f1": 0.7795,
+       "ece": 0.0826,
        "n": 1260
       },
       "ensemble_full": {
-       "accuracy": 0.7151,
-       "macro_f1": 0.6802,
-       "ece": 0.1639,
+       "accuracy": 0.7135,
+       "macro_f1": 0.6788,
+       "ece": 0.1655,
        "n": 1260
       },
       "ensemble_served": {
-       "accuracy": 0.819,
-       "macro_f1": 0.7818,
-       "ece": 0.0829,
+       "accuracy": 0.8175,
+       "macro_f1": 0.7795,
+       "ece": 0.0826,
        "n": 1260
       },
       "best_text_member": "cnb"
@@ -721,8 +843,8 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
       },
       "ensemble_fallback": {
        "accuracy": 0.3812,
-       "macro_f1": 0.448,
-       "ece": 0.329,
+       "macro_f1": 0.4504,
+       "ece": 0.3287,
        "n": 160
       },
       "emb": {
@@ -733,26 +855,26 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
       },
       "fallback_same_rows": {
        "accuracy": 0.3812,
-       "macro_f1": 0.448,
-       "ece": 0.329,
+       "macro_f1": 0.4504,
+       "ece": 0.3287,
        "n": 160
       },
       "ensemble_full": {
        "accuracy": 0.425,
        "macro_f1": 0.4936,
-       "ece": 0.3012,
+       "ece": 0.3011,
        "n": 160
       },
       "ensemble_served": {
        "accuracy": 0.3812,
-       "macro_f1": 0.448,
-       "ece": 0.329,
+       "macro_f1": 0.4504,
+       "ece": 0.3287,
        "n": 160
       },
       "best_text_member": "word"
      },
      "ambiguity": {
-      "vague_or_multi_issue_flagged": 0.475,
+      "vague_or_multi_issue_flagged": 0.4875,
       "clear_hard_negatives_flagged": 0.05
      }
     },
@@ -807,7 +929,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
    "dispute_type": {
     "accuracy": 0.9949,
     "macro_f1": 0.9935,
-    "ece": 0.0035,
+    "ece": 0.0036,
     "n": 1580,
     "classes": [
      "app",
@@ -839,7 +961,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
    "accuracy_text_only": {
     "scenario": 0.9753
    },
-   "seconds": 96.5
+   "seconds": 44.9
   },
   "m2_client_fraud": {
    "held_out": {
@@ -936,20 +1058,20 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
     "gbdt_graph": {
      "auc": 0.9878,
      "pr_auc": 0.8943,
-     "f1": 0.8283,
-     "precision": 0.8425,
-     "recall": 0.8146,
-     "threshold": 0.0826,
+     "f1": 0.8592,
+     "precision": 0.9173,
+     "recall": 0.8079,
+     "threshold": 0.1247,
      "n": 3403,
      "positives": 151
     },
     "ensemble": {
      "auc": 0.9873,
-     "pr_auc": 0.8946,
-     "f1": 0.8394,
-     "precision": 0.935,
-     "recall": 0.7616,
-     "threshold": 0.4816,
+     "pr_auc": 0.8945,
+     "f1": 0.847,
+     "precision": 0.9154,
+     "recall": 0.7881,
+     "threshold": 0.405,
      "n": 3403,
      "positives": 151,
      "threshold_from": "best F1 on the training snapshots (out-of-fold)"
@@ -976,7 +1098,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
     "n_train": 9692,
     "n_test": 3403,
     "test_mules": 151,
-    "false_positive_rate_hard_negatives": 0.0039
+    "false_positive_rate_hard_negatives": 0.0052
    },
    "typology_holdout": {
     "behavioural_change": {
@@ -988,7 +1110,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
     },
     "bipartite": {
      "positives": 38,
-     "ensemble_auc": 0.9469,
+     "ensemble_auc": 0.95,
      "ensemble_recall_at_thr": 0.3684,
      "rules_only_auc": 0.7129,
      "rules_only_recall_at_0.5": 0.1053
@@ -1009,7 +1131,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
     },
     "fan_in": {
      "positives": 13,
-     "ensemble_auc": 0.9999,
+     "ensemble_auc": 0.9998,
      "ensemble_recall_at_thr": 1.0,
      "rules_only_auc": 0.9744,
      "rules_only_recall_at_0.5": 0.9231
@@ -1017,13 +1139,13 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
     "fan_out": {
      "positives": 21,
      "ensemble_auc": 0.9923,
-     "ensemble_recall_at_thr": 0.619,
+     "ensemble_recall_at_thr": 0.6667,
      "rules_only_auc": 0.5975,
      "rules_only_recall_at_0.5": 0.0952
     },
     "gather_scatter": {
      "positives": 11,
-     "ensemble_auc": 0.9996,
+     "ensemble_auc": 0.9997,
      "ensemble_recall_at_thr": 1.0,
      "rules_only_auc": 0.6655,
      "rules_only_recall_at_0.5": 0.1818
@@ -1045,13 +1167,13 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
     "rapid_pass_through": {
      "positives": 8,
      "ensemble_auc": 0.9872,
-     "ensemble_recall_at_thr": 0.5,
+     "ensemble_recall_at_thr": 0.625,
      "rules_only_auc": 0.9087,
      "rules_only_recall_at_0.5": 0.5
     },
     "scatter_gather": {
      "positives": 24,
-     "ensemble_auc": 0.9916,
+     "ensemble_auc": 0.992,
      "ensemble_recall_at_thr": 0.8333,
      "rules_only_auc": 0.7817,
      "rules_only_recall_at_0.5": 0.1667
@@ -1065,7 +1187,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
     },
     "stack": {
      "positives": 4,
-     "ensemble_auc": 0.9973,
+     "ensemble_auc": 0.9981,
      "ensemble_recall_at_thr": 0.75,
      "rules_only_auc": 0.3541,
      "rules_only_recall_at_0.5": 0.0
@@ -1093,17 +1215,17 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
    },
    "gbdt_graph": {
     "auc": 0.995,
-    "pr_auc": 0.9557,
+    "pr_auc": 0.9556,
     "f1": 0.9141,
     "precision": 0.9507,
     "recall": 0.8802,
-    "threshold": 0.2335,
+    "threshold": 0.2386,
     "n": 13095,
     "positives": 526
    },
    "gbdt_graph_at_0.5": {
     "auc": 0.995,
-    "pr_auc": 0.9557,
+    "pr_auc": 0.9556,
     "f1": 0.87,
     "precision": 0.9696,
     "recall": 0.789,
@@ -1113,11 +1235,11 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
    },
    "ensemble": {
     "auc": 0.9873,
-    "pr_auc": 0.8946,
-    "f1": 0.8394,
-    "precision": 0.935,
-    "recall": 0.7616,
-    "threshold": 0.4816,
+    "pr_auc": 0.8945,
+    "f1": 0.847,
+    "precision": 0.9154,
+    "recall": 0.7881,
+    "threshold": 0.405,
     "n": 3403,
     "positives": 151,
     "threshold_from": "best F1 on the training snapshots (out-of-fold)"
@@ -1126,7 +1248,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
    "window_days": 30,
    "n_accounts": 13095,
    "mule_rate": 0.0402,
-   "false_positive_rate_hard_negatives": 0.0039,
+   "false_positive_rate_hard_negatives": 0.0052,
    "model_version": "m5-stack-graph-e828b06a",
    "meta_inputs": [
     "logit(GBDT on own + graph features)",
@@ -1135,10 +1257,10 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
     "rules-only score"
    ],
    "meta_coef": [
-    1.0417,
-    0.2225,
-    0.461,
-    0.079
+    1.0406,
+    0.2245,
+    0.4597,
+    0.0783
    ],
    "note": "PPR seeds = accounts with incoming payments reported as fraud in the window (an observable fact); ground-truth labels never reach the features"
   },
@@ -1190,9 +1312,9 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
   "synthetic": true,
   "note": "Every metric is on synthetic data; on real data they will be lower.",
   "_latency_ms": {
-   "M1": 4.1,
-   "M2": 8.5,
-   "M5 (demo neighbourhood)": 10.7
+   "M1": 1.4,
+   "M2": 5.1,
+   "M5 (demo neighbourhood)": 5.9
   }
  },
  "data": {
@@ -1224,7 +1346,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
   }
  },
  "noninterference": {
-  "at": "2026-10-28T23:28:21.126252+00:00",
+  "at": "2026-10-29T05:15:35.791444+00:00",
   "scenarios": [
    "demo_t1",
    "card_visa_secure",
@@ -1239,7 +1361,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
   "letters_failing_filter": 0,
   "canaries_planted": 5,
   "canary_hits_in_client_zone": 0,
-  "bytes_scanned": 3311799,
+  "bytes_scanned": 3293309,
   "leaks": 0,
   "statuses": {
    "demo_t1": [
@@ -1268,6 +1390,50 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
    ]
   }
  },
+ "case_runs": {
+  "source": "var/client_zone.db",
+  "cases_stored": 30,
+  "first_run": "2026-10-28T23:58:08.481036+00:00",
+  "last_run": "2026-10-29T03:37:59.373772+00:00",
+  "by_llm_mode": {
+   "live": {
+    "to_refund_decision": {
+     "runs": 30,
+     "median_s": 3.1,
+     "p90_s": 6.2,
+     "max_s": 64.4
+    },
+    "to_sealed_file_without_wait": {
+     "runs": 27,
+     "median_s": 39.7,
+     "p90_s": 87.5,
+     "max_s": 100.2
+    }
+   }
+  },
+  "cost": "not reported: the step events do not record every model call",
+  "summary_rows": [
+   {
+    "name": "Live case runs: seconds to the refund decision, median / p90",
+    "value": "3.1 / 6.2 (30 runs)",
+    "target": "measured"
+   },
+   {
+    "name": "Live case runs: seconds to the sealed file without the wait for a person, median / p90",
+    "value": "39.7 / 87.5 (27 runs)",
+    "target": "measured"
+   }
+  ],
+  "markdown": [
+   "## Case runs stored in the client zone",
+   "",
+   "30 case documents in `var/client_zone.db`, runs from 2026-10-28T23:58 to 2026-10-29T03:37 UTC, grouped by the LLM mode of the intake step. Model cost is not reported: the step events do not record every model call.",
+   "",
+   "| LLM mode | To the refund decision: runs, median, p90, max (s) | To the sealed file without the wait for a person: runs, median, p90, max (s) |",
+   "|---|---|---|",
+   "| live | 30, 3.1, 6.2, 64.4 | 27, 39.7, 87.5, 100.2 |"
+  ]
+ },
  "retrieval": {
   "queries": 72,
   "by_lang": {
@@ -1278,14 +1444,14 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
   "dense_query_vectors_missing": 0,
   "methods": {
    "bm25": {
-    "recall@1": 0.4722,
-    "hit@1": 0.5556,
-    "recall@3": 0.6898,
+    "recall@1": 0.4653,
+    "hit@1": 0.5417,
+    "recall@3": 0.6852,
     "hit@3": 0.7639,
-    "recall@5": 0.7824,
-    "hit@5": 0.8194,
-    "mrr@10": 0.666,
-    "ndcg@10": 0.691
+    "recall@5": 0.7963,
+    "hit@5": 0.8333,
+    "mrr@10": 0.6581,
+    "ndcg@10": 0.6854
    },
    "dense": {
     "recall@1": 0.5972,
@@ -1305,7 +1471,7 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
     "recall@5": 0.8843,
     "hit@5": 0.9306,
     "mrr@10": 0.8004,
-    "ndcg@10": 0.8164
+    "ndcg@10": 0.8165
    },
    "hybrid_offline": {
     "recall@1": 0.4745,
@@ -1313,206 +1479,5 @@ Clear cases: 36/36 right payment. Ambiguous or unknown: 24/24 sent to a person. 
     "recall@3": 0.6366,
     "hit@3": 0.7222,
     "recall@5": 0.7593,
-    "hit@5": 0.7917,
-    "mrr@10": 0.6537,
-    "ndcg@10": 0.6661
-   }
-  },
-  "methods_by_lang": {
-   "en": {
-    "bm25": {
-     "recall@1": 0.4865,
-     "hit@1": 0.5676,
-     "recall@3": 0.6757,
-     "hit@3": 0.7297,
-     "recall@5": 0.7297,
-     "hit@5": 0.7568,
-     "mrr@10": 0.6541,
-     "ndcg@10": 0.6671
-    },
-    "dense": {
-     "recall@1": 0.6216,
-     "hit@1": 0.7297,
-     "recall@3": 0.8243,
-     "hit@3": 0.8919,
-     "recall@5": 0.8919,
-     "hit@5": 0.9189,
-     "mrr@10": 0.8192,
-     "ndcg@10": 0.8193
-    },
-    "hybrid": {
-     "recall@1": 0.5946,
-     "hit@1": 0.7027,
-     "recall@3": 0.8649,
-     "hit@3": 0.8919,
-     "recall@5": 0.8784,
-     "hit@5": 0.9189,
-     "mrr@10": 0.7915,
-     "ndcg@10": 0.8056
-    },
-    "hybrid_offline": {
-     "recall@1": 0.4324,
-     "hit@1": 0.5405,
-     "recall@3": 0.5541,
-     "hit@3": 0.6216,
-     "recall@5": 0.6486,
-     "hit@5": 0.6757,
-     "mrr@10": 0.5955,
-     "ndcg@10": 0.5933
-    }
-   },
-   "ro": {
-    "bm25": {
-     "recall@1": 0.4571,
-     "hit@1": 0.5429,
-     "recall@3": 0.7048,
-     "hit@3": 0.8,
-     "recall@5": 0.8381,
-     "hit@5": 0.8857,
-     "mrr@10": 0.6786,
-     "ndcg@10": 0.7163
-    },
-    "dense": {
-     "recall@1": 0.5714,
-     "hit@1": 0.6857,
-     "recall@3": 0.7571,
-     "hit@3": 0.8571,
-     "recall@5": 0.8952,
-     "hit@5": 0.9429,
-     "mrr@10": 0.7957,
-     "ndcg@10": 0.8158
-    },
-    "hybrid": {
-     "recall@1": 0.5714,
-     "hit@1": 0.6857,
-     "recall@3": 0.8143,
-     "hit@3": 0.9143,
-     "recall@5": 0.8905,
-     "hit@5": 0.9429,
-     "mrr@10": 0.8098,
-     "ndcg@10": 0.8279
-    },
-    "hybrid_offline": {
-     "recall@1": 0.519,
-     "hit@1": 0.6,
-     "recall@3": 0.7238,
-     "hit@3": 0.8286,
-     "recall@5": 0.8762,
-     "hit@5": 0.9143,
-     "mrr@10": 0.7152,
-     "ndcg@10": 0.743
-    }
-   }
-  },
-  "kb": {
-   "zone": "client",
-   "chunks": 800,
-   "by_kind": {
-    "case_study": 19,
-    "guidance": 136,
-    "law": 163,
-    "precedent": 366,
-    "rule": 66,
-    "typology": 50
-   },
-   "embedding_model": "cohere.embed-v4:0",
-   "embedding_dim": 1536,
-   "dense_available": true,
-   "dense_coverage": 1.0,
-   "live_embeddings": false,
-   "built_at": "2026-10-28T23:23:40+00:00",
-   "stale": false,
-   "precedents": {
-    "static": 365,
-    "runtime": 1
-   },
-   "load_ms": 737,
-   "signals": [
-    "bm25",
-    "dense",
-    "rrf"
-   ]
-  },
-  "seconds": 1.37,
-  "query_ms_p50": 13.2,
-  "target_hybrid_ge_single_recall@5": false,
-  "grounding": {
-   "questions": 15,
-   "citation_precision": 0.5349,
-   "grounded_rate": 1.0,
-   "answered_rate": 1.0,
-   "markers_valid_rate": 1.0,
-   "details": [
-    {
-     "id": "q01",
-     "grounded": true,
-     "citations": [
-      "rule:PAY-03",
-      "ctx:11_reguli_kyc_aml_credit_plati_reclamatii#4-2-cerere-de-rambursare-pentru-o-tranzactie-neautorizata",
-      "rule:PAY-01"
-     ],
-     "relevant": 1,
-     "mode": "offline"
-    },
-    {
-     "id": "q02",
-     "grounded": true,
-     "citations": [
-      "rule:PAY-15",
-      "ctx:11_reguli_kyc_aml_credit_plati_reclamatii#2-5-plati-fraude-psd2-pay-xx-6",
-      "rule:PAY-06"
-     ],
-     "relevant": 2,
-     "mode": "offline"
-    },
-    {
-     "id": "q03",
-     "grounded": true,
-     "citations": [
-      "rule:PAY-05",
-      "ctx:14_dispute_card_fraude#3-cadrul-legal-5",
-      "rule:PAY-04"
-     ],
-     "relevant": 2,
-     "mode": "offline"
-    },
-    {
-     "id": "q04",
-     "grounded": true,
-     "citations": [
-      "rule:DSP-25",
-      "rule:PAY-01",
-      "rule:PAY-03"
-     ],
-     "relevant": 1,
-     "mode": "offline"
-    },
-    {
-     "id": "q05",
-     "grounded": true,
-     "citations": [
-      "rule:PAY-02",
-      "ctx:14_dispute_card_fraude#3-cadrul-legal-3",
-      "rule:DSP-50"
-     ],
-     "relevant": 2,
-     "mode": "offline"
-    },
-    {
-     "id": "q08",
-     "grounded": true,
-     "citations": [
-      "rule:CMP-01",
-      "ctx:11_reguli_kyc_aml_credit_plati_reclamatii#2-6-reclamatii-cmp-xx"
-     ],
-     "relevant": 2,
-     "mode": "offline"
-    },
-    {
-     "id": "q10",
-     "grounded": true,
-     "citations": [
-      "rule:DSP-54",
-      "rule:PAY-03",
-
+    "hit@5": 0.791
 ```

@@ -25,6 +25,8 @@ Doing this by hand means pulling records from five systems, checking the law, wr
 
 The models extract, argue and draft. They never decide, and no model has a tool that moves money.
 
+Where this stands under the AI Act, GDPR Art. 22 and DORA, with sources: [docs/09_clasificare_ai_act_gdpr.md](docs/09_clasificare_ai_act_gdpr.md).
+
 ## Quick start
 
 You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.12) and Node 20 or newer.
@@ -136,19 +138,22 @@ From `uv run versoml eval`, on synthetic data:
 
 | Check | Result |
 |---|---|
-| Correct refund decisions, 40 hand-checked cases and 300 generated ones | 100% |
-| Correct deadlines, with weekends and Romanian public holidays | 100% |
-| Cases sent to a person when they should be | 100% |
+| Rules engine vs oracle: refund decisions, 40 hand-picked cases and 300 generated ones | 100% |
+| Rules engine vs oracle: deadlines, with weekends and Romanian public holidays | 100% |
+| Rules engine vs oracle: cases sent to a person when they should be | 100% |
+| Rules engine vs oracle: 25 cases built from documented Romanian fraud typologies | 100% |
 | Prompt injections caught (28 claims) / false alarms (312 clean claims) | 100% / 0% |
-| Raw personal data sent to a model | 0 |
-| Correct decisions on 25 cases built from documented Romanian fraud typologies | 100% |
+| Prompt injections that moved a decision their way, same claims with and without the instructions | 0 of 28 (10 got a person's sign-off instead) |
+| Raw personal data left after pseudonymization, counted by a separate checker (140 claims) | 0 |
 | Free-form intake, 60 claims in Romanian and English: right payment on clear cases / ambiguous or unknown sent to a person / wrong automatic matches | 100% / 100% / 0 |
 | Knowledge base, 72 questions in Romanian and English: right passage in the top 5 / answers fully cited | 88% / 100% |
 | Claim classifier on wordings it never saw in training: macro-F1 / calibration error | 0.97 / 0.012 |
-| Same classifier on free text / trained on English, tested on Romanian | 0.82 / 0.66 |
+| Same classifier on free text / trained on English, tested on Romanian | 0.82 / 0.65 |
 | First-party fraud signal, AUC on a later time period with 5% noisy labels | 0.885 |
 
-A live case takes about 6 seconds to a refund decision and under a minute to a sealed file, for roughly USD 0.07 in model calls. The old 0.99 for the classifier came from training and test text sharing templates; the numbers above use held-out templates and time-based splits. The synthetic bank has 2,000 customers and 210,000 transactions. The repo has 1,492 tests, including integration tests that start the real processes. Expect lower ML scores on real data.
+The rules rows compare the rules engine with an oracle written from the same decision table (`versoml/data/oracle.py`), on stored rule contexts: they show that the engine follows the table, not that the pipeline reads a complaint right. The injection row runs the deterministic intake and the rules on each claim twice, as written and with the planted instructions cut out. The privacy row uses a checker that shares no code with the masking (`versoml/shared/privacy/crosscheck.py`); it does not see names written in free text.
+
+On the 30 live case runs stored in the client zone (29 October 2026, Bucharest time), the refund decision came a median 3.1 s after the run started (90th percentile 6.2 s), and the sealed file a median 39.7 s after it (90th percentile 87.5 s, 27 runs), not counting the wait for a person. Model cost per case is not reported, because the step events do not record every model call. The old 0.99 for the classifier came from training and test text sharing templates; the numbers above use held-out templates and time-based splits. The synthetic bank has 2,000 customers and 210,000 transactions. The repo has 1,664 tests, including integration tests that start the real processes. Expect lower ML scores on real data.
 
 ## Use it from Claude Desktop or Cursor
 

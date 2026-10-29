@@ -1,6 +1,7 @@
-"""The numeric verifier on adversarial drafts: a wrong amount, date, time, IBAN fragment or case ID is caught, with
-the value on file; the customer's own quoted words are not checked. Client zone (English formats) and AML zone
-(Romanian formats)."""
+"""The numeric verifier on adversarial drafts: a wrong amount, date, time, IBAN fragment, case ID, phone number or link
+is caught, with the value on file, and so is a value on file written in the wrong role (a payment date given as the
+deadline); the customer's own quoted words are not checked, except for links and phone numbers. Client zone (English
+and Romanian letters) and AML zone (Romanian formats)."""
 
 from __future__ import annotations
 
@@ -74,6 +75,59 @@ def test_the_fallback_letter_passes_its_own_check():
     out = N.check(N.sections_of(letter.subject, [p.text for p in letter.paragraphs]), allowed())
     assert out["passed"], out["mismatches"]
     assert any(p.text == "The rules we applied: Law 209/2019, art. 173." for p in letter.paragraphs)
+
+
+def test_a_value_on_file_in_the_wrong_role_is_caught():
+    # the payment date (28 Oct) written as the refund deadline: on file, but not as a deadline
+    out = N.check([("paragraph 1", "We will refund the full amount by 28 Oct 2026, 23:59.")], allowed())
+    [m] = out["mismatches"]
+    assert m["role"] == "deadline" and m["value"] == "28 Oct 2026" and m["expected"] == "29 Oct 2026"
+    assert "you wrote “28 Oct 2026” as a deadline" in N.feedback(out["mismatches"])
+    # and a deadline written as the day the customer told us
+    out = N.check([("p", "On 29 Oct 2026 you told us that you did not make the transfer.")], allowed())
+    assert [m["role"] for m in out["mismatches"]] == ["report"]
+    told = ("On 28 Oct 2026 you told us that you did not make the transfer of RON 3,200.00 on 28 Oct 2026. We will "
+            "refund you by 29 Oct 2026, 23:59.")
+    assert N.check([("p", told)], allowed())["passed"]
+
+
+def test_refund_and_share_amounts_keep_their_roles():
+    facts = FACTS + [{"kind": "refund.instruction", "labels": {"trust": "trusted"},
+                      "content": {"amount": 3050.0, "currency": "RON", "debited": 3200.0, "payer_liability": 150.0}}]
+    ok = N.allowed_from_facts(facts, CASE)
+    good = "We have refunded RON 3,050.00 to your account: the first RON 150.00 of the loss stays with you."
+    assert N.check([("p", good)], ok)["passed"]
+    out = N.check([("p", "We have refunded RON 3,200.00 to your account.")], ok)
+    assert [(m["role"], m["expected"]) for m in out["mismatches"]] == [("refund", "RON 3,050.00")]
+
+
+def test_romanian_letters_are_read_in_romanian_formats():
+    ro = ("V-am rambursat integral suma de 3.200,00 lei în contul dumneavoastră până la 29 octombrie 2026, ora 23:59. "
+          "Pe 28 octombrie 2026 ne-ați informat că nu ați autorizat transferul din 28.10.2026. Vă vom comunica "
+          "răspunsul până la 18 noiembrie 2026, menționând numărul cazului CT-2026-123456.")
+    out = N.check([("p", ro)], allowed())
+    assert out["passed"] and out["checked"] == 7, out
+    kinds = {(v["kind"], v["role"]) for v in N.extract(ro, year_hint=2026)}
+    assert {("amount", "refund"), ("date", "deadline"), ("date", "report"), ("date", "payment")} <= kinds
+    bad = N.check([("p", "V-am rambursat suma de 3.500,00 lei până la 28 octombrie 2026.")], allowed())
+    assert {m["kind"] for m in bad["mismatches"]} == {"amount", "date"}
+    assert N.parse_number("3.200,00") == N.parse_number("3,200.00") == 3200.0
+    # "mai" is also "more": without a year it is not a date
+    assert N.extract("Nu mai trebuie să faceți nimic, cu 3 mai multe zile.", year_hint=2026) == []
+
+
+def test_phone_numbers_and_links_must_be_the_banks():
+    good = ("Call us on +40 700 000 100 or 0700 000 100. You can also go to www.csalb.ro or anpc.ro, or write to "
+            "ajutor@bancademo.example.")
+    assert N.check([("p", good)], allowed())["passed"]
+    bad = N.check([("p", "Call +40 721 123 456 back, or open https://livrare-bancademo.example/colet to check.")],
+                  allowed())
+    assert [m["kind"] for m in bad["mismatches"]] == ["phone", "url"]
+    assert bad["mismatches"][0]["expected"].startswith("only the bank's helpline")
+    # quotes hide the customer's numbers, never their links or phone numbers
+    quoted = N.check([("p", "You wrote: „am deschis https://livrare-bancademo.example și am pierdut 3.494,60 lei”.")],
+                     allowed())
+    assert [m["kind"] for m in quoted["mismatches"]] == ["url"]
 
 
 # ---------------------------------------------------------------- AML zone: Romanian formats

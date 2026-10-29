@@ -76,11 +76,34 @@ def test_EX22_prelungirea_doar_cu_motiv_independent_de_banca(external, due):
 
 
 def test_CMP01_scrisoarea_raspunde_la_fiecare_punct():
+    # punctele se verifică pe textul scrisorii, nu pe lista pe care redactorul spune că a acoperit-o
     points = ["Vreau banii înapoi", "De ce nu ați blocat plata?"]
-    assert check_points_answered(points, ["vreau banii înapoi"]).outcome == "CMP_POINT_UNANSWERED"
-    assert check_points_answered(points, points).outcome == "toate_punctele"
-    hits = check_complaint_letter(FULL_ADR, points, points)
+    doar_banii = "V-am rambursat integral suma de 3.200,00 lei în contul dumneavoastră."
+    ambele = doar_banii + "\n\nNe-ați întrebat de ce nu am oprit plata. Plata a trecut prin pașii obișnuiți de autentificare."
+    missing = check_points_answered(points, doar_banii)
+    assert missing.outcome == "CMP_POINT_UNANSWERED" and "De ce nu ați blocat plata?" in missing.explanation
+    assert check_points_answered(points, ambele).outcome == "toate_punctele"
+    assert check_points_answered(["Why didn't you block the payment?"], ambele).outcome == "toate_punctele"
+    hits = check_complaint_letter(FULL_ADR, points)
     assert [h.rule_id for h in hits] == ["CMP-01", "CMP-03"] and all(h.version for h in hits)
+    assert hits[0].outcome == "CMP_POINT_UNANSWERED"
+
+
+@pytest.mark.parametrize("point, letter, answered", [
+    ("Vă rog să-mi blocați cardul.", "Dacă cardul nu este încă blocat, sunați-ne și îl blocăm imediat.", True),
+    ("Please block that account, it's a ring.", "We have asked the bank that received the money to return it.", True),
+    ("Please block that account, it's a ring.", "We have refunded the full amount.", False),
+    ("Am făcut plângere la Poliție.", "Puteți sesiza și Poliția.", True),
+    ("Trimiteți-mi documentele, vă rog.", "Ne puteți cere o copie a informațiilor și a documentelor folosite.", True),
+    ("Nu am făcut eu plata!", "V-am rambursat integral suma.", True),
+    # no known topic: most of the point's words must come back in one paragraph
+    ("My neighbour says the shop on the corner sells phones cheaper.", "We have refunded you.", False),
+    ("When will the replacement card arrive at my home address?",
+     "Your replacement card will arrive at your home address within five days.", True),
+])
+def test_CMP01_fiecare_tip_de_punct_isi_are_raspunsul(point, letter, answered):
+    outcome = check_points_answered([point], letter).outcome
+    assert outcome == ("toate_punctele" if answered else "CMP_POINT_UNANSWERED")
 
 
 def test_CMP_raspunsul_cere_om_si_contine_caile_de_sesizare():

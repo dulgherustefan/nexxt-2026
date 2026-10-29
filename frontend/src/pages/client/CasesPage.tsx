@@ -1,11 +1,11 @@
-import { CheckCircle, DeviceMobile, Hourglass, Play, Plus, Signature, Spinner } from "@phosphor-icons/react";
+import { CheckCircle, DeviceMobile, Hourglass, Play, Plus, Signature, Siren, Spinner } from "@phosphor-icons/react";
 import { useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { dateTime, duration, hasAmount, money, verdictLabel } from "../../api/format";
 import { useApi, useResource } from "../../api/runtime";
-import type { CaseSummary, Stats } from "../../api/types";
+import type { CaseEscalation, CaseSummary, Stats } from "../../api/types";
 import { Button, cx, DeadlineText, EmptyState, ErrorNote, PageHeader, Skeleton } from "../../ui/kit";
-import { caseStatus, scenarioLabel, StatusLine } from "./caseUi";
+import { caseStatus, FlagMarkers, scenarioLabel, StatusLine } from "./caseUi";
 
 type Filter = "you" | "running" | "today" | "closed" | "all";
 
@@ -19,13 +19,24 @@ function dueSoon(c: CaseSummary): boolean {
   return new Date(c.deadline).getTime() - Date.now() < 24 * 3600 * 1000;
 }
 
-function byUrgency(a: CaseSummary, b: CaseSummary): number {
-  const rank = (c: CaseSummary) => (needsYou(c) ? 0 : isClosed(c) ? 2 : 1);
-  const r = rank(a) - rank(b);
+type Sort = "deadline" | "newest";
+
+/** The deadline that counts: the escalation's (refund or written answer), else the refund deadline. */
+const dueAt = (c: CaseSummary) => {
+  const at = c.escalation?.deadline ?? c.deadline;
+  const t = at ? new Date(at).getTime() : NaN;
+  return Number.isNaN(t) ? Infinity : t;
+};
+
+/** Open cases by deadline, soonest first, so the overdue ones lead; closed cases after them. */
+function byDeadline(a: CaseSummary, b: CaseSummary): number {
+  const r = Number(isClosed(a)) - Number(isClosed(b));
   if (r) return r;
-  const da = a.deadline ? new Date(a.deadline).getTime() : Infinity;
-  const db = b.deadline ? new Date(b.deadline).getTime() : Infinity;
-  return da - db;
+  return dueAt(a) - dueAt(b) || (needsYou(b) ? 1 : 0) - (needsYou(a) ? 1 : 0);
+}
+
+function byNewest(a: CaseSummary, b: CaseSummary): number {
+  return new Date(b.received_at).getTime() - new Date(a.received_at).getTime();
 }
 
 const caseHref = (id: string) => `/cases/${encodeURIComponent(id)}`;
@@ -36,10 +47,11 @@ export default function CasesPage() {
   const cases = useResource(() => api.cases(), [api], { pollMs: 3000 });
   const stats = useResource(() => api.stats(), [api], { pollMs: 5000 });
   const [filter, setFilter] = useState<Filter>("all");
+  const [sort, setSort] = useState<Sort>("deadline");
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
 
-  const list = useMemo(() => [...(cases.data ?? [])].sort(byUrgency), [cases.data]);
+  const list = useMemo(() => [...(cases.data ?? [])].sort(sort === "deadline" ? byDeadline : byNewest), [cases.data, sort]);
   const counts = useMemo(() => ({
     you: list.filter(needsYou).length,
     running: list.filter((c) => group(c) === "running").length,
@@ -71,7 +83,7 @@ export default function CasesPage() {
     <>
       <PageHeader
         title="Cases"
-        description={<>Most urgent first. You only approve the exceptions{stats.data?.avg_decision_seconds ? <>; a decision takes <span className="tnum">{duration(stats.data.avg_decision_seconds)}</span> on average</> : null}.</>}
+        description={<>Soonest deadline first. You only approve the exceptions{stats.data?.avg_decision_seconds ? <>; a decision takes <span className="tnum">{duration(stats.data.avg_decision_seconds)}</span> on average</> : null}.</>}
         actions={
           <>
             <Button icon={<Play size={14} weight="fill" />} busy={starting} onClick={() => startCase("demo_t1")}>Run demo case</Button>
@@ -87,11 +99,26 @@ export default function CasesPage() {
         <h2 className="text-[1.1rem] font-semibold tracking-[-0.015em]">
           {LANE_TITLE[filter]} <span className="tnum font-normal text-muted">{filter === "all" ? counts.all : visible.length}</span>
         </h2>
-        {filter !== "all" && (
-          <button type="button" onClick={() => setFilter("all")} className="text-[0.9333rem] font-medium text-ink-soft underline decoration-line-strong underline-offset-2 transition-colors hover:text-ink hover:decoration-ink">
-            Show all cases
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          {filter !== "all" && (
+            <button type="button" onClick={() => setFilter("all")} className="text-[0.9333rem] font-medium text-ink-soft underline decoration-line-strong underline-offset-2 transition-colors hover:text-ink hover:decoration-ink">
+              Show all cases
+            </button>
+          )}
+          <div role="group" aria-label="Sort cases" className="flex items-center gap-0.5 rounded-full bg-hover p-0.5 text-[0.8667rem]">
+            {(["deadline", "newest"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={sort === v}
+                onClick={() => setSort(v)}
+                className={cx("h-7 rounded-full px-3 font-medium transition-colors", sort === v ? "bg-paper text-ink shadow-[var(--shadow-card)]" : "text-muted hover:text-ink")}
+              >
+                {v === "deadline" ? "Deadline" : "Newest"}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div>
@@ -242,11 +269,13 @@ function CaseList({ cases, onOpen }: { cases: CaseSummary[]; onOpen: (id: string
                   </span>
                 </span>
                 <span className="tnum text-right font-medium md:hidden">{hasAmount(c.amount) ? money(c.amount) : "—"}</span>
-                <span className="text-[0.8667rem] md:text-[0.9333rem]" title={statusTitle(c)}>
+                <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[0.8667rem] md:text-[0.9333rem]" title={statusTitle(c)}>
                   <StatusLine status={String(c.status)} requiresHuman={c.requires_human} verdict={c.verdict} />
+                  <FlagMarkers flags={c.review_flags} />
                 </span>
-                <span className="text-right text-[0.8667rem] md:text-left md:text-[0.9333rem]">
-                  <DeadlineText deadline={c.deadline} done={isClosed(c) && c.status !== "REFUZAT"} />
+                <span className="flex flex-col items-end gap-0.5 text-right text-[0.8667rem] md:items-start md:text-left md:text-[0.9333rem]">
+                  <DeadlineText deadline={c.escalation?.deadline ?? c.deadline} done={isClosed(c) && c.status !== "REFUZAT"} />
+                  {c.escalation && <Escalation e={c.escalation} />}
                 </span>
                 <span className="tnum hidden text-right font-medium md:block">{hasAmount(c.amount) ? money(c.amount) : "—"}</span>
               </button>
@@ -255,6 +284,18 @@ function CaseList({ cases, onOpen }: { cases: CaseSummary[]; onOpen: (id: string
         })}
       </ul>
     </div>
+  );
+}
+
+/** Escalated by the server: close to or past the deadline on a case nobody has settled. */
+function Escalation({ e }: { e: CaseEscalation }) {
+  const breached = e.level === "breached";
+  return (
+    <span title={e.message} className={cx("inline-flex items-center gap-1 text-[0.8rem] font-medium", breached ? "text-danger" : "text-warn")}>
+      <Siren aria-hidden size={13} weight="fill" />
+      {breached ? "Escalated: overdue" : "Escalated: at risk"}
+      <span className="sr-only">. {e.message}</span>
+    </span>
   );
 }
 

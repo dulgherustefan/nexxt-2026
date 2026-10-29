@@ -267,6 +267,7 @@ export function stepsFor(status: string, verdict: string | null | undefined): St
     case "INCHIS":
       return [received, reviewed, { label: "Closed", state: "info", mark: "closed", note: "Your claim is closed." }];
     case "EROARE":
+    case "COADA_MANUALA":
       return [
         received,
         { label: "Under review", state: "info", mark: "pause", note: "The automatic review stopped. Your claim is still on record, and the deadline still applies." },

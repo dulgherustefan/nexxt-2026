@@ -1392,7 +1392,8 @@ function LiveSteps({ d, events, streamStatus }: { d: CaseDetail; events: Paramet
   const lastRun = [...events].reverse().find((e) => e.type === "RUN_STARTED" || e.type === "RUN_FINISHED" || e.type === "RUN_ERROR");
   // a pending signature only pauses the run: the steps after it are not "not needed"
   const waiting = Boolean(d.interrupt?.pending);
-  const settled = !waiting && (lastRun ? lastRun.type !== "RUN_STARTED" : Boolean(d.ledger?.sealed));
+  // the seal is the last step, so a sealed file means the run ended even if the feed missed RUN_FINISHED
+  const settled = !waiting && (Boolean(d.ledger?.sealed) || (lastRun ? lastRun.type !== "RUN_STARTED" : false));
   return (
     <div>
       <AgentStatus rows={rows} settled={settled} waiting={waiting} waitingLabel={isPickPending(d) ? "Waiting for your pick" : undefined} onOpenTrace={() => setTrace(true)} />

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 from collections.abc import Iterator, Sequence
@@ -36,6 +37,7 @@ from versoml.shared.privacy.text import normalize_ro
 DOSSIER_FORMAT = "versoml-dossier/v1"
 SEAL_PREFIX = "versoml:v1"
 ID_PREFIX = {Zone.CLIENT: "EV", Zone.AML: "AX"}
+_HEX_ROOT = re.compile(r"^[0-9a-f]{64}$")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS ledger_facts (
@@ -653,10 +655,11 @@ class Ledger:
         }
 
     def export_dossier(self, case_id: str) -> dict[str, Any]:
-        """Dosarul complet, verificabil fără acces la bancă (cu `verify_dossier`). Sigilează dacă e nevoie."""
-        current = self.latest_seal(case_id, with_svg=False)
-        if current is None or current["count"] != self.count(case_id):
-            self.seal(case_id)
+        """Dosarul complet, verificabil fără acces la bancă (cu `verify_dossier`).
+
+        Citirea nu sigilează: dosarul pleacă cu ultimul sigiliu, iar faptele adăugate după el apar la verificare
+        ca neacoperite. Un caz fără sigiliu nu are încă dosar de exportat.
+        """
         with self._conn() as conn:
             rows = self._rows(conn, case_id)
             seal_row = self._seal_row(conn, case_id)
@@ -702,6 +705,57 @@ class Ledger:
         seal = self.latest_seal(case_id, with_svg=False)
         count = self.count(case_id)
         return {"count": count, "root": seal["root"] if seal else None, "sealed": bool(seal and seal["count"] == count)}
+
+    def seal_check(self, case_id: str, root: str) -> dict[str, Any] | None:
+        """Verificarea publică din spatele QR-ului: doar pentru cine are rădăcina din cod.
+
+        Caută sigiliul cazului cu acea rădăcină (ultimul sau unul mai vechi) și verifică faptele acoperite de el.
+        Întoarce numărători, ore și rezultatele verificărilor, niciodată faptele; None dacă niciun sigiliu al
+        cazului nu are rădăcina dată, așa că un ID de caz singur nu spune nimic.
+        """
+        root = str(root or "").strip().lower()
+        if not _HEX_ROOT.match(root):
+            return None
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM ledger_seals WHERE zone = ? AND case_id = ? AND root = ? ORDER BY id DESC LIMIT 1",
+                (self.zone.value, case_id, root),
+            ).fetchone()
+            if row is None:
+                return None
+            latest = self._seal_row(conn, case_id)
+            rows = self._rows(conn, case_id)
+        covered = rows[: row["count"]]
+        facts = [self._fact_dict(r) for r in covered]
+        stored_args = []
+        for r in covered:
+            try:
+                stored_args.append((json.loads(r["args_json"]), r["args_hash"]))
+            except ValueError:
+                stored_args.append((None, r["args_hash"]))
+        zone_key = self.public_key()
+        result = verify_facts(
+            self.zone, case_id, facts, self._seal_view(row, with_svg=False),
+            stored_entries=[f["entry_hash"] for f in facts], stored_args=stored_args,
+            sealed_leaves=json.loads(row["leaves_json"]), expected_public_key=zone_key or "",
+            key_source=f"the {self.zone.value} zone key" + ("" if zone_key else " (missing from keys_dir)"),
+        )
+        ok = {c["name"]: c["ok"] for c in result["checks"]}
+        current = latest is not None and latest["id"] == row["id"]
+        return {
+            "case_id": case_id,
+            "root": root,
+            "current": current,
+            "intact": result["valid"],
+            "signature_valid": bool(ok.get("Ed25519 signature") and ok.get("Zone public key")),
+            "sealed_at": row["sealed_at"],
+            "count": row["count"],
+            "entries_now": len(rows),
+            "latest": None if current or latest is None else {"sealed_at": latest["sealed_at"], "count": latest["count"]},
+            "public_key": row["public_key"],
+            "checks": [{"name": c["name"], "ok": c["ok"], "detail": c["detail"]} for c in result["checks"]],
+            "verified_at": result["verified_at"],
+        }
 
 
 def verify_dossier(dossier: dict[str, Any], public_key: str | None = None) -> dict[str, Any]:

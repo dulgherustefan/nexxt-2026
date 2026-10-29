@@ -1,27 +1,22 @@
 import { ArrowClockwise, CheckCircle, SealCheck, SealWarning, XCircle } from "@phosphor-icons/react";
 import { useEffect } from "react";
 import { useLocation, useParams } from "react-router";
+import { ApiError } from "../../api/client";
 import { dateTime, shortHash } from "../../api/format";
 import { useApi, useResource } from "../../api/runtime";
-import type { LedgerResponse, VerifyResult } from "../../api/types";
+import type { SealCheck as SealResult } from "../../api/types";
 import { cx, Skeleton } from "../../ui/kit";
 import { Logo } from "../../ui/Logo";
 import { usePageTheme } from "../../ui/ThemeToggle";
 import { useThemeColor } from "./bankModel";
 
-type Outcome = "intact" | "mismatch" | "broken" | "unsealed" | "missing";
+type Outcome = "intact" | "earlier" | "broken" | "missing" | "noroot";
 
-interface Check {
-  ledger: LedgerResponse & { sealed?: boolean };
-  verify: VerifyResult | null;
-}
-
-/** What the page concludes, in the order that matters: a file that exists, is sealed, verifies and matches the QR code. */
-function outcome(c: Check, scanned: string): Outcome {
-  if (!c.ledger.facts.length) return "missing";
-  if (!c.ledger.seal) return "unsealed";
-  if (!c.verify?.valid) return "broken";
-  if (scanned && scanned !== c.ledger.seal.root) return "mismatch";
+/** What the page concludes, in the order that matters: a seal with the code's root, that verifies, and is the latest. */
+function outcome(c: SealResult | null): Outcome {
+  if (!c) return "missing";
+  if (!c.intact) return "broken";
+  if (!c.current) return "earlier";
   return "intact";
 }
 
@@ -30,27 +25,28 @@ const COPY: Record<Outcome, { title: string; body: string }> = {
     title: "Evidence file intact",
     body: "Nothing in the file changed since the bank sealed it. Every item, the order they were collected in and the bank’s signature check out.",
   },
-  mismatch: {
-    title: "This code is for an older seal",
-    body: "The file on record verifies, but its signed root differs from the one in this QR code. Ask the bank for the current evidence file.",
+  earlier: {
+    title: "This code is for an earlier seal",
+    body: "The file verifies up to the items it had when this code was made. The bank sealed it again since, with more items: ask the bank for the current evidence file.",
   },
   broken: {
     title: "The file doesn’t verify",
     body: "At least one check failed: the file was changed after it was sealed. The failed checks are marked below.",
   },
-  unsealed: {
-    title: "Not sealed yet",
-    body: "The case is still open. The bank seals the evidence file when the case closes; this page checks it from then on.",
-  },
   missing: {
-    title: "No evidence file with this ID",
-    body: "Check the case ID, or scan the code again.",
+    title: "No sealed file matches this code",
+    body: "The case ID and the code don’t match a seal the bank made. Scan the code again, or ask the bank for the current evidence file.",
+  },
+  noroot: {
+    title: "Scan the code to check",
+    body: "This check needs the root in the evidence file’s QR code. Open the link from the code, or scan it again.",
   },
 };
 
 /**
- * The page the seal's QR code opens. Anyone can scan it: it asks the bank's server to check the file
- * again (hash chain, Merkle root, Ed25519 signature) and compares the root with the one in the code.
+ * The page the seal's QR code opens ({site}/verify/{case_id}#{root}). Anyone can scan it: it sends the case ID and
+ * the root from the code, and the bank's server checks the sealed file again (hash chain, Merkle root, Ed25519
+ * signature). The answer is the outcome, times and counts, never the evidence; without the code's root there is none.
  */
 export default function VerifyPage() {
   usePageTheme("light");
@@ -58,20 +54,23 @@ export default function VerifyPage() {
   const { id = "" } = useParams();
   const scanned = useLocation().hash.replace(/^#/, "").toLowerCase();
   const api = useApi();
-  const res = useResource<Check>(async () => {
-    const ledger = (await api.ledger(id)) as Check["ledger"];
-    const verify = ledger.seal ? await api.verify({ case_id: id, facts: ledger.facts, seal: ledger.seal }) : null;
-    return { ledger, verify };
-  }, [api, id]);
+  const res = useResource<SealResult | null>(scanned ? async () => {
+    try {
+      return await api.verifySeal(id, scanned);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 400)) return null;
+      throw e;
+    }
+  } : null, [api, id, scanned]);
 
   useEffect(() => {
     document.title = `Evidence check · ${id}`;
   }, [id]);
 
   const c = res.data;
-  const result = c ? outcome(c, scanned) : null;
+  const result: Outcome | null = !scanned ? "noroot" : c !== undefined ? outcome(c) : null;
   const good = result === "intact";
-  const seal = c?.ledger.seal;
+  const seal = c ?? null;
 
   return (
     <div className="min-h-dvh bg-canvas text-ink">
@@ -87,7 +86,7 @@ export default function VerifyPage() {
           Case <span className="id-text font-medium text-ink-soft">{id}</span>
         </p>
 
-        {res.error && !c ? (
+        {res.error && c === undefined ? (
           <section className="rounded-2xl bg-paper p-5 shadow-[var(--shadow-card)]" role="alert">
             <p className="flex items-center gap-2 text-[1.2rem] font-semibold tracking-[-0.02em]">
               <SealWarning size={24} className="text-warn" /> The bank’s server didn’t answer
@@ -97,7 +96,7 @@ export default function VerifyPage() {
               <ArrowClockwise size={16} /> Check again
             </button>
           </section>
-        ) : !c || !result ? (
+        ) : !result ? (
           <section className="flex flex-col gap-3 rounded-2xl bg-paper p-5 shadow-[var(--shadow-card)]" role="status" aria-label="Checking the evidence file">
             <Skeleton className="h-7 w-2/3" />
             <Skeleton className="h-4 w-full" />
@@ -122,7 +121,7 @@ export default function VerifyPage() {
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line px-5 py-4 text-[0.9333rem]">
                   <div>
                     <dt className="text-[0.8rem] text-muted">Items</dt>
-                    <dd className="tnum mt-0.5 font-medium">{seal.count}</dd>
+                    <dd className="tnum mt-0.5 font-medium">{seal.count}{seal.latest ? <span className="text-muted"> · now {seal.latest.count}</span> : null}</dd>
                   </div>
                   <div>
                     <dt className="text-[0.8rem] text-muted">Sealed</dt>
@@ -132,22 +131,20 @@ export default function VerifyPage() {
                     <dt className="text-[0.8rem] text-muted">Signed root</dt>
                     <dd className="mt-0.5 font-mono text-[0.8rem] break-all text-ink-soft">{seal.root}</dd>
                   </div>
-                  {scanned && (
-                    <div className="col-span-2 flex items-center gap-1.5 text-[0.8667rem]">
-                      {scanned === seal.root
-                        ? <><CheckCircle size={16} weight="fill" className="text-ok" /> <span>Matches the root in the QR code</span></>
-                        : <><XCircle size={16} weight="fill" className="text-danger" /> <span>The QR code has <span className="font-mono">{shortHash(scanned, 12)}</span></span></>}
-                    </div>
-                  )}
+                  <div className="col-span-2 flex items-center gap-1.5 text-[0.8667rem]">
+                    {seal.signature_valid
+                      ? <><CheckCircle size={16} weight="fill" className="text-ok" /> <span>Matches the root in the QR code, signed by the bank</span></>
+                      : <><XCircle size={16} weight="fill" className="text-danger" /> <span>Matches the root in the QR code, but the signature doesn’t check out</span></>}
+                  </div>
                 </dl>
               )}
             </section>
 
-            {c.verify && (
+            {seal && (
               <section className="rounded-2xl bg-paper px-5 py-4 shadow-[var(--shadow-card)]" aria-labelledby="checks-title">
                 <h2 id="checks-title" className="font-semibold">What was checked</h2>
                 <ul className="mt-3 flex flex-col gap-3">
-                  {c.verify.checks.map((k) => (
+                  {seal.checks.map((k) => (
                     <li key={k.name} className="flex gap-2.5">
                       {k.ok
                         ? <CheckCircle size={18} weight="fill" className="mt-0.5 shrink-0 text-ok" />
@@ -169,14 +166,14 @@ export default function VerifyPage() {
                 {" "}This page asks the bank’s server to run every check again each time it opens.
               </p>
             )}
-            <button
+            {scanned && <button
               type="button"
               onClick={res.reload}
               disabled={res.loading}
               className="press inline-flex h-10 w-fit items-center gap-2 rounded-full bg-paper px-4 text-[0.9333rem] font-medium shadow-[var(--shadow-card)] hover:bg-hover disabled:opacity-60"
             >
               <ArrowClockwise size={16} className={cx(res.loading && "animate-spin")} /> Check again
-            </button>
+            </button>}
           </>
         )}
 

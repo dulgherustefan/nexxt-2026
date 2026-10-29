@@ -341,6 +341,7 @@ def test_ledger_proofs(ledger):
 
 def test_dossier_verifies_offline_and_after_json_round_trip(ledger):
     _fill(ledger)
+    ledger.seal(CASE)
     dossier = ledger.export_dossier(CASE)
     assert verify_dossier(dossier)["valid"]
     wire = json.loads(json.dumps(dossier, ensure_ascii=False))
@@ -360,6 +361,7 @@ def test_dossier_verifies_offline_and_after_json_round_trip(ledger):
 
 def test_dossier_tamper_and_wrong_key_are_caught(ledger):
     _fill(ledger)
+    ledger.seal(CASE)
     dossier = ledger.export_dossier(CASE)
     assert not verify_dossier(dossier, public_key="A" * 43)["valid"]
     tampered = json.loads(json.dumps(dossier))
@@ -380,3 +382,47 @@ def test_snapshot_and_summary_shapes(ledger):
     assert set(snap) == {"facts", "seal", "verify"} and snap["verify"]["valid"]
     assert snap["facts"][0]["fact_id"] == "EV-001" and snap["seal"]["count"] == 2
     assert ledger.summary(CASE)["sealed"] is True
+
+
+def test_reading_and_exporting_never_seal(ledger):
+    _fill(ledger, n=2)
+    with pytest.raises(LedgerError):
+        ledger.export_dossier(CASE)                          # nothing sealed yet: no file to export
+    assert ledger.latest_seal(CASE) is None
+    ledger.seal(CASE)
+    _fill(ledger, n=1)
+    ledger.snapshot(CASE)
+    dossier = ledger.export_dossier(CASE)
+    assert ledger.latest_seal(CASE)["count"] == 2 and len(dossier["facts"]) == 3
+    assert "Seal coverage" in _failed(verify_dossier(dossier, public_key=ledger.public_key()))
+
+
+# ------------------------------------------------------------ verificarea publică din QR
+
+def test_seal_check_answers_only_to_the_root_in_the_code(ledger):
+    _fill(ledger)
+    first = ledger.seal(CASE)
+    _fill(ledger, n=1)
+    second = ledger.seal(CASE)
+    now = ledger.seal_check(CASE, second["root"].upper())
+    assert now["current"] and now["intact"] and now["signature_valid"] and now["latest"] is None
+    assert (now["count"], now["entries_now"], now["sealed_at"]) == (6, 6, second["sealed_at"])
+    older = ledger.seal_check(CASE, first["root"])
+    assert not older["current"] and older["intact"] and older["count"] == 5
+    assert older["latest"] == {"sealed_at": second["sealed_at"], "count": 6}
+    assert set(now) == {"case_id", "root", "current", "intact", "signature_valid", "sealed_at", "count", "entries_now",
+                        "latest", "public_key", "checks", "verified_at"}
+    assert all(set(c) == {"name", "ok", "detail"} for c in now["checks"])
+    # a guessed case ID, a wrong root or a root from another case all get the same nothing
+    assert ledger.seal_check("CT-2026-999999", second["root"]) is None
+    assert ledger.seal_check(CASE, "0" * 64) is None
+    assert ledger.seal_check(CASE, "") is None and ledger.seal_check(CASE, "not-a-root") is None
+
+
+def test_seal_check_reports_a_tampered_file(ledger):
+    _fill(ledger)
+    seal = ledger.seal(CASE)
+    _tamper(ledger, "UPDATE ledger_facts SET content_json = '{}' WHERE fact_id = 'EV-002'")
+    result = ledger.seal_check(CASE, seal["root"])
+    assert not result["intact"] and result["signature_valid"]
+    assert {c["name"] for c in result["checks"] if not c["ok"]} == {"Content integrity"}

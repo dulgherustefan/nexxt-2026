@@ -31,7 +31,9 @@ function isAgentEvent(x: unknown): x is AgentEvent {
  * SSE read with fetch, with our own reconnect (backoff 1 s → 10 s). Fetch rather than EventSource so every
  * request can carry TUNNEL_HEADERS (EventSource cannot send headers) and so we can report status and stop cleanly.
  */
-export function openEventStream(url: string, { onEvent, onStatus }: StreamHandlers): () => void {
+/** `auth` adds headers per connection (the operator session), read again on every reconnect. */
+export function openEventStream(url: string, { onEvent, onStatus }: StreamHandlers,
+                                auth?: () => Promise<Record<string, string>>): () => void {
   let ctrl: AbortController | null = null;
   let closed = false;
   let attempt = 0;
@@ -57,7 +59,7 @@ export function openEventStream(url: string, { onEvent, onStatus }: StreamHandle
     ctrl = new AbortController();
     try {
       const res = await fetch(url, {
-        headers: { Accept: "text/event-stream", ...TUNNEL_HEADERS },
+        headers: { Accept: "text/event-stream", ...TUNNEL_HEADERS, ...(auth ? await auth() : {}) },
         cache: "no-store",
         signal: ctrl.signal,
       });

@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import re
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -107,16 +107,20 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(20)
             try:
                 await service.flush_outbox()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:  # a failed flush is logged and retried on the next tick
+                log.exception("outbox flush failed")
 
     async with AsyncExitStack() as stack:
         if MCP_APP is not None:  # the session manager of MCP over HTTP
             await stack.enter_async_context(MCP_APP.router.lifespan_context(MCP_APP))
         task = asyncio.create_task(outbox_loop())
-        yield
-        task.cancel()
-        await service.close()
+        try:
+            yield
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+            await service.close()
 
 
 app = FastAPI(title="VersoML · client zone", version=__version__, lifespan=lifespan)
@@ -170,6 +174,56 @@ def operator_session(request: Request) -> OperatorSession:
 
 
 Operator = Annotated[OperatorSession, Depends(operator_session)]
+
+
+def optional_operator(request: Request) -> OperatorSession | None:
+    """The operator behind a call, or None when the call sends no session. A session that is sent but bad is still
+    a 401, so the console gets a fresh one instead of a quietly reduced answer."""
+    if not request.headers.get("authorization"):
+        return None
+    return operator_session(request)
+
+
+def local_only(request: Request) -> None:
+    """Only a caller on this machine: no proxy in between (ngrok and Vercel set X-Forwarded-For) and a loopback
+    address. Anything else is a 403."""
+    host = request.client.host if request.client else ""
+    if "x-forwarded-for" in request.headers or host not in ("127.0.0.1", "::1"):
+        raise HTTPException(403, "This works only from the machine that runs the server, not through the tunnel.")
+
+
+# Without an operator session a case shows what the customer's app and the public case view need: the status, the
+# verdict, the deadlines, the decisions and the letter. The evidence stays with an operator: the fact contents (the
+# transaction, the device session, the payee's IBAN), the complaint's attachments, what was read from the complaint,
+# the rule context, the timeline built from the facts and the candidate payments.
+PRIVATE_DETAIL = ("extracted", "rule_context", "story")
+TOOL_EVENTS = ("TOOL_CALL_START", "TOOL_CALL_END")
+
+
+def _without_candidates(value: Any) -> Any:
+    return {k: v for k, v in value.items() if k != "candidates"} if isinstance(value, dict) else value
+
+
+def public_detail(detail: dict) -> dict:
+    out = {k: v for k, v in detail.items() if k not in PRIVATE_DETAIL}
+    out["facts"] = [{k: v for k, v in f.items() if k != "content"} for f in detail.get("facts") or []]
+    if isinstance(detail.get("complaint"), dict):
+        out["complaint"] = {**detail["complaint"], "attachments": []}
+    out["match"] = _without_candidates(detail.get("match"))
+    out["interrupt"] = _without_candidates(detail.get("interrupt"))
+    out["redacted"] = True
+    return out
+
+
+def public_event(event: dict) -> dict:
+    """An event as a caller without a session sees it: a tool call keeps its name, not its arguments or its result
+    (they are what the facts hold), and a payment match or pick keeps its text, not the candidate payments."""
+    data = event.get("data") or {}
+    if event.get("type") in TOOL_EVENTS:
+        return {**event, "data": {"tool": data.get("tool")}}
+    if "candidates" in data:
+        return {**event, "data": _without_candidates(data)}
+    return event
 
 
 # ---------------------------------------------------------------- operator sessions
@@ -232,11 +286,12 @@ def list_cases() -> list[dict]:
 
 
 @app.get("/api/cases/{case_id}")
-def case_detail(case_id: str) -> dict:
+def case_detail(case_id: str, request: Request) -> dict:
+    session = optional_operator(request)
     detail = svc().detail(case_id)
     if not detail:
         raise HTTPException(404, "No such case")
-    return detail
+    return detail if session else public_detail(detail)
 
 
 @app.post("/api/cases/{case_id}/run")
@@ -249,13 +304,16 @@ async def run_case(case_id: str) -> dict:
 
 @app.get("/api/cases/{case_id}/events")
 async def case_events(case_id: str, request: Request):
+    full = optional_operator(request) is not None
     bus = svc().rt.bus
 
     async def stream():
         async for event in bus.subscribe(case_id):
             if await request.is_disconnected():
                 break
-            yield {"event": "message", "id": str(event.seq), "data": event.model_dump_json()}
+            data = (event.model_dump_json() if full
+                    else json.dumps(public_event(event.model_dump(mode="json")), ensure_ascii=False))
+            yield {"event": "message", "id": str(event.seq), "data": data}
 
     return EventSourceResponse(stream(), ping=15)
 
@@ -318,8 +376,9 @@ def intake_preview(body: IntakePreview) -> dict:
     return svc().intake_preview(body.model_dump())
 
 
-@app.get("/api/customers")
+@app.get("/api/customers", dependencies=[Depends(operator_session)])
 def customers(q: str = "") -> list[dict]:
+    """The console's customer search (by name, phone, e-mail or IBAN): an operator's tool, not a public lookup."""
     return svc().customers(q, limit=20)
 
 
@@ -435,6 +494,10 @@ def rules_params() -> dict:
 async def rules_params_set(request: Request, session: Operator) -> dict:
     """Needs the rules role. Who changed which parameter goes to the ledger, and that person does not sign the
     cases decided under their change."""
+    if not session.has(sessions.RULES):
+        who = "A demo session" if session.demo else session.operator_id
+        raise HTTPException(403, f"{who} has no rules role, so it cannot change rule parameters. Demo sessions can "
+                                 "approve cases only; changing the rules needs a person signed in with the rules role.")
     try:
         return svc().set_rule_params(await request.json(), session)
     except PermissionError as exc:
@@ -493,25 +556,36 @@ def mcp_info() -> dict:
 # ---------------------------------------------------------------- Demo Bank
 
 
+# The Demo Bank app opens only the demo customers' accounts (the phone demo's two personas), never any customer's.
+DEMO_BANK_REFS = frozenset({"CUST-DEMO-01", "CUST-DEMO-02"})
+
+
+def demo_customer(customer_ref: str) -> str:
+    if customer_ref not in DEMO_BANK_REFS:
+        raise HTTPException(404, "The Demo Bank app opens only the demo customers' accounts.")
+    return customer_ref
+
+
 @app.get("/api/bank/{customer_ref}")
 def bank(customer_ref: str) -> dict:
-    return svc().bank_view(customer_ref)
+    return svc().bank_view(demo_customer(customer_ref))
 
 
 @app.post("/api/bank/{customer_ref}/dispute")
 async def bank_dispute(customer_ref: str, body: BankDispute) -> dict:
-    return {"case_id": await svc().bank_dispute(customer_ref, body.transaction_id, body.text)}
+    return {"case_id": await svc().bank_dispute(demo_customer(customer_ref), body.transaction_id, body.text)}
 
 
-@app.post("/api/demo/scam")
+@app.post("/api/demo/scam", dependencies=[Depends(operator_session)])
 async def demo_scam(body: DemoScam) -> dict:
+    # the phone demo's fake page calls this through the tunnel, so it needs a session rather than a local caller.
     # async: the payment also starts the feed to AML, as a task on the event loop
     return svc().demo_scam(body.customer_ref)
 
 
-@app.post("/api/demo/reset")
+@app.post("/api/demo/reset", dependencies=[Depends(local_only)])
 def demo_reset() -> dict:
-    """Clears the cases and notifications (for demo rehearsals)."""
+    """Clears the cases and notifications (for demo rehearsals, from the machine that runs the server)."""
     rt = svc().rt
     rt.cases.clear()
     rt.notifications.clear()

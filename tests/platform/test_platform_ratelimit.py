@@ -40,9 +40,20 @@ def test_local_calls_only_count_towards_the_shared_limit():
     assert len(ratelimit._window._hits["kb_ask:203.0.113.9"]) == 0
 
 
-def test_caller_is_the_first_forwarded_address():
-    assert ratelimit.caller_of({"x-forwarded-for": "203.0.113.5, 76.76.21.21"}) == "203.0.113.5"
-    assert ratelimit.caller_of({}) is None
+def test_caller_is_the_address_the_tunnel_appends():
+    assert ratelimit.caller_of({"x-forwarded-for": "203.0.113.5, 76.76.21.21"}) == "76.76.21.21"
+    assert ratelimit.caller_of({"x-forwarded-for": " 76.76.21.21 ,"}) == "76.76.21.21"
+    assert ratelimit.caller_of({}) is None and ratelimit.caller_of({"x-forwarded-for": " , "}) is None
+
+
+def test_a_spoofed_forwarded_address_does_not_reset_the_window():
+    p = ratelimit.policies()["kb_ask"]
+    for i in range(p.per_caller):
+        caller = ratelimit.caller_of({"x-forwarded-for": f"10.0.{i}.1, 198.51.100.40"})
+        assert ratelimit.check("kb_ask", caller, now=float(i)) is None
+    caller = ratelimit.caller_of({"x-forwarded-for": "10.9.9.9, 198.51.100.40"})
+    refused = ratelimit.check("kb_ask", caller, now=float(p.per_caller))
+    assert refused and "from here" in refused.text()
 
 
 def _call_mcp(app, body: dict, caller: str | None):

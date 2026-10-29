@@ -54,6 +54,12 @@ def _login(client: TestClient) -> tuple[dict, dict]:
     return {"Authorization": f"Bearer {body['token']}"}, body["operator"]
 
 
+def _rules_admin(operator_id: str = "OP-ALICE") -> tuple[dict, dict]:
+    """A person signed in through the bank with both roles: demo sessions only approve."""
+    token, session = sessions.issue(operator_id, "Alice Rules", ["approver", "rules"])
+    return {"Authorization": f"Bearer {token}"}, session.public()
+
+
 def _token(client: TestClient, headers: dict, case_id: str = CASE) -> str:
     return client.get(f"/api/cases/{case_id}", headers=headers).json()["interrupt"]["approval_token"]
 
@@ -133,7 +139,7 @@ def test_reason_codes_are_checked_and_roles_are_enforced(world):
 def test_whoever_set_a_threshold_does_not_sign_cases_decided_under_it(world):
     svc, resumed, client, _ = world
     _case(svc, "CT-2026-000001")                                   # decided before the change
-    alice, alice_op = _login(client)
+    alice, alice_op = _rules_admin()
     bob, _ = _login(client)
     assert client.put("/api/rules/params", json={"auto_refund_cap_ron": 2000}).status_code == 401
     changed = client.put("/api/rules/params", json={"auto_refund_cap_ron": 2000}, headers=alice)
@@ -166,7 +172,7 @@ def test_whoever_set_a_threshold_does_not_sign_cases_decided_under_it(world):
 
 def test_a_change_counts_from_before_it_is_written(world):
     svc, _, client, _ = world
-    alice, alice_op = _login(client)
+    alice, alice_op = _rules_admin()
     client.put("/api/rules/params", json={"client_fraud_signal_threshold": 0.9}, headers=alice)
     [fact] = svc.rt.ledger.facts(PARAMS_LOG)
     setters = svc._params_setters(fact.retrieved_at - timedelta(microseconds=1))

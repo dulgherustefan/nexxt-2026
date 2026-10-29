@@ -92,12 +92,17 @@ def test_meta_reports_two_zones(zones):
 
 def test_demo_flow_refund_and_aml_lead(zones):
     client, aml = zones
-    tx = httpx.post(f"{client}/api/demo/scam", json={"customer_ref": "CUST-DEMO-01"}, timeout=30).json()
+    operator = _operator(client)
+    # the fake page's payment needs a session (it is reached through the tunnel); the reset only works locally
+    assert httpx.post(f"{client}/api/demo/scam", json={"customer_ref": "CUST-DEMO-01"}, timeout=30).status_code == 401
+    assert httpx.post(f"{client}/api/demo/reset", headers={"X-Forwarded-For": "203.0.113.5"}).status_code == 403
+    tx = httpx.post(f"{client}/api/demo/scam", json={"customer_ref": "CUST-DEMO-01"}, headers=operator,
+                    timeout=30).json()
     assert tx["transaction_id"]
     case_id = httpx.post(f"{client}/api/bank/CUST-DEMO-01/dispute",
                          json={"transaction_id": tx["transaction_id"], "text": None}, timeout=30).json()["case_id"]
+    assert httpx.get(f"{client}/api/bank/CUST-000001").status_code == 404
 
-    operator = _operator(client)
     signed = []
 
     def finished():
@@ -118,6 +123,10 @@ def test_demo_flow_refund_and_aml_lead(zones):
     assert t1["decision"] in ("RAMBURSEAZA", "RAMBURSEAZA_CU_APROBARE")
     assert detail["summary"]["status"] == "RAMBURSAT"
     assert all(d["rule_ids"] for d in detail["decisions"])
+    # without a session the case keeps its status and decisions but not the evidence; an operator sees all of it
+    assert detail["redacted"] and "rule_context" not in detail and all("content" not in f for f in detail["facts"])
+    full = httpx.get(f"{client}/api/cases/{case_id}", headers=operator, timeout=10).json()
+    assert full["rule_context"] and all("content" in f for f in full["facts"])
     bank = httpx.get(f"{client}/api/bank/CUST-DEMO-01").json()
     assert any(n["text"].startswith("We refunded RON ") for n in bank["notifications"])
     assert httpx.get(f"{client}/api/ledger/{case_id}").status_code == 401
@@ -156,7 +165,9 @@ def test_client_zone_has_no_aml_routes(zones):
 
 def test_intake_preview_and_customer_search(zones):
     client, _ = zones
-    found = httpx.get(f"{client}/api/customers", params={"q": "CUST-DEMO-01"}, timeout=20).json()
+    assert httpx.get(f"{client}/api/customers", params={"q": "CUST-DEMO-01"}, timeout=20).status_code == 401
+    found = httpx.get(f"{client}/api/customers", params={"q": "CUST-DEMO-01"}, headers=_operator(client),
+                      timeout=20).json()
     assert found and found[0]["customer_ref"] == "CUST-DEMO-01" and found[0]["alias"] == "Demo Customer 01"
     assert set(found[0]) >= {"customer_ref", "alias", "city", "accounts", "last_tx_at"} and len(found) <= 20
     assert "full_name" not in found[0] and "phone" not in found[0]

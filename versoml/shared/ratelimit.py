@@ -2,8 +2,9 @@
 
 Two kinds of limit, both sliding windows kept in memory (one process per zone, so no shared store is needed):
 
-- per caller: the first address in X-Forwarded-For (Vercel and ngrok both set it). A request without it comes from
-  this machine (the console on localhost, or the MCP tools calling the API) and only counts towards the global limit;
+- per caller: the last address in X-Forwarded-For, the one ngrok appends (the earlier ones are whatever the caller
+  sent). A request without it comes from this machine (the console on localhost, or the MCP tools calling the API)
+  and only counts towards the global limit;
 - global: everything that reaches Bedrock, from any entry point, so the account's quota holds whoever is calling.
 """
 from __future__ import annotations
@@ -97,10 +98,14 @@ def check(policy_name: str, caller: str | None, now: float | None = None) -> Ref
 
 
 def caller_of(headers) -> str | None:
-    """The caller's address from X-Forwarded-For, or None for a request made on this machine."""
+    """The caller's address from X-Forwarded-For, or None for a request made on this machine.
+
+    The last entry is the one ngrok appends: the address that connected to the tunnel. Everything before it comes
+    from the caller (or a proxy in front), so a direct caller could put any value there and get a fresh window on
+    every request."""
     forwarded = headers.get("x-forwarded-for") or ""
-    first = forwarded.split(",")[0].strip()
-    return first or None
+    parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+    return parts[-1] if parts else None
 
 
 def reset() -> None:

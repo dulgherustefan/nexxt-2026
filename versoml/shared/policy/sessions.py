@@ -113,12 +113,14 @@ def issue(operator_id: str, name: str, roles: list[str] | tuple[str, ...], *, de
 
 
 def issue_demo(now: datetime | None = None) -> tuple[str, OperatorSession]:
-    """A named demo operator with both roles, for the public demo. Refused outside demo mode."""
+    """A named demo operator for the public demo, with the approver role only: anyone can get one, so the rules
+    role (the parameters every later case is decided under) comes only from a real sign-in. Refused outside demo
+    mode."""
     if not demo_mode():
         raise SessionError("Demo sessions are off on this server (VERSOML_OPERATOR_MODE=strict): sign in through "
                            "the bank's sign-in.")
     tag = secrets.token_hex(2).upper()
-    return issue(f"{DEMO_PREFIX}{tag}", f"Demo operator {tag}", ROLES, demo=True, now=now)
+    return issue(f"{DEMO_PREFIX}{tag}", f"Demo operator {tag}", (APPROVER,), demo=True, now=now)
 
 
 def _session(payload: dict[str, Any]) -> OperatorSession:

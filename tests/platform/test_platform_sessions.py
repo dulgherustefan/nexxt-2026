@@ -34,10 +34,11 @@ def test_a_session_round_trips_and_names_its_operator():
     assert token not in str(session.public())
 
 
-def test_a_demo_session_is_a_named_demo_operator_with_both_roles():
+def test_a_demo_session_is_a_named_demo_operator_who_approves_only():
     token, session = sessions.issue_demo()
     assert session.operator_id.startswith("DEMO-OPERATOR-") and session.demo
-    assert session.roles == ("approver", "rules") and sessions.read(token).demo
+    # anyone on the internet gets one, so it never carries the rules role
+    assert session.roles == ("approver",) and not session.has("rules") and sessions.read(token).demo
     other = sessions.issue_demo()[1]
     assert other.session_id != session.session_id
 

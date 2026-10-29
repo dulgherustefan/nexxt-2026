@@ -18,12 +18,12 @@ Doing this by hand means pulling records from five systems, checking the law, wr
 
 ## What VersoML does
 
-1. **Refunds on time.** A rules engine decides, with a rule ID and a legal basis behind every decision. Under the limit the refund goes out on its own; above it, a person approves with one click.
+1. **Refunds on time.** A rules engine decides, with a rule ID and a legal basis behind every decision. Under the limit the refund goes out on its own; above it, a person signed in to the console approves with one click.
 2. **Builds the evidence file.** The transaction, 3-D Secure, the device and the fake website, each hashed when collected and sealed with a Merkle root and an Ed25519 signature.
 3. **Starts recovery.** A Visa 10.4 chargeback only where it can win, a SEPA recall (camt.056, reason FRAD) for transfers, and a phishing report for DNSC. Everything stays a draft until a person sends it.
 4. **Writes to the customer.** Claude drafts the letter in plain English, and a filter blocks it if it leaks personal data or anything the customer must not see.
 
-The models extract, argue and draft. They never decide, and no model has a tool that moves money.
+The models extract, argue and draft. They never decide, and no model has a tool that moves money: an MCP client or an agent can only propose a signature, and a Cedar `forbid` keeps the approve action for a person.
 
 Where this stands under the AI Act, GDPR Art. 22 and DORA, with sources: [docs/09_clasificare_ai_act_gdpr.md](docs/09_clasificare_ai_act_gdpr.md).
 
@@ -98,6 +98,7 @@ flowchart LR
 - **Untrusted text stays data.** The complaint only reaches an isolated model with no tools, which returns typed fields and flags prompt injections.
 - **No raw personal data reaches the model.** Names, IBANs, card numbers and phone numbers are replaced with labels before every call.
 - **A second zone, kept apart.** An anti-money-laundering zone runs as a separate process with its own database and receives only strict, signed facts. It is hidden in the console, and a non-interference test proves it never changes a refund decision.
+- **A person signs, from a signed session.** The approver comes from an operator session (HMAC-signed by the server), never from the request, and each signature echoes a token bound to the verdict, amount and deadline it was shown. Whoever set a rule parameter does not sign the cases decided under it. The evidence file opens only to an operator; the public QR check answers only to the root in the code. The public demo hands each console a named demo operator (`VERSOML_OPERATOR_MODE=demo`, the default), and the ledger marks those signatures as demo ones; `strict` accepts only sessions from the bank's sign-in.
 
 ### Models
 
@@ -157,7 +158,7 @@ On the 30 live case runs stored in the client zone (29 October 2026, Bucharest t
 
 ## Use it from Claude Desktop or Cursor
 
-VersoML is also an MCP server: open a case, read its decision and evidence, approve, or check a letter from your own assistant. Every call goes through the same access policy as the console. The config to copy is on the `/mcp` page, or connect over HTTP at `http://127.0.0.1:8000/mcp/`.
+VersoML is also an MCP server: open a case, read its decision and evidence, propose approve or reject, or check a letter from your own assistant. A proposal is recorded in the evidence file and a person signs it in the console; the assistant itself is denied the approve action. Every call goes through the same access policy as the console. The config to copy is on the `/mcp` page, or connect over HTTP at `http://127.0.0.1:8000/mcp/`.
 
 ## Project layout
 

@@ -73,7 +73,7 @@ const BENEFITS = [
   {
     icon: ShieldCheck,
     title: "Checked on every call",
-    text: "Each call goes through the access policy before it runs. An approval still records a person’s signature.",
+    text: "Each call goes through the access policy before it runs. An assistant can only propose approve or reject; a person signs in the console.",
   },
 ];
 

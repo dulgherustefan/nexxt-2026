@@ -15,7 +15,7 @@ TOOLS = [
     ("versoml_open_case", "client", "Open and start a case", "creates a case"),
     ("versoml_case_status", "client", "Verdict, deadline, decisions with rule IDs", "read"),
     ("versoml_case_evidence", "client", "The evidence in the case ledger", "read"),
-    ("versoml_approve", "client", "A person's signature on a decision", "human action"),
+    ("versoml_approve", "client", "Proposes approve or reject; a person signs it in the console", "proposes only"),
     ("versoml_counterfactual", "client", "Change one fact, see which decisions change", "compute"),
     ("versoml_check_letter", "client", "The wall's filter on a letter's text", "compute"),
     ("versoml_evaluate_rules", "client", "The rules engine on a JSON context", "compute"),

@@ -26,6 +26,7 @@ INSTRUCTIONS = {
         "VersoML, client zone (Demo Bank, synthetic data). It resolves payment disputes under CJEU C-70/25: "
         "a refund by the end of the next business day, an evidence file with hashes, and recovery. "
         "Rules decide, the LLM only extracts and drafts, and a person signs off the exceptions. "
+        "You cannot sign: versoml_approve records a proposal, and a person signs it in the console. "
         "The client zone has no access to AML data: do not ask about AML investigations or speculate about them."
     ),
     Zone.AML: (
@@ -155,27 +156,37 @@ def _client_tools(server) -> None:
     async def versoml_case_status(case_id: str) -> dict:
         _authorize(zone, "mcp.cases.read")
         detail = await _api(zone, "GET", f"/api/cases/{case_id}")
+        interrupt = {k: v for k, v in (detail.get("interrupt") or {}).items() if k != "approval_token"}
         return {"summary": detail["summary"], "decisions": [
             {"question": d["question"], "decision": d["decision"], "rule_ids": d.get("rule_ids"),
              "deadline": d.get("deadline"), "requires_human": d.get("requires_human"),
              "rationale": [r.get("text") for r in d.get("rationale", [])][:3]} for d in detail.get("decisions", [])],
-            "interrupt": detail.get("interrupt"), "letter_status": (detail.get("letter") or {}).get("status"),
+            "interrupt": interrupt, "proposals": detail.get("proposals") or [],
+            "letter_status": (detail.get("letter") or {}).get("status"),
             # the case in published codes (EBA fraud type, ISO 4217, ISO 13616, E.164), schema versoml.case.v1
             "standard": detail.get("standard")}
 
     @server.tool(description="The evidence in the case ledger: ID, kind, source, summary, hash.")
     async def versoml_case_evidence(case_id: str) -> list[dict]:
         _authorize(zone, "mcp.cases.read")
-        detail = await _api(zone, "GET", f"/api/ledger/{case_id}")
+        # the full ledger needs an operator session; the case view lists the same entries, and only these fields
+        # leave this tool
+        detail = await _api(zone, "GET", f"/api/cases/{case_id}")
         return [{"fact_id": f["fact_id"], "kind": f["kind"], "source_tool": f["source_tool"], "summary": f["summary"],
                  "sha256": f["sha256"][:16]} for f in detail.get("facts", [])]
 
-    @server.tool(description="A person's signature on a decision that needs one (approve or reject). The MCP client "
-                             "must confirm with the user before calling it.")
+    @server.tool(description="Propose approve or reject on a decision that waits for a person's signature. It does "
+                             "not sign and moves no money: an MCP client may not approve (a Cedar forbid), so the "
+                             "proposal goes into the case's evidence ledger and a person signs in the console.")
     async def versoml_approve(case_id: str, action: str, note: str | None = None) -> dict:
-        _authorize(zone, "mcp.cases.approve")
-        return await _api(zone, "POST", f"/api/cases/{case_id}/approve",
-                          {"action": action, "note": note, "approver": "OPERATOR-90"})
+        _authorize(zone, "mcp.cases.propose")
+        from versoml.shared.policy import authorize
+
+        # the signature itself is a person's: always denied here, and the denial shows on the wall page
+        signature = authorize("Mcp/client", "mcp.cases.approve", zone, {"via": "mcp", "case_id": case_id})
+        proposed = await _api(zone, "POST", f"/api/cases/{case_id}/proposals", {"action": action, "note": note})
+        return {"signed": False, "proposal": proposed.get("proposal"), "detail": proposed.get("detail"),
+                "why_not_signed": signature.reason}
 
     @server.tool(description="Change one fact and show which decisions change (for example "
                              "screen_showed_amount_and_payee=true).")
@@ -308,7 +319,7 @@ def _aml_tools(server) -> None:
 
 
 # Tools that cost Bedrock calls (or outside lookups), and the limit each one counts against.
-COSTLY_TOOLS = {"versoml_open_case": "case_run", "versoml_intake": "case_run", "versoml_approve": "case_run",
+COSTLY_TOOLS = {"versoml_open_case": "case_run", "versoml_intake": "case_run",
                 "versoml_kb_ask": "kb_ask", "versoml_domain_intel": "web_lookup"}
 MAX_BODY = 64_000
 

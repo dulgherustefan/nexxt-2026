@@ -42,3 +42,46 @@ def test_catalog_lists_the_new_tools():
     tools = {t["name"]: t["zone"] for t in mcp_info("http://127.0.0.1:8000")["tools"]}
     assert tools["versoml_intake"] == "client" and tools["versoml_kb_search"] == "both"
     assert tools["versoml_precedents"] == "client"
+
+
+def test_mcp_approve_only_proposes_and_cedar_denies_the_signature(monkeypatch):
+    import json
+
+    from versoml.mcp_server import server as mcp_server
+    from versoml.shared.policy import clear_decisions, recent_decisions
+
+    calls = []
+
+    async def fake_api(zone, method, path, body=None):
+        calls.append((method, path, body))
+        if path.endswith("/proposals"):
+            return {"ok": True, "signed": False, "proposal": {"action": body["action"], "fact_id": "EV-031"},
+                    "detail": "Recorded as proposal EV-031."}
+        return {"summary": {}, "interrupt": {"pending": True, "approval_token": "secret-ish"}, "facts": [
+            {"fact_id": "EV-001", "kind": "bank.transaction", "source_tool": "bank-core", "summary": "s", "sha256": "ab" * 32,
+             "content": {"payee_iban": "RO49AAAA1B31007593840000"}}]}
+
+    monkeypatch.setattr(mcp_server, "_api", fake_api)
+    clear_decisions()
+    server = build_server(Zone.CLIENT)
+    result = asyncio.run(server.call_tool("versoml_approve", {"case_id": "CT-2026-123456", "action": "approve"}))
+    out = json.loads(result.content[0].text)
+    assert out["signed"] is False and out["proposal"]["fact_id"] == "EV-031"
+    assert "only-a-person-signs" in out["why_not_signed"]
+    assert [c[1] for c in calls] == ["/api/cases/CT-2026-123456/proposals"]         # never the approve endpoint
+    denied = [d for d in recent_decisions(10) if d.action == "mcp.cases.approve"]
+    assert denied and not denied[0].allowed                                         # the wall page shows the denial
+
+    status = json.loads(asyncio.run(server.call_tool("versoml_case_status", {"case_id": "CT-2026-123456"})).content[0].text)
+    assert "approval_token" not in status["interrupt"]
+    listed = asyncio.run(server.call_tool("versoml_case_evidence", {"case_id": "CT-2026-123456"}))
+    evidence = [json.loads(c.text) for c in listed.content]
+    assert evidence == [{"fact_id": "EV-001", "kind": "bank.transaction", "source_tool": "bank-core", "summary": "s",
+                         "sha256": "ab" * 8}]
+
+
+def test_catalog_says_mcp_approve_only_proposes():
+    from versoml.mcp_server.catalog import mcp_info
+
+    tools = {t["name"]: t for t in mcp_info("http://127.0.0.1:8000")["tools"]}
+    assert tools["versoml_approve"]["effect"] == "proposes only"

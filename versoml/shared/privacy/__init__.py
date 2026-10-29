@@ -1,5 +1,6 @@
 """PrivacyProxy: recunoscători RO, seif de pseudonime, verificarea destinațiilor."""
 
+from versoml.shared.privacy.crosscheck import cross_check
 from versoml.shared.privacy.proxy import PrivacyProxy, RawPIIError, assert_llm_safe, get_proxy, scan
 from versoml.shared.privacy.recognizers import PII_TYPES, PUBLIC_ROLES, Finding, cnp_status, detect, is_card_number, mask
 from versoml.shared.privacy.sinks import check_sink, explain_sink
@@ -14,6 +15,7 @@ __all__ = [
     "assert_llm_safe",
     "check_sink",
     "cnp_status",
+    "cross_check",
     "detect",
     "explain_sink",
     "fold",

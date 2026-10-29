@@ -3,6 +3,7 @@
 - `normalize_ro`: NFC și ș/ț cu virgulă dedesubt în loc de cedilă (regula de intrare).
 - `fold`: litere mici, fără diacritice, cratime unificate, cu aceeași lungime ca textul,
   ca pozițiile găsite pe textul pliat să fie valabile și în original.
+- `mask`: forma afișabilă a unei valori (în loguri și în erori nu apare valoarea).
 """
 
 from __future__ import annotations
@@ -48,3 +49,11 @@ def strip_diacritics(text: str) -> str:
         base = "".join(c for c in unicodedata.normalize("NFKD", ch) if not unicodedata.combining(c))
         out.append(base if len(base) == 1 else ch)
     return "".join(out)
+
+
+def mask(value: str) -> str:
+    """Varianta afișabilă: primele și ultimele două caractere."""
+    clean = value.strip()
+    if len(clean) <= 4:
+        return "•" * len(clean)
+    return f"{clean[:2]}{'•' * min(8, len(clean) - 4)}{clean[-2:]}"

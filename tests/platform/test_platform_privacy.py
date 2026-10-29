@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ast
 import json
+from pathlib import Path
 
 import pytest
 from hypothesis import given, settings as hsettings
@@ -10,7 +12,8 @@ from hypothesis import strategies as st
 from versoml_platform_synth import make_cnp, make_iban
 
 from versoml.contracts import Labels, Sink, Trust
-from versoml.shared.privacy import PrivacyProxy, RawPIIError, check_sink, detect, explain_sink, normalize_ro
+from versoml.shared.privacy import (PrivacyProxy, RawPIIError, check_sink, cross_check, detect, explain_sink,
+                                    normalize_ro)
 
 SYNTH_CNP_75 = make_cnp("1", "850615", 75, 123)   # județ fictiv 71–79 (docs/06 §2)
 SYNTH_CNP_70 = make_cnp("2", "920304", 70, 7)
@@ -52,7 +55,15 @@ POSITIVES = [
     ("fix 021 123 4567", "TELEFON", "+40211234567"),
     ("+40-722-123-456", "TELEFON", "+40722123456"),
     ("tel:0722123456", "TELEFON", "+40722123456"),
+    # foreign numbers, with a country code
+    ("+44 20 7946 0958", "TELEFON", "+442079460958"),
+    ("+44 (0)20 7946 0958", "TELEFON", "+442079460958"),
+    ("sunați la 0049 30 123456789", "TELEFON", "+4930123456789"),
+    ("call me on +1 (415) 555-0132, thanks", "TELEFON", "+14155550132"),
+    ("+373 69 123 456 (Moldova)", "TELEFON", "+37369123456"),
+    ("+33 6 12 34 56 78", "TELEFON", "+33612345678"),
     ("ana.testescu@example.ro", "EMAIL", "ana.testescu@example.ro"),
+    ("ștefan.pop@example.ro", "EMAIL", "ștefan.pop@example.ro"),
     ("ANA_TESTESCU+banca@mail.example.com", "EMAIL", "ana_testescu+banca@mail.example.com"),
     ("x@sub.domain.test,", "EMAIL", "x@sub.domain.test"),
     ("CI seria XT nr. 123456", "CI", "XT123456"),
@@ -92,6 +103,10 @@ NEGATIVES = [
     "Best regards,\nDemo Bank",
     "Dear Sir or Madam, I paid RON 3,200.00 on 28 Oct 2026 at 14:30.",
     "Hi, I have an urgent problem. Help me get my money back please.",
+    # a plus sign or a leading 00 that is not a phone number
+    "Sold: +12.500.000,00 lei.",
+    "Programare la ora 14:00 1234 5678.",
+    "Primită la 2026-10-27T18:30:00+02:00.",
 ]
 
 
@@ -125,6 +140,11 @@ def test_public_identifiers_are_tagged_not_redacted(proxy):
     out, vault = proxy.pseudonymize(text, "CT-1")
     assert out == text and vault == {}
     assert proxy.stats()["public_tags"] == {"FIRMA": 1, "CUI": 1, "DOMENIU": 1}
+
+
+def test_cui_is_tagged_only_with_a_valid_check_digit(proxy):
+    tags = [(f["type"], f["value"]) for f in proxy.scan("CUI 18547290; cod fiscal 12345678; CIF RO 18547290")]
+    assert tags == [("CUI", "18547290"), ("CUI", "RO 18547290")]
 
 
 def test_pseudonymize_restore_round_trip(proxy):
@@ -191,6 +211,56 @@ def test_assert_llm_safe_blocks_raw_pii_without_echoing_it(proxy):
     proxy.assert_llm_safe({"messages": [{"content": "<CLIENT_1> contestă plata spre <IBAN_1>."}]})
     stats = proxy.stats()
     assert stats["assert_checks"] == 5 and stats["assert_blocked"] == 4
+
+
+# ------------------------------------------------------------ a doua verificare (crosscheck)
+
+def test_crosscheck_shares_no_code_with_the_recognizers():
+    from versoml.shared.privacy import crosscheck as module
+
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    imported = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+    imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    assert not any("recognizers" in name or name.endswith(".proxy") for name in imported if name)
+
+
+@pytest.mark.parametrize("text, kind, key", [p for p in POSITIVES if p[1] in ("CNP", "IBAN", "CARD", "TELEFON", "EMAIL")
+                                             and p[0] != "PAN4111111111111111exp"])
+def test_crosscheck_finds_the_identifiers_on_its_own(text, kind, key):
+    assert kind in [h["type"] for h in cross_check(text)]
+
+
+@pytest.mark.parametrize("text", NEGATIVES)
+def test_crosscheck_is_quiet_on_negative_samples(text):
+    assert cross_check(text) == []
+
+
+def test_crosscheck_reads_each_value_once():
+    found = cross_check("De pe RO49 AAAA 1B31 0075 9384 0000 pe RO54RZBR0000060012345678, tel 0722 123 456.")
+    assert [h["type"] for h in found] == ["IBAN", "IBAN", "TELEFON"]
+    assert cross_check("Popescu,Ion a sunat; Ion Popescu a revenit.", ["Ion Popescu"]) == [
+        {"type": "NUME", "masked": "Io•••••••cu"}]
+
+
+def test_guard_blocks_what_only_the_second_check_sees(proxy):
+    text = "CNP 1900101 401091, scris cu un spațiu"
+    assert not [f for f in detect(text) if f.pii]  # the masking recognizers miss this format
+    with pytest.raises(RawPIIError) as err:
+        proxy.assert_llm_safe({"messages": [{"content": text}]})
+    assert [(f["type"], f["check"]) for f in err.value.findings] == [("CNP", "crosscheck")]
+    assert "1900101" not in str(err.value) and "401091" not in json.dumps(err.value.findings)
+
+
+def test_guard_counts_a_value_both_checks_see_once(proxy):
+    assert [(f["type"], f["check"]) for f in proxy.find_raw_pii("IBAN RO49AAAA1B31007593840000")] == [
+        ("IBAN", "recognizers")]
+
+
+def test_guard_leaves_known_public_names_in_the_text(proxy):
+    proxy.pseudonymize("x", "CT-11", known={"Exemplu Logistic Demo SRL": "FIRMA", "Ana Testescu": "CLIENT"})
+    proxy.assert_llm_safe("Beneficiar: Exemplu Logistic Demo SRL")
+    with pytest.raises(RawPIIError):
+        proxy.assert_llm_safe("Testescu, Ana a sunat")
 
 
 ENTITIES = st.sampled_from([

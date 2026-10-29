@@ -1,8 +1,9 @@
 """Recunoscătorii de date personale pentru texte românești (docs/05 §6.4).
 
-Date personale (se pseudonimizează): CNP, IBAN, card (PAN), telefon RO, e-mail, act de
-identitate, nume cunoscute sau precedate de „Subsemnatul", „Doamna" etc.
+Date personale (se pseudonimizează): CNP, IBAN, card (PAN), telefon RO sau cu prefix de țară, e-mail,
+act de identitate, nume cunoscute sau precedate de „Subsemnatul", „Doamna" etc.
 Identificatori publici (doar etichetă, rămân în text): CUI, denumirea firmei, domenii/URL-uri.
+CNP, IBAN și CUI se validează cu python-stdnum (`stdnum.ro.cnp`, `stdnum.iban`, `stdnum.ro.cui`).
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from stdnum.exceptions import ValidationError
 from stdnum.ro import cnp as std_cnp
 from stdnum.ro import cui as std_cui
 
-from versoml.shared.privacy.text import fold, normalize_ro
+from versoml.shared.privacy.text import fold, mask, normalize_ro
 
 # Tipurile care sunt date personale și primesc pseudonim
 PII_TYPES = ("CNP", "IBAN", "CARD", "TELEFON", "EMAIL", "CI", "NUME")
@@ -52,23 +53,9 @@ class Finding:
         return data
 
 
-def mask(value: str) -> str:
-    """Varianta afișabilă: primele și ultimele două caractere."""
-    clean = value.strip()
-    if len(clean) <= 4:
-        return "•" * len(clean)
-    return f"{clean[:2]}{'•' * min(8, len(clean) - 4)}{clean[-2:]}"
-
-
 # ---------------------------------------------------------------- CNP
 
 _CNP_RE = re.compile(r"(?<!\d)[1-9]\d{12}(?!\d)")
-_CNP_WEIGHTS = (2, 7, 9, 1, 4, 6, 3, 5, 8, 2, 7, 9)
-
-
-def _cnp_check_digit(first12: str) -> str:
-    rest = sum(w * int(d) for w, d in zip(_CNP_WEIGHTS, first12)) % 11
-    return "1" if rest == 10 else str(rest)
 
 
 def cnp_status(digits: str) -> tuple[bool, bool]:
@@ -82,7 +69,7 @@ def cnp_status(digits: str) -> tuple[bool, bool]:
         std_cnp.get_birth_date(digits)
     except ValidationError:
         return False, False
-    return _cnp_check_digit(digits[:12]) == digits[12], True
+    return std_cnp.calc_check_digit(digits[:12]) == digits[12], True
 
 
 def find_cnp(text: str) -> Iterator[Finding]:
@@ -186,10 +173,30 @@ def find_phone(text: str) -> Iterator[Finding]:
         yield Finding("TELEFON", m.start(), m.end(), m.group(), "+40" + nsn, True)
 
 
+# ---------------------------------------------------------------- telefon cu prefix de țară
+
+# „+" sau „00", apoi 8-15 cifre (lungimea E.164); un „(0)" după prefixul de țară nu se numără
+_INTL_PHONE_RE = re.compile(
+    r"(?<![\w+])(?:\+[ \u00a0]?|00)"
+    r"([1-9](?:(?:[ .\-\u00a0]?\(0\))?[ .\-\u00a0]?[()]?[ .\-\u00a0]?\d){7,14})"
+    r"(?!\d|,\d)"
+)
+
+
+def find_phone_intl(text: str) -> Iterator[Finding]:
+    """Numere cu prefix de țară: +44 20 7946 0958, 0049 30 1234567, +1 (415) 555-0132, +44 (0)20 7946 0958.
+    Prefixul +40 rămâne la `find_phone`, care știe planul de numerotare românesc."""
+    for m in _INTL_PHONE_RE.finditer(text):
+        digits = re.sub(r"\D", "", m.group(1).replace("(0)", ""))
+        if digits.startswith("40") or _DATE_LIKE.search(m.group()):
+            continue
+        yield Finding("TELEFON", m.start(), m.end(), m.group(), "+" + digits, True)
+
+
 # ---------------------------------------------------------------- e-mail
 
-_EMAIL_RE = re.compile(
-    r"(?<![\w.+\-])[A-Za-z0-9][A-Za-z0-9._%+\-]*@"
+_EMAIL_RE = re.compile(  # partea locală poate avea și diacritice („ștefan@…")
+    r"(?<![\w.+\-])[^\W_][\w.%+\-]*@"
     r"[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)*\.[A-Za-z]{2,24}"
     r"(?![\w\-])"
 )
@@ -320,7 +327,8 @@ _DOMAIN_RE = re.compile(
 def find_public(text: str) -> Iterator[Finding]:
     for m in _CUI_CONTEXT.finditer(text):
         value = m.group(1)
-        yield Finding("CUI", m.start(1), m.end(1), value, re.sub(r"\s", "", value).upper(), False)
+        if std_cui.is_valid(value):  # cifra de control: un număr oarecare după „cod fiscal" nu e etichetat CUI
+            yield Finding("CUI", m.start(1), m.end(1), value, re.sub(r"\s", "", value).upper(), False)
     for m in _CUI_BARE.finditer(text):
         if std_cui.is_valid(m.group()):
             yield Finding("CUI", m.start(), m.end(), m.group(), m.group(), False)
@@ -354,6 +362,7 @@ def detect(text: str, known: Mapping[str, str] | None = None, *, public: bool = 
     found += find_cnp(text)
     found += find_card(text)
     found += find_phone(text)
+    found += find_phone_intl(text)
     found += find_identity_card(text)
     found += find_names(text)
     if public:

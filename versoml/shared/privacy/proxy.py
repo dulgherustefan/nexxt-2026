@@ -2,7 +2,8 @@
 
 - Pseudonime stabile pe caz: <CLIENT_1>, <IBAN_1>, <CARD_1>, <TELEFON_1>, <EMAIL_1>, <CNP_1>, <CI_1>, <PERSOANA_1>.
 - Seiful (pseudonim → valoare) stă doar în zona client; opțional persistat în baza zonei.
-- `assert_llm_safe` ridică `RawPIIError` dacă în payload a rămas vreo dată personală brută.
+- `assert_llm_safe` ridică `RawPIIError` dacă în payload a rămas vreo dată personală brută. Verifică de două ori:
+  cu recunoscătorii care au mascat și cu `crosscheck`, care nu împarte cod cu ei.
 - Identificatorii publici (CUI, firma beneficiară, domenii) rămân în text; sunt doar etichetați.
 """
 
@@ -18,7 +19,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from versoml.shared.privacy.recognizers import Finding, detect, parse_role
+from versoml.shared.privacy.crosscheck import cross_check
+from versoml.shared.privacy.recognizers import PUBLIC_ROLES, Finding, detect, parse_role
 from versoml.shared.privacy.text import fold, normalize_ro
 
 _TOKEN_KIND = {"CNP": "CNP", "IBAN": "IBAN", "CARD": "CARD", "TELEFON": "TELEFON", "EMAIL": "EMAIL", "CI": "CI"}
@@ -234,18 +236,26 @@ class PrivacyProxy:
         return obj
 
     def find_raw_pii(self, payload: str | dict | list) -> list[dict[str, Any]]:
-        """Datele personale brute rămase în payload: [{type, masked, path}] (fără valori)."""
+        """Datele personale brute rămase în payload: [{type, masked, path, check}] (fără valori).
+
+        `check` spune cine a găsit: `recognizers` (aceiași care maschează) sau `crosscheck` (verificarea
+        independentă). Un tip pe care recunoscătorii l-au găsit deja pe aceeași cale nu se mai numără o dată."""
         found = []
         with self._lock:
             known = dict(self._known_all)
+        names = [name for name, role in known.items() if parse_role(role)[0] not in PUBLIC_ROLES]
         for path, text in _walk(payload):
-            for f in detect(normalize_ro(text), known, public=False):
-                if f.pii:
-                    found.append({"type": f.type, "masked": f.masked, "path": path})
+            text = normalize_ro(text)
+            hits = [{"type": f.type, "masked": f.masked, "path": path, "check": "recognizers"}
+                    for f in detect(text, known, public=False) if f.pii]
+            seen = {h["type"] for h in hits}
+            hits += [{**h, "path": path, "check": "crosscheck"} for h in cross_check(text, names) if h["type"] not in seen]
+            found += hits
         return found
 
     def assert_llm_safe(self, payload: str | dict | list) -> None:
-        """Ridică `RawPIIError` dacă payload-ul conține date personale brute (CNP, IBAN, card, …)."""
+        """Ridică `RawPIIError` dacă payload-ul conține date personale brute (CNP, IBAN, card, …), după oricare
+        dintre cele două verificări."""
         found = self.find_raw_pii(payload)
         with self._lock:
             self._stats["assert_checks"] += 1

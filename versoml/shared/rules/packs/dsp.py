@@ -331,10 +331,21 @@ def dsp_57_untrusted_text(x: RuleContextExt, env: Env) -> Finding | None:
     if x.claimed_amount_low_confidence:
         reasons.append((("the amount in the document was read with low confidence, so a human confirms it from the "
                          "transaction log"), ("claimed_amount_low_confidence",)))
+    # a complaint read without a live model (a recorded answer or the regular expressions) goes to a human too
+    if x.llm_mode in ("replay", "offline"):
+        how = "from a recorded answer" if x.llm_mode == "replay" else "by pattern matching"
+        reasons.append((f"the complaint was read {how}, not by a live model, so a human checks what it says",
+                        ("llm_mode",)))
     if not reasons:
         return None
     security = x.injection_suspected or (x.claimed_amount is not None and abs(x.claimed_amount - x.amount.value) > 0.005)
-    return Finding("DSP-57", "DSP_SECURITY_SIGNAL" if security else "suma_de_confirmat",
+    if security:
+        outcome = "DSP_SECURITY_SIGNAL"
+    elif x.claimed_amount_low_confidence:
+        outcome = "suma_de_confirmat"
+    else:
+        outcome = "extragere_de_confirmat"
+    return Finding("DSP-57", outcome,
                    "Untrusted text does not change the decision: " + "; ".join(t for t, _ in reasons) + ".",
                    tuple(f for _, fs in reasons for f in fs))
 

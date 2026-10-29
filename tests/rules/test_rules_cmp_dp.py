@@ -110,6 +110,16 @@ def test_DP02_deciziile_defavorabile_le_semneaza_un_om(kw, question, verdict):
     assert outcome(out, "DP-02") == "DP_HUMAN_REVIEW_REQUIRED"
 
 
+@pytest.mark.parametrize("dispute_type", [DisputeType.DISPUTA_COMERCIANT, DisputeType.EROARE_PROCESARE])
+def test_DP02_fara_t1_cand_clientul_spune_ca_nu_a_autorizat_semneaza_un_om(dispute_type):
+    quiet = evaluate(make_ctx(dispute_type=dispute_type), DEFAULTS)
+    assert t1(quiet).decision == Verdict.NU_SE_APLICA_T1 and not t1(quiet).requires_human
+    out = evaluate(make_ctx(dispute_type=dispute_type, customer_claims_unauthorised=True), DEFAULTS)
+    assert t1(out).decision == Verdict.NU_SE_APLICA_T1
+    assert t1(out).requires_human and "DP-02" in t1(out).rule_ids
+    assert outcome(out, "DP-02") == "DP_HUMAN_REVIEW_REQUIRED"
+
+
 def test_DP02_scorul_m2_e_doar_semnal_pentru_om():
     out = evaluate(make_ctx(client_fraud_score=0.93))
     assert t1(out).decision == Verdict.RAMBURSEAZA_CU_APROBARE

@@ -186,3 +186,11 @@ def test_calc_franciza_in_lei_foloseste_cursul_parametru():
     out = evaluate(make_ctx(amount=Money(value=4000.0)), {"eur_ron_rate": 4.9})
     assert hit(out, "PAY-05").params["raspundere"] == pytest.approx(147.0)
     assert hit(out, "PAY-05").params["eur_ron_rate"] == 4.9
+
+
+@pytest.mark.parametrize("retain", [False, True])
+def test_franciza_de_30_eur_se_retine_sau_se_renunta_la_ea(retain):
+    out = evaluate(make_ctx(amount=Money(value=4000.0)), {"retain_payer_liability": retain})
+    found = hit(out, "PAY-05")
+    assert found.params["raspundere"] == 150.0
+    assert ("keeps it back" in found.explanation) is retain and ("waives it" in found.explanation) is not retain

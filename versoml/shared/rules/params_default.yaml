@@ -75,6 +75,26 @@ refund_sla_alert_hours:
   rules: [DSP-03]
   description: "Hours before the refund deadline when the case becomes “at risk” (DSP_REFUND_SLA_AT_RISK)."
 
+block_instrument_sla_minutes:
+  value: 60
+  type: integer
+  min: 1
+  confidence: U
+  rules: [PAY-04]
+  description: >-
+    Minutes from the customer's report of an unauthorized payment to blocking the payment instrument (card or
+    app access). Debits after the report are the bank's loss (Law 209/2019, art. 177(c)). The law gives no
+    number of minutes.
+
+retain_payer_liability:
+  value: false
+  type: boolean
+  confidence: U
+  rules: [PAY-05]
+  description: >-
+    Whether the refund keeps back the customer's share under Law 209/2019, art. 179(1): at most EUR 30, and
+    nothing in the art. 177 cases. False means the bank waives it and refunds the full amount.
+
 undue_delay_days:
   value: null
   type: integer

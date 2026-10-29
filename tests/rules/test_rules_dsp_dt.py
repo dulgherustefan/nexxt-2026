@@ -338,6 +338,32 @@ def test_DT19_banca_a_constatat_frauda_inaintea_clientului():
     assert t1(notif).deadline == eod(2026, 10, 27)
 
 
+def test_extragerea_fara_model_live_trimite_rambursarea_la_om():
+    live = evaluate(make_ctx(llm_mode="live"))
+    assert t1(live).decision == Verdict.RAMBURSEAZA and outcome(live, "DSP-57") is None
+    for mode in ("replay", "offline"):
+        out = evaluate(make_ctx(llm_mode=mode))
+        assert outcome(out, "DSP-57") == "extragere_de_confirmat"
+        assert t1(out).decision == Verdict.RAMBURSEAZA_CU_APROBARE and t1(out).requires_human
+        assert t1(out).deadline == eod(2026, 10, 28)                      # tot în termen
+        assert any("live model" in a for a in t1(out).next_actions)
+    # un semnal de securitate rămâne semnal de securitate și în modul degradat
+    out = evaluate(make_ctx(llm_mode="offline", injection_suspected=True))
+    assert outcome(out, "DSP-57") == "DSP_SECURITY_SIGNAL"
+
+
+def test_debit_dupa_notificarea_clientului_e_pierderea_bancii():
+    # cazul Raiffeisen: clientul anunță la 10:00, debitul vine la 12:00, reclamația pentru el abia peste trei zile
+    ctx = make_ctx(executed_at=ts(2026, 10, 26, 12), loss_reported_at=ts(2026, 10, 26, 10),
+                   bank_noted_at=ts(2026, 10, 26, 12), notified_at=ts(2026, 10, 29, 9), sca_performed=True)
+    out = evaluate(ctx)
+    assert outcome(out, "PAY-04") == "raspundere_0" and "c" in hit(out, "PAY-04").params["art_177_litere"]
+    assert decision(out, CLIENT).decision == Verdict.NU_RECOMANDAM_RECUPERARE
+    assert outcome(out, "DSP-58") == "ancora_constatare" and t1(out).deadline == eod(2026, 10, 27)
+    assert outcome(out, "DSP-03") == "DSP_REFUND_SLA_BREACHED"
+    assert t1(out).next_actions[0] == "Escalate now: the refund deadline has passed"
+
+
 def test_DT20_comerciant_see_fara_sca():
     out = evaluate(dt01(sca_not_applied_reason="payee_no_sca"))
     assert outcome(out, "PAY-07") == "PAY_RECOVERY_FROM_PAYEE_PSP"

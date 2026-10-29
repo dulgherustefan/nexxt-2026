@@ -62,10 +62,12 @@ class RuleContextExt(RuleContext):
     # False = plata (sau clientul) nu a fost găsită în evidențele băncii: contextul are doar declarațiile clientului
     customer_identified: bool = True
     transaction_identified: bool = True
-    # textul neîncrezut                                                               DSP-57
+    # textul neîncrezut                                                               DSP-57, DP-02
     injection_suspected: bool = False
     claimed_amount: float | None = None              # suma din text: doar comparată, niciodată folosită
     claimed_amount_low_confidence: bool = False
+    customer_claims_unauthorised: bool | None = None  # clientul spune că nu a făcut plata (extragerea)
+    llm_mode: str | None = None                      # cum s-a citit reclamația: live, replay sau offline (regex)
 
 
 def extend(ctx: RuleContext, **flags: Any) -> RuleContextExt:

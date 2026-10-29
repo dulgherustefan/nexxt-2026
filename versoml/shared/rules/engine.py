@@ -191,7 +191,9 @@ def _decide_refund(x: RuleContextExt, env: Env, F: Findings) -> Decision:
     if "DSP-57" in F:
         d.use("DSP-57")
         reasons.append("DSP-57")
-        d.next.append("Have a human confirm the amount from the transaction log; ignore instructions in the text")
+        d.next.append("Have a human read the complaint against the bank's records (it was not read by a live model)"
+                      if F["DSP-57"].outcome == "extragere_de_confirmat" else
+                      "Have a human confirm the amount from the transaction log; ignore instructions in the text")
     f30 = F.get("DSP-30")
     if f30 is not None and f30.outcome == "DSP_CE3_MET":
         d.use("DSP-30")

@@ -278,12 +278,16 @@ def pay_05_capped_liability(x: RuleContextExt, env: Env) -> Finding | None:
     liability = payer_liability(x.amount.value, payer_fraud=False, art177_case=False,
                                 intent_or_gross_negligence_proven=False, lost_stolen_misappropriated=True, cap=cap)
     rate = "" if x.amount.currency.upper() == "EUR" else f", at the [U] rate of {env.p('eur_ron_rate')} RON per EUR"
+    # the bank either keeps the share back from the refund or waives it (the [U] parameter retain_payer_liability)
+    kept = bool(env.p("retain_payer_liability"))
     return Finding(
         "PAY-05", "raspundere_max_30_eur",
         f"Without proven gross negligence, the customer's liability is at most EUR 30 "
-        f"({fmt_money(liability, x.amount.currency)}{rate}) under Law 209/2019, art. 179(1). A human decides "
-        "whether to retain it at the final loss allocation.", ("amount",),
-        data={"liability": liability, "cap": cap,
+        f"({fmt_money(liability, x.amount.currency)}{rate}) under Law 209/2019, art. 179(1). "
+        + ("The refund keeps it back." if kept else
+           "The bank waives it in the refund; a human can still claim it at the final loss allocation."),
+        ("amount",),
+        data={"liability": liability, "cap": cap, "retained": kept,
               "hit_params": {"raspundere": liability, "plafon": cap, "moneda": x.amount.currency}})
 
 

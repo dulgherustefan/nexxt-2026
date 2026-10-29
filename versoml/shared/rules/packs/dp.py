@@ -25,11 +25,11 @@ UNFAVOURABLE = {
 
 def is_unfavourable(decision: Decision, x: RuleContextExt) -> bool:
     """Defavorabil pentru client: respingerea, reținerea, recuperarea de la client și „T+1 nu se aplică” la APP
-    (clientul pierde regimul de rambursare)."""
+    sau când clientul spune că nu a autorizat plata (clientul pierde regimul de rambursare)."""
     if decision.decision in UNFAVOURABLE.get(decision.question, set()):
         return True
     return (decision.question == Question.RAMBURSARE_T1 and decision.decision == Verdict.NU_SE_APLICA_T1
-            and (x.dispute_type == DisputeType.APP or x.credit_fraud))
+            and (x.dispute_type == DisputeType.APP or x.credit_fraud or x.customer_claims_unauthorised is True))
 
 
 @rule("DP-02", title="No adverse decision is fully automated; the score is only a signal for a human",

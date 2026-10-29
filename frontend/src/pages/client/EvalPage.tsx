@@ -20,6 +20,7 @@ const OUTCOME: Record<Metric["outcome"], { word: string; tone: Tone }> = {
   pass: { word: "Pass", tone: "ok" },
   fail: { word: "Fail", tone: "danger" },
   none: { word: "No data", tone: "neutral" },
+  measured: { word: "Measured", tone: "neutral" },
 };
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
@@ -117,9 +118,11 @@ const METRIC_GRID = "md:grid-cols-[minmax(0,1fr)_7rem_6.5rem_7rem]";
 
 function Results({ model }: { model: Report }) {
   const now = useNowTick(60_000);
-  const total = model.metrics.length;
-  const passed = model.metrics.filter((m) => m.outcome === "pass").length;
-  const failed = model.metrics.filter((m) => m.outcome === "fail");
+  // measured rows (run times) have no target: they are not checks
+  const checks = model.metrics.filter((m) => m.outcome !== "measured");
+  const total = checks.length;
+  const passed = checks.filter((m) => m.outcome === "pass").length;
+  const failed = checks.filter((m) => m.outcome === "fail");
   const noData = total - passed - failed.length;
 
   const title = passed + failed.length === 0

@@ -3,12 +3,13 @@
  * As in production, the client zone can't "see" the AML endpoints and the other way around (they answer 404).
  */
 import { ApiError, type Api } from "../api/client";
-import { money } from "../api/format";
+import { dateTime, money } from "../api/format";
 import type {
   AgentEvent,
   AmlStats,
   AttackKind,
   CaseDetail,
+  CaseEscalation,
   CaseSummary,
   CounterfactualResult,
   DecisionBrief,
@@ -18,6 +19,8 @@ import type {
   Meta,
   MoneyGraph,
   PolicyDecision,
+  ReasonCode,
+  ReviewFlag,
   SealCheck,
   Stats,
   VerifyResult,
@@ -60,14 +63,73 @@ function slaLeft(deadline: string | null | undefined): number | null {
   return Math.round((new Date(deadline).getTime() - Date.now()) / 1000);
 }
 
+// the backend's signature reasons (versoml/zone_client/agents.py, SIGNATURE_REASONS)
+const REASON_CODES: ReasonCode[] = [
+  { code: "FACTS_CONFIRMED", label: "The facts in the case file support the decision", actions: ["approve"], note_required: false },
+  { code: "FACTS_DISPUTED", label: "The facts in the case file don’t support the decision", actions: ["reject"], note_required: false },
+  { code: "FRAUD_SUSPECTED", label: "Suspected fraud by the customer, to report to the authority in writing", actions: ["reject"], note_required: false },
+  { code: "EVIDENCE_MISSING", label: "Evidence the decision needs is missing", actions: ["reject"], note_required: false },
+  { code: "OTHER", label: "Another reason, written in the note", actions: ["approve", "reject"], note_required: true },
+];
+
+const SETTLED = ["RAMBURSAT", "RESPINS", "EXCEPTIE", "INCHIS"];
+const ALERT_HOURS = 6;
+
+/** Close to or past the refund deadline on a case nobody has settled, as the server's `deadline_escalation`. */
+function escalationOf(s: CaseSummary): CaseEscalation | null {
+  const left = slaLeft(s.deadline);
+  if (!s.deadline || left === null || SETTLED.includes(String(s.status)) || left > ALERT_HOURS * 3600) return null;
+  const when = dateTime(s.deadline);
+  return {
+    level: left < 0 ? "breached" : "at_risk", what: "refund", deadline: s.deadline, seconds_left: left,
+    message: left < 0 ? `The refund deadline (${when}) has passed: escalate now` : `The refund deadline (${when}) is ${(left / 3600).toFixed(1)} hours away: this case has priority`,
+  };
+}
+
+/** What the console flags for a person, from the mock case's own fields. */
+function reviewFlagsOf(d: CaseDetail, escalation: CaseEscalation | null): ReviewFlag[] {
+  const flags: ReviewFlag[] = [];
+  const rc = d.rule_context ?? {};
+  if (d.extracted?.claims_unauthorized && rc.sca_performed === true) {
+    flags.push({ code: "type_conflict", severity: "warn", text: "The customer says they didn’t authorize the payment; the records show strong authentication passed. The records decide, a person confirms." });
+  }
+  if (d.extracted?.injection_suspected) {
+    flags.push({ code: "to_confirm", severity: "warn", text: "The complaint carries instructions aimed at the system. Check the amount and dates against the records." });
+  }
+  if (d.extracted && d.interrupt?.pending && d.interrupt.kind !== "pick_transaction") {
+    flags.push({ code: "llm_degraded", severity: "info", text: "Demo mode: the complaint was read by pattern matching, not by a live model." });
+  }
+  if (escalation) {
+    flags.push({ code: "escalation", severity: escalation.level === "breached" ? "block" : "warn", text: `${escalation.message}.` });
+  }
+  return flags;
+}
+
 function summaryOf(c: MockCase): CaseSummary {
   const s = c.detail.summary;
-  return { ...s, sla_seconds_left: slaLeft(s.deadline) };
+  const escalation = escalationOf(s);
+  return { ...s, sla_seconds_left: slaLeft(s.deadline), escalation, review_flags: reviewFlagsOf(c.detail, escalation) };
 }
 
 function detailOf(c: MockCase): CaseDetail {
   const d = clone(c.detail);
-  d.summary.sla_seconds_left = slaLeft(d.summary.deadline);
+  d.summary = summaryOf(c);
+  d.review_flags = d.summary.review_flags;
+  const it = d.interrupt;
+  if (it?.pending && it.kind !== "pick_transaction") {
+    it.reason_codes = REASON_CODES;
+    it.deadline ??= d.summary.deadline;
+    it.verdict ??= d.summary.verdict ?? undefined;
+    it.approval_token ??= `mock-${c.caseId}`;
+    // an outside client suggested an answer: shown to the person, never counted as a signature
+    if (it.verdict === "RESPINGE_TARDIV" || it.verdict === "EXCEPTIE_FRAUDA_CLIENT") {
+      d.proposals = [{
+        action: "approve", source: "mcp", signed: false, verdict: it.verdict, amount: d.summary.amount?.value ?? null, deadline: it.deadline ?? null,
+        at: isoRo(new Date(d.summary.received_at).getTime() + 6 * 60_000), fact_id: "F-PROP-01",
+        note: it.verdict === "RESPINGE_TARDIV" ? "Reported after 13 months, so the rejection stands." : "The fraud score is high; confirm the exception.",
+      }];
+    }
+  }
   // linked cases follow the database: a dispute that arrives later joins the campaign
   const members = campaignMembers(read(), c.caseId);
   const looked = d.routing?.some((r) => r.node === "colector_campanie" && r.run);
@@ -351,6 +413,9 @@ export function createMockApi(zone: Zone): Api {
           advance(c, now, hooks);
           return c.detail.summary.status;
         }
+        const reason = REASON_CODES.find((r) => r.code === (body.reason_code ?? (body.action === "approve" ? "FACTS_CONFIRMED" : "FACTS_DISPUTED")));
+        if (!reason || !reason.actions.includes(body.action)) throw new ApiError(`Reason code ${body.reason_code ?? "(none)"} doesn’t fit ${body.action}.`, 422, path);
+        if (reason.note_required && !body.note?.trim()) throw new ApiError(`${reason.code} needs the reason written in the note.`, 422, path);
         c.run.approval = { action: body.action, at: now, approver, note: body.note };
         advance(c, now, hooks);
         return c.detail.summary.status;

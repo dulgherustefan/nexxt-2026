@@ -79,6 +79,59 @@ def deadline_escalation(doc: dict, at: datetime) -> dict | None:
             "seconds_left": left, "message": message}
 
 
+# rule outcomes the console shows as a review flag: outcome -> (code, severity)
+FLAG_OUTCOMES = {
+    "DP_VULNERABLE_CUSTOMER": ("vulnerability", "block"),
+    "DSP_COERCION_SIGNAL": ("coercion", "warn"),
+    "DSP_FRAUD_TYPE_D_WARNING": ("fraud_type_d", "warn"),
+    "PAY_CHARGEBACK_WINDOW": ("scheme_deadline", "warn"),
+    "DSP_DEADLINE_UNVERIFIED": ("scheme_deadline", "info"),
+    "PAY_DD_WINDOW_EXPIRED": ("direct_debit_window", "warn"),
+}
+
+
+def review_flags(doc: dict) -> list[dict]:
+    """Every signal that asks a person to look closer, in one list: {code, severity: info|warn|block, text}. Built
+    from what the run stored (the reading, the records, the rule hits); each code at most once."""
+    flags: list[dict] = []
+
+    def add(code: str, severity: str, text: str) -> None:
+        if not any(f["code"] == code for f in flags):
+            flags.append({"code": code, "severity": severity, "text": text})
+
+    conflict = doc.get("classification_conflict")
+    if conflict:
+        reason = conflict.get("reason") if isinstance(conflict, dict) else None
+        add("type_conflict", "warn", "The text and the bank's records disagree on the kind of claim"
+            + (f": {reason}" if reason else "") + ". The records decide and a person confirms.")
+    if doc.get("llm_mode") in ("replay", "offline"):
+        how = "from a recorded answer" if doc.get("llm_mode") == "replay" else "by pattern matching"
+        add("llm_degraded", "warn", f"The complaint was read {how}, not by a live model. A person checks the reading.")
+    escalation = deadline_escalation(doc, now())
+    if escalation:
+        add("escalation", "block" if escalation["level"] == "breached" else "warn", escalation["message"])
+    unconfirmed = (doc.get("extracted") or {}).get("to_confirm") or []
+    if unconfirmed:
+        add("to_confirm", "warn", f"Admissions not found word for word in the complaint ({', '.join(unconfirmed)}): "
+                                  "a person confirms them with the customer before they count.")
+    for hit in (doc.get("rules") or {}).get("hits") or []:
+        mapped = FLAG_OUTCOMES.get(str(hit.get("outcome") or ""))
+        if mapped:
+            add(mapped[0], mapped[1], f"{hit.get('rule_id')}: {hit.get('explanation') or hit.get('title') or ''}".strip())
+    return flags
+
+
+def reason_codes(options: list[str]) -> list[dict]:
+    """The signature reasons the console offers for a pending decision, from `SIGNATURE_REASONS`: {code, label,
+    actions, note_required}, one entry per code with every action it fits."""
+    out: dict[str, dict] = {}
+    for action in options:
+        for code, label in (A.SIGNATURE_REASONS.get(action) or {}).items():
+            entry = out.setdefault(code, {"code": code, "label": label, "actions": [], "note_required": code == "OTHER"})
+            entry["actions"].append(action)
+    return list(out.values())
+
+
 def _remap(value: Any, renames: dict[str, str], delta: timedelta) -> Any:
     """Renames the IDs and shifts ISO times by `delta`, recursively."""
     if isinstance(value, dict):
@@ -515,6 +568,7 @@ class ClientService:
             # what the console flags for the person: a reading without a live model, the text against the records
             "llm_degraded": doc.get("llm_mode") in ("replay", "offline"),
             "type_conflict": bool(doc.get("classification_conflict")),
+            "review_flags": review_flags(doc),
         }
 
     def detail(self, case_id: str) -> dict | None:
@@ -565,6 +619,8 @@ class ClientService:
             token = None
         if token:
             view["approval_token"] = token
+        if view.get("pending"):
+            view["reason_codes"] = reason_codes(view.get("options") or [])
         return view
 
     @staticmethod

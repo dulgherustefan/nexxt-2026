@@ -50,6 +50,8 @@ Put your Amazon Bedrock API key in `API_KEY.txt` at the repo root (it is git-ign
 
 No key, no network? It still works: **replay** mode serves recorded model answers, and **offline** mode uses deterministic templates. The rules, deadlines and evidence never depend on a model.
 
+To change the region, the model IDs or the LLM and OSINT modes, copy `.env.example` to `.env`. The search and threat-intel keys in it are optional; without them the OSINT checks fall back to recorded fixtures.
+
 ## Commands
 
 | Command | What it does |
@@ -61,7 +63,15 @@ No key, no network? It still works: **replay** mode serves recorded model answer
 | `versoml mcp --zone client` | The MCP server over stdio, for Claude Desktop or Cursor |
 | `versoml check-bedrock` | Which region and models work with your key |
 
-Prefix each with `uv run`. Docker works too: `docker compose up --build`.
+Prefix each with `uv run`. Docker works too: `docker compose up --build`. The containers read the Bedrock key from `AWS_BEARER_TOKEN_BEDROCK` in your environment, not from `API_KEY.txt`.
+
+### Tests
+
+```bash
+uv run pytest
+```
+
+Tests that call real external services are marked `live` and only run with `VERSOML_LIVE_TESTS=1`.
 
 ## How a case runs
 

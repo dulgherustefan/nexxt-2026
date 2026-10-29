@@ -12,6 +12,16 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+.hypothesis/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editor și sistem
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
 
 # Node
 node_modules/

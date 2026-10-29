@@ -3,7 +3,7 @@
 Two surfaces, one brand:
 
 - **Homepage** (`src/pages/home`): dark graphite (`night*`) with Raiffeisen yellow `#FEE600` as the light in the room: the headline accent, the beams, the progress bars, the one yellow button (charcoal `#2B2D33` text). Motion-led: animated grid, beams from inputs into VersoML, a pinned scroll story, fingerprints that settle.
-- **Console** (`/cases` and the rest): calm, after Mercury and Linear, in a light and a dark theme (the sun/moon toggle in the sidebar; the choice is saved, the system setting is the default). Quiet greys, statuses as a dot and a word, and Raiffeisen yellow on what a person acts on: the primary button, the active page in the sidebar, the "Waiting for you" lane, the step that needs you. The homepage stays dark and the Demo Bank pages stay light whatever the toggle says (`usePageTheme`).
+- **Console** (`/cases` and the rest): calm, after Mercury and Linear, in a light and a dark theme (the sun/moon toggle in the sidebar; the choice is saved, the system setting is the default). Quiet greys, statuses as a dot and a word, and Raiffeisen yellow in three jobs: what a person acts on (the primary button, the "Waiting for you" lane, the step that needs you, drafts a person sends), where you are (the active page in the sidebar, the current step in a case's step bar) and what the bank stands behind (the verdict band, the sealed evidence file). The homepage stays dark; the Demo Bank pages and the public evidence check stay light whatever the toggle says (`usePageTheme`).
 
 The mark is a V split down the middle, each arm folded once like a ribbon so its darker back shows: the ink half is the case as reported, the yellow half is the verso, the side the bank has to prove (`src/ui/Logo.tsx`, `public/favicon.svg`).
 
@@ -17,7 +17,7 @@ Tokens live in `src/styles/index.css` (`@theme`). Primitives live in `src/ui/kit
 | `ink-soft` / `muted` / `subtle` | `#2e3036` / `#5c5e66` / `#6f717a` | secondary text, labels, metadata |
 | `line` / `line-strong` | `#e8e8ec` / `#d5d6dc` | hairlines, dividers |
 | `paper` / `canvas` / `hover` | `#fff` / `#f7f7f8` / `#f1f1f4` | surfaces, sidebar, hover and selected rows |
-| `yellow` (+ `-soft`, `-tint`) | `#fee600` (Raiffeisen) | console: "needs a person" dot, the live step, the proof path. Homepage: accents, beams, the main button. Never yellow text on a light background. |
+| `yellow` (+ `-soft`, `-tint`, `-line`) | `#fee600` (Raiffeisen) | console: "needs a person" dot, the live step, the step numbers, the verdict band and the seal (`-tint` ground, `-line` hairline). Homepage: accents, beams, the main button. Never yellow text on a light background. |
 | `ok` / `danger` / `warn` | `#127a47` / `#c4321d` / `#a8500d` | refunded/sealed, overdue/broken, warnings |
 | `night*` | `#0f1012` … | homepage background, cards and text |
 
@@ -47,7 +47,8 @@ In the console, neutrals cover over 90% of every screen: no gradients, no glows,
 
 - **Sidebar:** New case, then Cases; "What decides" (Rules, Knowledge); "Trust and setup" (Evaluation, MCP); "Try it as the customer" (Demo Bank, the fake courier page, QR codes).
 - **Cases:** four lanes that are also the filters: Waiting for you (yellow when it has cases), Due within 24 h, In progress, Closed (with the amount refunded). Click a lane again for all cases. The list is sorted by urgency.
-- **A case:** one page in the order the case happens: what the customer reported, the refund decision (rules and deadlines folded under it), getting the money back, the letter, the evidence file (six items, then "Show all"; the seal and "Verify integrity" on top). A sticky step bar names the five parts with where each stands and jumps to it. The agents, "Change a fact" and similar past cases sit in the right column.
+- **A case:** one page in the order the case happens, five numbered zones: what the customer reported, the refund decision (the verdict on a yellow-tinted band; rules and deadlines folded under it), getting the money back, the letter, the evidence file (the seal on yellow with its QR code and "Verify integrity", then six items and "Show all"). Each section title carries its number on a small yellow tile; the sticky step bar shows the same numbers, where each part stands, and marks the one you're reading in yellow. The agents, "Change a fact" and similar past cases sit in the right column.
+- **The evidence check** (`/verify/<case>`): the page the seal's QR code opens, on a phone, for anyone. A yellow header, one verdict ("Evidence file intact", "This code is for an older seal", "The file doesn't verify", "Not sealed yet"), the signed root compared with the one in the code, then each check. The server runs every check again each time it opens. On localhost the code points at the public site, which reaches the same server through the tunnel.
 - Deadlines: `<DeadlineText>` says "Due tomorrow, 23:59"; the full date is in the tooltip. Never write "T+1" in the UI.
 - Empty states: say what's missing and offer one action ("No cases yet. Run a sample case.").
 - Citations: numbered markers in the text (a small hairline tag, like an ID) jump to the source list; each source shows its kind, source, confidence word with the mark ([P], [S], [U]) and rule IDs, and opens the full passage in a side sheet. "Why this result" stays folded.

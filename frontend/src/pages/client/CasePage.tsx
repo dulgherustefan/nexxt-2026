@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  ArrowSquareOut,
   ArrowsCounterClockwise,
   Bank,
   Check,
@@ -29,6 +30,7 @@ import {
 } from "./caseInsights";
 import { AgentStatus, scenarioLabel, Sheet, StatusLine, StepList, useRouting, useStepRows, verdictSentence } from "./caseUi";
 import { PassageSheet, SourceChips } from "./knowledgeUi";
+import { QrCode, verifyUrl } from "../../ui/QrCode";
 
 type OpenPassage = (hit: KbHit, usedIn?: string[]) => void;
 
@@ -133,7 +135,7 @@ export default function CasePage() {
       <div className="grid items-start gap-x-8 gap-y-10 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <PanelHeadingLevel.Provider value={3}>
           <div className="flex min-w-0 flex-col gap-12">
-            <CaseSection id="claim" title="What the customer reported" meta={d.complaint?.received_at ? `Received ${dateTime(d.complaint.received_at)}` : undefined}>
+            <CaseSection id="claim" n={1} title="What the customer reported" meta={d.complaint?.received_at ? `Received ${dateTime(d.complaint.received_at)}` : undefined}>
               <div className="grid items-start gap-4 lg:grid-cols-2">
                 <SectionBoundary label="Customer's message"><ComplaintPanel d={d} /></SectionBoundary>
                 <SectionBoundary label="Customer and payment"><IdentificationPanel d={d} /></SectionBoundary>
@@ -141,7 +143,7 @@ export default function CasePage() {
               <SectionBoundary label="Linked cases"><div className="mt-4 empty:hidden"><LinkedCasesPanel d={d} /></div></SectionBoundary>
             </CaseSection>
 
-            <CaseSection id="refund" title="Refund decision" meta={<RefundMeta d={d} />}>
+            <CaseSection id="refund" n={2} title="Refund decision" meta={<RefundMeta d={d} />}>
               <SectionBoundary label="Decision"><DecisionPanel d={d} onCite={cite} onRules={showRules} onPassage={openPassage} /></SectionBoundary>
               <details
                 id="case-rules"
@@ -160,15 +162,15 @@ export default function CasePage() {
               </details>
             </CaseSection>
 
-            <CaseSection id="recovery" title="Getting the money back" meta="Drafts only. A person sends each one.">
+            <CaseSection id="recovery" n={3} title="Getting the money back" meta="Drafts only. A person sends each one.">
               <SectionBoundary label="Recovery"><RecoveryPanel d={d} /></SectionBoundary>
             </CaseSection>
 
-            <CaseSection id="letter" title="Letter to the customer">
+            <CaseSection id="letter" n={4} title="Letter to the customer">
               <SectionBoundary label="Letter"><LetterTab d={d} caseId={id} onCite={cite} onPassage={openPassage} /></SectionBoundary>
             </CaseSection>
 
-            <CaseSection id="evidence" title="Evidence file" meta="Each item is hashed when collected.">
+            <CaseSection id="evidence" n={5} title="Evidence file" meta="Each item is hashed when collected.">
               <SectionBoundary label="Evidence">
                 <EvidenceFile d={d} caseId={id} flash={flash} all={allEvidence} onShowAll={() => setAllEvidence(true)} />
               </SectionBoundary>
@@ -232,7 +234,8 @@ function journey(d: CaseDetail): JourneyStep[] {
       ...(r?.chargeback?.eligible ? { state: "done", note: "Chargeback drafted" }
         : r?.recall ? { state: "done", note: "Recall drafted" }
           : r?.dnsc_report ? { state: "done", note: "Report drafted" }
-            : fraudster || r ? { state: "done", note: "Nothing to file" }
+            // before the signature the rules may have answered "recover?", but nothing is filed yet
+            : (fraudster || r) && !signing && !pick ? { state: "done", note: "Nothing to file" }
               : later("Preparing drafts")),
     },
     {
@@ -304,11 +307,11 @@ function CaseJourney({ steps, active, action }: { steps: JourneyStep[]; active: 
   return (
     <nav
       aria-label="Case sections"
-      className="sticky top-14 z-20 -mx-5 border-b border-line bg-paper/90 px-5 backdrop-blur-md sm:-mx-8 sm:px-8 lg:top-0 lg:-mx-10 lg:px-10"
+      className="sticky top-14 z-20 -mx-5 border-b border-line bg-paper px-5 sm:-mx-8 sm:px-8 lg:top-0 lg:-mx-10 lg:px-10"
     >
       <div className="flex items-center gap-5">
         <ol className="grid min-w-0 flex-1 grid-cols-5 gap-1 py-2 sm:gap-1.5">
-          {steps.map((s) => {
+          {steps.map((s, i) => {
             const here = active === s.id;
             return (
               <li key={s.id} className="min-w-0">
@@ -318,7 +321,7 @@ function CaseJourney({ steps, active, action }: { steps: JourneyStep[]; active: 
                   aria-current={here ? "location" : undefined}
                   className={cx(
                     "group flex w-full min-w-0 flex-col gap-1.5 rounded-lg px-2 py-1.5 text-left transition-colors duration-150",
-                    here ? "bg-hover" : "hover:bg-hover/60",
+                    here ? "bg-yellow-tint ring-1 ring-inset ring-yellow-line" : "hover:bg-hover/60",
                   )}
                 >
                   <span aria-hidden className="relative block h-1 overflow-hidden rounded-full bg-line">
@@ -332,10 +335,11 @@ function CaseJourney({ steps, active, action }: { steps: JourneyStep[]; active: 
                     {s.state === "running" && <span className="absolute inset-y-0 left-0 w-1/3 animate-[bar-run_1.4s_var(--ease-in-out)_infinite] rounded-full bg-ink/60" />}
                   </span>
                   <span className={cx(
-                    "truncate text-[0.8rem] transition-colors sm:text-[0.8667rem]",
+                    "flex min-w-0 items-center gap-1.5 text-[0.8rem] transition-colors sm:text-[0.8667rem]",
                     here ? "font-semibold text-ink" : "font-medium text-ink-soft group-hover:text-ink",
                   )}>
-                    {s.label}
+                    <span aria-hidden className={cx("tnum hidden text-[0.75rem] sm:inline", here ? "text-ink" : "text-subtle")}>{i + 1}</span>
+                    <span className="truncate">{s.label}</span>
                   </span>
                   <span className={cx(
                     "hidden truncate text-[0.75rem] sm:block",
@@ -355,11 +359,21 @@ function CaseJourney({ steps, active, action }: { steps: JourneyStep[]; active: 
   );
 }
 
-function CaseSection({ id, title, meta, children }: { id: SectionId; title: string; meta?: ReactNode; children: ReactNode }) {
+/** The yellow number ties each section to its step in the bar above, so the page reads as five zones. */
+function StepNumber({ n, className }: { n: number; className?: string }) {
+  return (
+    <span aria-hidden className={cx("tnum grid shrink-0 place-items-center rounded-md bg-yellow font-semibold text-on-yellow", className)}>{n}</span>
+  );
+}
+
+function CaseSection({ id, n, title, meta, children }: { id: SectionId; n: number; title: string; meta?: ReactNode; children: ReactNode }) {
   return (
     <section id={`case-${id}`} aria-labelledby={`case-${id}-title`} className="scroll-mt-40 lg:scroll-mt-28">
-      <div className="mb-3.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 id={`case-${id}-title`} className="text-[1.1rem] font-semibold tracking-[-0.015em]">{title}</h2>
+      <div className="mb-3.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <h2 id={`case-${id}-title`} className="flex items-center gap-2.5 text-[1.1rem] font-semibold tracking-[-0.015em]">
+          <StepNumber n={n} className="size-6 text-[0.8rem]" />
+          {title}
+        </h2>
         {meta && <div className="text-[0.8667rem] text-muted">{meta}</div>}
       </div>
       {children}
@@ -370,7 +384,8 @@ function CaseSection({ id, title, meta, children }: { id: SectionId; title: stri
 function RefundMeta({ d }: { d: CaseDetail }) {
   const deadline = d.clock?.t1_deadline ?? d.summary.deadline;
   if (!deadline) return null;
-  return <span>Due <DeadlineText deadline={deadline} done={CLOSED.includes(String(d.summary.status))} /></span>;
+  if (CLOSED.includes(String(d.summary.status))) return <span>Deadline was {dateTime(deadline)}</span>;
+  return <DeadlineText deadline={deadline} />;
 }
 
 // ---------------------------------------------------------------- header
@@ -551,9 +566,9 @@ function DecisionPanel({ d, onCite, onRules, onPassage }: { d: CaseDetail; onCit
   const others = decisions.filter((x) => x.question !== "rambursare_t1" && x.question !== "pista_aml" && x.question !== "rts");
   return (
     <section aria-label="Decision" className="overflow-hidden rounded-2xl bg-paper shadow-[var(--shadow-card)]">
-      <div className="flex flex-wrap items-start justify-between gap-5 px-6 pt-6">
+      <div className="flex flex-wrap items-start justify-between gap-5 border-b border-yellow-line bg-yellow-tint px-6 pt-5 pb-5">
         <div className="min-w-0 max-w-[72ch]">
-          <p className="flex items-center gap-2 text-[0.8667rem] text-muted">
+          <p className="flex items-center gap-2 text-[0.8667rem] text-ink-soft">
             {refund ? (
               <><Gavel size={16} /> Rules engine decision{signOff(refund, d)}</>
             ) : (
@@ -561,7 +576,7 @@ function DecisionPanel({ d, onCite, onRules, onPassage }: { d: CaseDetail; onCit
             )}
           </p>
           <h3 className="mt-2 text-[1.4rem] leading-snug font-semibold tracking-[-0.02em]">{sentence.title}</h3>
-          <p className="mt-1 text-muted">
+          <p className="mt-1 text-ink-soft">
             {!final && reason?.sentence ? reason.sentence : sentence.detail}
             {!final && reason?.rule_id && !refund?.rule_ids?.slice(0, 3).includes(reason.rule_id) ? <span className="id-text ml-1.5 text-[0.7667rem] text-subtle">{reason.rule_id}</span> : null}
           </p>
@@ -612,11 +627,10 @@ function DecisionPanel({ d, onCite, onRules, onPassage }: { d: CaseDetail; onCit
 function DebateDetails({ d, onCite, onPassage }: { d: CaseDetail; onCite: (id: string) => void; onPassage: OpenPassage }) {
   const debate = d.debate!;
   const sources = (d.grounding ?? []).filter((g) => g.used_in === "debate").map((g) => g.hit);
-  const rec = debate.recommendation ? verdictLabel(String(debate.recommendation)) : "—";
   return (
     <details className="group mt-2 border-t border-line">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-6 py-3.5 text-[0.9333rem] transition-colors hover:bg-canvas">
-        <span><span className="font-medium">Ask the customer to repay?</span> <span className="text-muted">Arguments for and against · {rec}</span></span>
+        <span><span className="font-medium">Arguments on repaying</span> <span className="text-muted">· one model argues for recovery, one for the customer; a person decides</span></span>
         <span className="text-[0.8667rem] text-muted group-open:hidden">Show</span>
         <span className="hidden text-[0.8667rem] text-muted group-open:inline">Hide</span>
       </summary>
@@ -677,7 +691,7 @@ function EvidenceFile({ d, caseId, flash, all, onShowAll }: { d: CaseDetail; cas
   const untrusted = facts.filter((f) => f.labels?.trust === "untrusted").length;
   return (
     <div className="overflow-hidden rounded-xl bg-paper shadow-[var(--shadow-card)]">
-      <SealStrip caseId={caseId} sealed={Boolean(d.ledger?.sealed)} count={d.ledger?.count ?? facts.length} untrusted={untrusted} />
+      <SealStrip caseId={caseId} sealed={Boolean(d.ledger?.sealed)} root={d.ledger?.root} count={d.ledger?.count ?? facts.length} untrusted={untrusted} />
       <div className="hidden grid-cols-[5.5rem_minmax(0,1fr)_9rem_7rem] gap-4 border-y border-line bg-canvas px-5 py-2 text-[0.8rem] text-subtle sm:grid">
         <span>ID</span><span>What it shows</span><span>Source</span><span>Hash</span>
       </div>
@@ -873,7 +887,7 @@ function LetterTab({ d, caseId, onCite, onPassage }: { d: CaseDetail; caseId: st
               );
             })}
             <NumericCheckItem check={d.numeric_check} />
-            {letter.cites?.length ? <span className="inline-flex items-center text-muted">Based on<Cites ids={letter.cites.slice(0, 6)} onCite={onCite} /></span> : null}
+            {letter.cites?.length ? <span className="inline-flex flex-wrap items-center gap-y-1 text-muted"><span className="whitespace-nowrap">Based on</span><Cites ids={letter.cites.slice(0, 6)} onCite={onCite} /></span> : null}
           </div>
           {sources.length > 0 && (
             <p className="mt-3 text-[0.9333rem]"><SourceChips hits={sources} onOpen={(h) => onPassage(h, ["letter"])} label="Legal sources:" /></p>
@@ -979,7 +993,7 @@ function RecoveryRow({ icon, title, children, aside }: { icon: ReactNode; title:
   );
 }
 
-const draft = <Badge>Draft</Badge>;
+const draft = <Badge tone="now">Draft</Badge>;
 
 function RecoveryPanel({ d }: { d: CaseDetail }) {
   const r = d.recovery;
@@ -1084,7 +1098,11 @@ function CounterfactualPanel({ d, caseId }: { d: CaseDetail; caseId: string }) {
   );
 }
 
-function SealStrip({ caseId, sealed, count, untrusted }: { caseId: string; sealed: boolean; count: number; untrusted: number }) {
+/**
+ * The evidence file's seal, on yellow: the proof the bank stands behind. Once sealed, the QR code opens the public
+ * check page, which anyone can scan to have the server run every check again.
+ */
+function SealStrip({ caseId, sealed, root, count, untrusted }: { caseId: string; sealed: boolean; root?: string | null; count: number; untrusted: number }) {
   const api = useApi();
   const [ledger, setLedger] = useState<LedgerResponse | null>(null);
   const [verify, setVerify] = useState<VerifyResult | null>(null);
@@ -1103,36 +1121,39 @@ function SealStrip({ caseId, sealed, count, untrusted }: { caseId: string; seale
       setBusy(false);
     }
   }
-  // segno writes inline SVG without a namespace; an <img> needs one to render it
-  const qrSvg = ledger?.seal?.qr_svg;
-  const qr = qrSvg && !qrSvg.includes("xmlns=") ? qrSvg.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ') : qrSvg;
+  const link = sealed && root ? verifyUrl(caseId, root) : null;
   return (
-    <div className="px-5 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className={cx("grid size-9 shrink-0 place-items-center rounded-full", sealed ? "bg-ok-soft text-ok" : "bg-hover text-muted")}>
-            {sealed ? <SealCheck size={18} weight="fill" /> : <SealCheck size={18} />}
+    <div className={cx("flex flex-wrap items-start gap-x-6 gap-y-4 px-5 py-5", sealed ? "bg-yellow-tint" : "bg-canvas")}>
+      <div className="min-w-[16rem] flex-1">
+        <div className="flex items-start gap-3">
+          <span className={cx("grid size-10 shrink-0 place-items-center rounded-full", sealed ? "bg-yellow text-on-yellow" : "bg-hover text-muted")}>
+            <SealCheck size={20} weight={sealed ? "fill" : "regular"} />
           </span>
           <p className="min-w-0 leading-tight">
-            <span className="block font-medium">{sealed ? "Sealed and signed" : "Not sealed yet"}</span>
-            <span className="mt-0.5 block text-[0.8667rem] text-muted">
+            <span className="block font-semibold">{sealed ? "Sealed and signed" : "Not sealed yet"}</span>
+            <span className="mt-1 block text-[0.8667rem] text-ink-soft">
               <span className="tnum">{count}</span> items{untrusted ? <> · <span className="tnum">{untrusted}</span> from the customer, marked untrusted</> : null}
               {sealed ? " · Merkle root signed with Ed25519" : " · the seal goes on when the case closes"}
             </span>
           </p>
         </div>
-        <Button size="sm" busy={busy} onClick={check}>Verify integrity</Button>
-      </div>
-      {error && <p className="mt-2 text-[0.9333rem] text-danger">{error}.</p>}
-      {verify && (
-        <div className="mt-4 flex animate-enter flex-wrap items-start gap-5 rounded-xl bg-canvas px-4 py-3">
-          <div className="min-w-[14rem] flex-1">
+        <div className="mt-4 flex flex-wrap items-center gap-2 pl-[3.25rem]">
+          <Button size="sm" busy={busy} onClick={check}>Verify integrity</Button>
+          {link && (
+            <a href={link} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[0.8667rem] font-medium text-ink-soft underline decoration-yellow-line underline-offset-4 transition-colors hover:text-ink hover:decoration-ink">
+              Open the public check <ArrowSquareOut aria-hidden size={14} />
+            </a>
+          )}
+        </div>
+        {error && <p className="mt-3 pl-[3.25rem] text-[0.9333rem] text-danger">{error}.</p>}
+        {verify && (
+          <div className="mt-4 ml-[3.25rem] animate-enter rounded-xl bg-paper px-4 py-3 shadow-[var(--shadow-card)]" role="status">
             <p className={cx("flex items-center gap-2 font-medium", verify.valid ? "text-ok" : "text-danger")}>
               {verify.valid ? <><SealCheck size={18} /> File intact</> : <><SealWarning size={18} /> {sealed ? "Doesn’t verify" : "Not sealed yet"}</>}
             </p>
             <ul className="mt-2 grid gap-1 text-[0.8667rem] sm:grid-cols-2">
               {verify.checks.map((c, i) => (
-                <li key={i} className="flex items-start gap-1.5">
+                <li key={i} className="flex items-start gap-1.5" title={c.detail}>
                   {c.ok ? <CheckCircle size={15} weight="fill" className="mt-0.5 shrink-0 text-ok" /> : <X size={15} className="mt-0.5 shrink-0 text-danger" />}
                   <span className="text-ink-soft">{c.name}</span>
                 </li>
@@ -1140,8 +1161,13 @@ function SealStrip({ caseId, sealed, count, untrusted }: { caseId: string; seale
             </ul>
             {ledger?.seal && <p className="mt-2 text-[0.8rem] text-muted">Root <span className="font-mono" title={ledger.seal.root}>{shortHash(ledger.seal.root, 12)}</span></p>}
           </div>
-          {qr && <img className="size-24 rounded-lg bg-white p-1 ring-1 ring-line" alt="QR code with the signed root of the evidence file" src={`data:image/svg+xml;utf8,${encodeURIComponent(qr)}`} />}
-        </div>
+        )}
+      </div>
+      {link && (
+        <a href={link} target="_blank" rel="noreferrer" className="group flex shrink-0 flex-col items-center gap-2 rounded-xl" aria-label="Open the public check of this evidence file">
+          <QrCode text={link} label="QR code that opens the public check of this evidence file" className="size-32 rounded-lg ring-1 ring-yellow-line transition-transform duration-150 group-hover:scale-[1.02]" />
+          <span className="text-[0.8rem] text-ink-soft">Scan to check on a phone</span>
+        </a>
       )}
     </div>
   );

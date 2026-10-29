@@ -175,6 +175,7 @@ const INDICATOR: Record<string, string> = {
 
 export function LinkedCasesPanel({ d }: { d: CaseDetail }) {
   const c = d.campaign;
+  const [all, setAll] = useState(false);
   const others = (c?.case_ids ?? []).filter((id) => id !== d.summary.case_id);
   if (!c || !others.length) return null;
   return (
@@ -188,17 +189,23 @@ export function LinkedCasesPanel({ d }: { d: CaseDetail }) {
         ))}
       </dl>
       <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Linked cases">
-        {others.slice(0, 8).map((id) => (
+        {(all ? others : others.slice(0, 8)).map((id) => (
           <li key={id}>
             <Link to={`/cases/${encodeURIComponent(id)}`} className="id-text inline-flex h-[1.375rem] items-center rounded-md bg-paper px-1.5 text-[0.7667rem] font-medium text-muted ring-1 ring-inset ring-line transition-colors hover:text-ink hover:ring-line-strong">
               {id}
             </Link>
           </li>
         ))}
-        {others.length > 8 && <li className="text-[0.8rem] text-muted">+{others.length - 8} more</li>}
+        {!all && others.length > 8 && (
+          <li>
+            <button type="button" onClick={() => setAll(true)} className="inline-flex h-[1.375rem] items-center rounded-md px-1.5 text-[0.8rem] font-medium text-muted underline decoration-line-strong underline-offset-2 transition-colors hover:text-ink">
+              +{others.length - 8} more
+            </button>
+          </li>
+        )}
       </ul>
       <p className="mt-3 text-[0.8rem] text-muted">
-        <span className="tnum">{pct(c.similarity)}</span> similar · <span className="id-text">{c.campaign_id}</span>
+        Grouped as campaign <span className="id-text">{c.campaign_id}</span> · the shared details match <span className="tnum">{pct(c.similarity)}</span>
       </p>
     </Panel>
   );
@@ -379,7 +386,9 @@ export function ReasonLine({ reason, className }: { reason: DecisionReason | und
   if (!reason?.sentence) return null;
   return (
     <p className={cx("text-[0.8667rem] text-ink-soft", className)}>
-      {reason.sentence} {reason.rule_id && reason.rule_id !== "—" && <IdTag>{reason.rule_id}</IdTag>}
+      {reason.sentence}{" "}
+      {/* the sentence often names its rule already, as "(REC-03)": no second tag then */}
+      {reason.rule_id && reason.rule_id !== "—" && !reason.sentence.includes(reason.rule_id) && <IdTag>{reason.rule_id}</IdTag>}
     </p>
   );
 }

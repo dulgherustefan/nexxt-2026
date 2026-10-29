@@ -7,10 +7,10 @@
     <script>
       // pick the theme before first paint
       (function () {
-        // the homepage is always dark and the demo bank pages always light; only the console follows the toggle
+        // the homepage is always dark, the demo bank pages and the seal check always light; only the console follows the toggle
         var p = location.pathname, t;
         if (p === "/") t = "dark";
-        else if (/^\/(bank|banca|demo)(\/|$)/.test(p)) t = "light";
+        else if (/^\/(bank|banca|demo|verify)(\/|$)/.test(p)) t = "light";
         else {
           try { t = localStorage.getItem("versoml-theme"); } catch (e) {}
           if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";

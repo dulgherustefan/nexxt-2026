@@ -264,7 +264,7 @@ export function sealCase(c: MockCase, at: number): SealState {
   const root = merkleRoot(facts.map((f) => f.sha256));
   const signature = `${sha256(`ed25519-sim|${root}`)}${sha256(`ed25519-sim-2|${root}`)}`;
   const qr = qrcode(0, "M");
-  qr.addData(`versoml:verify:${c.caseId}:${root}`);
+  qr.addData(`https://versoml.vercel.app/verify/${c.caseId}#${root}`);
   qr.make();
   const seal: SealState = {
     root,

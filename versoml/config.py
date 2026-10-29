@@ -49,6 +49,7 @@ class Settings(BaseSettings):
 
     # Public access (the demo tunnel) and the limits that keep it inside the Bedrock quota
     versoml_public_hosts: str = "footpad-outpour-overrule.ngrok-free.dev"
+    versoml_public_site: str = "https://versoml.vercel.app"  # the seal's QR code opens /verify/<case> here
     versoml_llm_max_concurrency: int = 6
     versoml_case_runs_per_caller: int = 5  # per 10 minutes
     versoml_case_runs_per_hour: int = 40  # every entry point together

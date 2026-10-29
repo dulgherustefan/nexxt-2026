@@ -16,6 +16,7 @@ const NewCasePage = lazy(() => import("./pages/client/NewCasePage"));
 const KnowledgePage = lazy(() => import("./pages/client/KnowledgePage"));
 const BankPage = lazy(() => import("./pages/demo/BankPage"));
 const FakePage = lazy(() => import("./pages/demo/FakePage"));
+const VerifyPage = lazy(() => import("./pages/demo/VerifyPage"));
 const LeadsPage = lazy(() => import("./pages/aml/LeadsPage"));
 const LeadPage = lazy(() => import("./pages/aml/LeadPage"));
 const OsintPage = lazy(() => import("./pages/aml/OsintPage"));
@@ -72,6 +73,7 @@ function ZoneRoutes() {
     <Routes>
       <Route path="bank" element={<S label="Demo Bank"><BankPage /></S>} />
       <Route path="demo/delivery" element={<S label="Demo courier page"><FakePage /></S>} />
+      <Route path="verify/:id" element={<S label="Evidence check"><VerifyPage /></S>} />
       <Route element={<AppShell />}>
         <Route path="cases" element={<S label="Cases"><CasesPage /></S>} />
         <Route path="cases/new" element={<S label="New case"><NewCasePage /></S>} />

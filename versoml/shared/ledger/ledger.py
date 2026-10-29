@@ -122,8 +122,14 @@ def seal_payload(case_id: str, count: int, root: str) -> str:
 
 
 def qr_text(case_id: str, root: str, signature: str) -> str:
-    """The text in the evidence file's QR code."""
-    return f"{SEAL_PREFIX}:{case_id}:{root}:{signature}"
+    """The link in the evidence file's QR code: the public check page, with the root to compare against.
+
+    The signature stays on the server: the page asks it to verify the seal and checks the root matches.
+    """
+    from versoml.config import get_settings
+
+    site = get_settings().versoml_public_site.rstrip("/")
+    return f"{site}/verify/{case_id}#{root}"
 
 
 def qr_svg(text: str, title: str | None = None) -> str:

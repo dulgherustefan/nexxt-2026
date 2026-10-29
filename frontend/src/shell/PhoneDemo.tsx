@@ -1,26 +1,12 @@
-import { Warning, X } from "@phosphor-icons/react";
-import qrcode from "qrcode-generator";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { X } from "@phosphor-icons/react";
+import { useEffect, useRef, useState } from "react";
 import { cx } from "../ui/kit";
-
-/** QR drawn locally (no external service), as an SVG image: nothing in it can run. */
-function QrCode({ text, label }: { text: string; label: string }) {
-  const src = useMemo(() => {
-    const qr = qrcode(0, "M");
-    qr.addData(text);
-    qr.make();
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }))}`;
-  }, [text]);
-  return <img src={src} alt={label} className="aspect-square w-full max-w-[12rem] bg-paper [image-rendering:pixelated]" />;
-}
-
-function isLocal(origin: string) {
-  return /\/\/(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(origin);
-}
+import { isLocalOrigin, PUBLIC_SITE, QrCode } from "../ui/QrCode";
 
 /** The QR codes the jury scans from the projector: the fake courier page, then Demo Bank. */
 export function PhoneDemoDialog({ onClose }: { onClose: () => void }) {
-  const origin = window.location.origin;
+  // a phone can't open localhost: the public site reaches the same server through the tunnel
+  const origin = isLocalOrigin(window.location.origin) ? PUBLIC_SITE : window.location.origin;
   const [client, setClient] = useState<1 | 2>(1);
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
@@ -54,24 +40,17 @@ export function PhoneDemoDialog({ onClose }: { onClose: () => void }) {
         </header>
 
         <div className="flex flex-col gap-5 px-6 pt-3 pb-6">
-          {isLocal(origin) && (
-            <p role="alert" className="flex gap-2.5 rounded-xl bg-warn-soft px-4 py-3 text-[0.9333rem] text-ink-soft">
-              <Warning aria-hidden size={18} className="mt-0.5 shrink-0 text-warn" />
-              <span>This page is open on {origin}, which phones can’t reach. Open the console on the laptop’s network address (the “Network” line in the terminal).</span>
-            </p>
-          )}
-
           <ol className="grid gap-4 md:grid-cols-2">
             <li className="flex flex-col items-center gap-3 rounded-xl bg-canvas p-5 text-center">
               <p className="flex items-center gap-2 font-medium"><Step n={1} /> The fake courier page</p>
               <p className="text-[0.9333rem] text-muted">The link from the “courier” text message. Fill it in like a victim would.</p>
-              <QrCode text={`${origin}/demo/delivery`} label="QR code to the fake courier page" />
+              <QrCode text={`${origin}/demo/delivery`} label="QR code to the fake courier page" className="w-full max-w-[12rem] rounded-lg" />
               <p className="font-mono text-[0.75rem] break-all text-subtle">{origin}/demo/delivery</p>
             </li>
             <li className="flex flex-col items-center gap-3 rounded-xl bg-canvas p-5 text-center">
               <p className="flex items-center gap-2 font-medium"><Step n={2} /> Demo Bank</p>
               <p className="text-[0.9333rem] text-muted">The RON 3,200.00 payment shows up. Tap “I didn’t make this payment”.</p>
-              <QrCode text={bankUrl} label={`QR code to Demo Bank, customer ${client}`} />
+              <QrCode text={bankUrl} label={`QR code to Demo Bank, customer ${client}`} className="w-full max-w-[12rem] rounded-lg" />
               <p className="font-mono text-[0.75rem] break-all text-subtle">{bankUrl}</p>
               <div role="radiogroup" aria-label="Demo Bank customer" className="inline-flex rounded-full bg-paper p-0.5 text-[0.8667rem] shadow-[var(--shadow-card)]">
                 {([1, 2] as const).map((n) => (

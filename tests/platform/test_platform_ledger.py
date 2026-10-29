@@ -165,7 +165,7 @@ def test_seal_signs_root_and_makes_qr(ledger, tmp_path):
     assert {"root", "signature", "public_key", "count", "sealed_at", "qr_svg"} <= set(seal)
     assert seal["count"] == 5 and len(seal["root"]) == 64
     assert verify_signature(seal["public_key"], f"versoml:v1:{CASE}:5:{seal['root']}".encode(), seal["signature"])
-    assert seal["qr_text"] == f"versoml:v1:{CASE}:{seal['root']}:{seal['signature']}"
+    assert seal["qr_text"] == f"https://versoml.vercel.app/verify/{CASE}#{seal['root']}"
     assert seal["qr_svg"].startswith("<svg") and "versoml-qr" in seal["qr_svg"] and 'fill="#fff"' not in seal["qr_svg"]
     assert (tmp_path / "keys" / "zone_client.key").exists() and (tmp_path / "keys" / "zone_client.pub").exists()
     assert ledger.seal(CASE)["sealed_at"] == seal["sealed_at"]  # nimic nou → același sigiliu

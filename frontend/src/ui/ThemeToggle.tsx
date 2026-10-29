@@ -23,7 +23,7 @@ function savedTheme(): Theme | null {
 /** Pages with a fixed look: the homepage is always dark, the customer's bank app and the fake courier page always light. */
 export function pageTheme(path: string): Theme | null {
   if (path === "/") return "dark";
-  if (/^\/(bank|banca|demo)(\/|$)/.test(path)) return "light";
+  if (/^\/(bank|banca|demo|verify)(\/|$)/.test(path)) return "light";
   return null;
 }
 

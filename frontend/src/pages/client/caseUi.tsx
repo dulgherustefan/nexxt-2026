@@ -1,8 +1,8 @@
-import { CheckCircle, X } from "@phosphor-icons/react";
+import { ArrowsLeftRight, CheckCircle, Flag, MagnifyingGlass, Robot, Timer, X } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { dateTime, duration, money, scenarioLabel as baseScenarioLabel, verdictLabel } from "../../api/format";
 import { useApi, useResource } from "../../api/runtime";
-import type { AgentEvent, Decision, Money, PipelineNode, RoutingEntry, ScenarioInfo } from "../../api/types";
+import type { AgentEvent, Decision, Money, PipelineNode, ReviewFlag, RoutingEntry, ScenarioInfo } from "../../api/types";
 import { HIDDEN_STEPS, matchNode, normalizeStatus, STAGE_BY_ID } from "../../lib/pipeline";
 import { Button, cx, Dot, ErrorNote, Skeleton, StepIcon, STEP_STATUS_LABEL, type Tone, useNowTick } from "../../ui/kit";
 
@@ -43,7 +43,6 @@ export function caseStatus(status: string | null | undefined, requiresHuman = fa
       // VersoML's part is over; the refund deadline still runs for the person handling it
       return { label: "Declined, with a person", tone: "neutral", group: "closed" };
     case "EROARE":
-      return { label: "Failed: restart the case", tone: "danger", group: "you" };
     case "COADA_MANUALA":
       // the run failed; the refund deadline still runs for the person who takes the case
       return { label: "Manual queue: a person handles it", tone: "danger", group: "you" };
@@ -58,6 +57,96 @@ export function StatusLine({ status, requiresHuman, verdict }: { status?: string
     <span className={cx("inline-flex items-center gap-2 whitespace-nowrap", s.tone === "danger" ? "text-danger" : s.tone === "ok" ? "text-ok" : "text-ink-soft")}>
       <Dot tone={s.tone} live={s.live} />
       {s.label}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------- review flags: what a person checks before signing
+
+const FLAG_LABEL: Record<string, string> = {
+  type_conflict: "Text and records disagree",
+  llm_degraded: "Read without a live model",
+  escalation: "Deadline close",
+  to_confirm: "Check a detail",
+};
+
+const FLAG_TONE: Record<ReviewFlag["severity"], Tone> = { block: "danger", warn: "warn", info: "neutral" };
+const FLAG_RANK: Record<ReviewFlag["severity"], number> = { block: 0, warn: 1, info: 2 };
+
+function flagIcon(code: string, size: number) {
+  switch (code) {
+    case "type_conflict": return <ArrowsLeftRight aria-hidden size={size} />;
+    case "llm_degraded": return <Robot aria-hidden size={size} />;
+    case "escalation": return <Timer aria-hidden size={size} />;
+    case "to_confirm": return <MagnifyingGlass aria-hidden size={size} />;
+    default: return <Flag aria-hidden size={size} />;
+  }
+}
+
+export const flagLabel = (f: ReviewFlag) => FLAG_LABEL[f.code] ?? "Check before signing";
+
+export function sortFlags(flags: ReviewFlag[] | undefined): ReviewFlag[] {
+  return [...(flags ?? [])].sort((a, b) => (FLAG_RANK[a.severity] ?? 3) - (FLAG_RANK[b.severity] ?? 3));
+}
+
+/** The case page: each flag with its icon, its label and the server's sentence, the blocking ones first. */
+export function ReviewFlagList({ flags }: { flags?: ReviewFlag[] }) {
+  const list = sortFlags(flags);
+  if (!list.length) return null;
+  return (
+    <section aria-label="Check before you sign" className="overflow-hidden rounded-xl bg-paper shadow-[var(--shadow-card)]">
+      <p className="flex items-center justify-between gap-3 border-b border-line px-5 py-2.5 text-[0.8667rem] font-medium text-ink-soft">
+        Check before you sign
+        <span className="tnum font-normal text-muted">{list.length}</span>
+      </p>
+      <ul className="divide-y divide-line">
+        {list.map((f, i) => {
+          const tone = FLAG_TONE[f.severity] ?? "neutral";
+          return (
+            <li key={`${f.code}-${i}`} className="flex items-start gap-3 px-5 py-3">
+              <span className={cx(
+                "mt-0.5 grid size-7 shrink-0 place-items-center rounded-full",
+                tone === "danger" ? "bg-danger-soft text-danger" : tone === "warn" ? "bg-warn-soft text-warn" : "bg-hover text-ink-soft",
+              )}>
+                {flagIcon(f.code, 15)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-medium">
+                  {flagLabel(f)}
+                  {f.severity === "block" && <span className="text-[0.8rem] font-medium text-danger">Blocks sign-off</span>}
+                </p>
+                <p className="mt-0.5 text-[0.9333rem] text-ink-soft">{f.text}</p>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/** The cases list: one small icon per flag, the sentence in the tooltip and for screen readers. */
+export function FlagMarkers({ flags }: { flags?: ReviewFlag[] }) {
+  const list = sortFlags(flags);
+  if (!list.length) return null;
+  return (
+    <span className="inline-flex items-center gap-1">
+      {list.slice(0, 4).map((f, i) => {
+        const tone = FLAG_TONE[f.severity] ?? "neutral";
+        return (
+          <span
+            key={`${f.code}-${i}`}
+            title={`${flagLabel(f)}: ${f.text}`}
+            className={cx(
+              "grid size-5 place-items-center rounded-full",
+              tone === "danger" ? "bg-danger-soft text-danger" : tone === "warn" ? "bg-warn-soft text-warn" : "bg-hover text-ink-soft",
+            )}
+          >
+            {flagIcon(f.code, 12)}
+            <span className="sr-only">{flagLabel(f)}: {f.text}</span>
+          </span>
+        );
+      })}
     </span>
   );
 }

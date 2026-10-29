@@ -62,7 +62,7 @@ export function PickPaymentBanner({ d, caseId, events, onDone }: { d: CaseDetail
     setBusy(true);
     setError(null);
     try {
-      await api.approve(caseId, { action: "pick_transaction", tx_id: value === NONE ? null : value, approver: "OPERATOR-01" });
+      await api.approve(caseId, { action: "pick_transaction", tx_id: value === NONE ? null : value });
       await onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : "The choice wasn’t recorded");

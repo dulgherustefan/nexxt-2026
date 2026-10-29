@@ -459,6 +459,23 @@ export interface CaseSummary {
   llm_degraded?: boolean;
   /** The complaint's text and the bank's records disagree on the kind of claim. */
   type_conflict?: boolean;
+  /** What a person should check before signing; `block` means the case can't close without them. */
+  review_flags?: ReviewFlag[];
+}
+
+export interface ReviewFlag {
+  /** type_conflict, llm_degraded, escalation, to_confirm, or any other code shown by its text. */
+  code: string;
+  severity: "info" | "warn" | "block";
+  text: string;
+}
+
+/** A reason a person can give with a signature, for the actions it fits. */
+export interface ReasonCode {
+  code: string;
+  label: string;
+  actions: string[];
+  note_required: boolean;
 }
 
 export interface CaseEscalation {
@@ -579,6 +596,8 @@ export interface Interrupt {
   candidates?: TxCandidate[];
   /** Bound to what is shown with the decision (verdict, amount, deadline); the signature sends it back. */
   approval_token?: string | null;
+  /** The reasons this signature accepts; older servers send none. */
+  reason_codes?: ReasonCode[];
   /** Some backends nest the interrupt's own data one level down. */
   payload?: { kind?: string; prompt?: string; candidates?: TxCandidate[]; [k: string]: unknown } | null;
 }
@@ -624,6 +643,7 @@ export interface CaseDetail {
   manual_queue?: { since: ISODate; reason: string; deadline: ISODate } | null;
   /** Suggested answers from outside the console (an MCP client): never a signature. */
   proposals?: DecisionProposal[];
+  review_flags?: ReviewFlag[];
 }
 
 export interface DecisionProposal {

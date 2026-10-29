@@ -7,7 +7,9 @@ import {
   CheckCircle,
   CreditCard,
   Gavel,
+  EyeSlash,
   Hand,
+  Plugs,
   ShieldWarning,
   SealCheck,
   SealWarning,
@@ -21,15 +23,16 @@ import { Link, useParams } from "react-router";
 import { channelLabel, dateTime, hasAmount, money, questionLabel, shortHash, verdictLabel } from "../../api/format";
 import { useApi, useResource } from "../../api/runtime";
 import { useEventStream } from "../../api/sse";
-import type { CaseDetail, CounterfactualResult, Decision, Fact, FilterResult, KbHit, LedgerResponse, VerifyResult } from "../../api/types";
+import type { CaseDetail, CounterfactualResult, Decision, Fact, FilterResult, KbHit, LedgerResponse, ReasonCode, VerifyResult } from "../../api/types";
 import {
-  Badge, Banner, Button, cx, DeadlineText, EmptyState, ErrorNote, IdTag, Panel, PanelHeadingLevel, SectionBoundary, Skeleton, Status,
+  Badge, Banner, Button, cx, DeadlineText, Dot, EmptyState, ErrorNote, IdTag, Panel, PanelHeadingLevel, SectionBoundary, Skeleton, Status,
+  timeLeft, useNowTick,
 } from "../../ui/kit";
 import {
   IdentificationPanel, isPickPending, LegalSourcesPanel, LinkedCasesPanel, NumericCheckItem, NumericMismatches, PickPaymentBanner, PrecedentsPanel,
   ReasonLine, reasonFor, StandardRecordPanel, usedInNote,
 } from "./caseInsights";
-import { AgentStatus, scenarioLabel, Sheet, StatusLine, StepList, useRouting, useStepRows, verdictSentence } from "./caseUi";
+import { AgentStatus, ReviewFlagList, scenarioLabel, Sheet, sortFlags, StatusLine, StepList, useRouting, useStepRows, verdictSentence } from "./caseUi";
 import { PassageSheet, SourceChips } from "./knowledgeUi";
 import { QrCode, verifyUrl } from "../../ui/QrCode";
 
@@ -93,6 +96,7 @@ export default function CasePage() {
   if (!d) return <CaseSkeleton />;
 
   const pending = Boolean(d.interrupt?.pending) && !isPickPending(d);
+  const blind = pending && sign.blind;
   const agents = <SectionBoundary label="Agents"><LiveSteps d={d} events={stream.events} streamStatus={stream.status} /></SectionBoundary>;
 
   return (
@@ -101,8 +105,9 @@ export default function CasePage() {
       <div ref={banner} className="flex flex-col gap-3 empty:hidden">
         {isPickPending(d)
           ? <PickPaymentBanner d={d} caseId={id} events={stream.events} onDone={detail.reload} />
-          : pending && <SignatureBanner d={d} sign={sign} />}
+          : pending && <SignOffPanel d={d} sign={sign} />}
         {d.summary.status === "REFUZAT" && <DeclinedBanner d={d} />}
+        {MANUAL.includes(String(d.summary.status)) && <ManualQueueBanner d={d} />}
         {!d.interrupt?.pending && d.letter?.filter?.passed === false && (
           <Banner
             tone="danger"
@@ -127,7 +132,7 @@ export default function CasePage() {
       {/* portalled: the page wrapper's enter animation would otherwise pin a fixed bar to the page, not the screen */}
       {pending && !bannerInView && createPortal(
         <div className="fixed inset-x-0 bottom-0 z-30 flex justify-end border-t border-line bg-paper/90 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md sm:hidden">
-          <CompactSignature sign={sign} both />
+          <CompactSignature sign={sign} />
         </div>,
         document.body,
       )}
@@ -147,8 +152,12 @@ export default function CasePage() {
             </CaseSection>
 
             <CaseSection id="refund" n={2} title="Refund decision" meta={<RefundMeta d={d} />}>
-              <SectionBoundary label="Decision"><DecisionPanel d={d} onCite={cite} onRules={showRules} onPassage={openPassage} /></SectionBoundary>
-              <details
+              <SectionBoundary label="Review flags"><div className="mb-4 empty:hidden"><ReviewFlagList flags={d.review_flags ?? d.summary.review_flags} /></div></SectionBoundary>
+              <SectionBoundary label="Claim and records"><div className="mb-4 empty:hidden"><ClaimsVsEvidence d={d} /></div></SectionBoundary>
+              <SectionBoundary label="Decision">
+                {blind ? <HiddenDecision /> : <DecisionPanel d={d} onCite={cite} onRules={showRules} onPassage={openPassage} />}
+              </SectionBoundary>
+              {!blind && <details
                 id="case-rules"
                 open={rulesOpen}
                 onToggle={(e) => setRulesOpen((e.currentTarget as HTMLDetailsElement).open)}
@@ -162,7 +171,7 @@ export default function CasePage() {
                 <div className="pt-4">
                   <SectionBoundary label="Rules"><RulesTab d={d} onPassage={openPassage} /></SectionBoundary>
                 </div>
-              </details>
+              </details>}
             </CaseSection>
 
             <CaseSection id="recovery" n={3} title="Getting the money back" meta="Drafts only. A person sends each one.">
@@ -199,6 +208,8 @@ type StepState = "done" | "now" | "running" | "stopped" | "todo";
 interface JourneyStep { id: SectionId; label: string; state: StepState; note: string }
 
 const CLOSED = ["RAMBURSAT", "RESPINS", "INCHIS", "EXCEPTIE", "TRASEU_APP"];
+/** A failed run: the case waits for a person (older servers say EROARE). */
+const MANUAL = ["COADA_MANUALA", "EROARE"];
 
 /** Where the case stands on each of its five parts, read from the case itself. */
 function journey(d: CaseDetail): JourneyStep[] {
@@ -255,9 +266,9 @@ function journey(d: CaseDetail): JourneyStep[] {
           : working ? { state: "running", note: "Collecting" } : { state: "todo", note: "None yet" }),
     },
   ];
-  if (status === "EROARE") {
+  if (MANUAL.includes(status)) {
     const first = steps.find((s) => s.state !== "done");
-    if (first) Object.assign(first, { state: "stopped", note: "Failed: restart the case" });
+    if (first) Object.assign(first, { state: "stopped", note: "Manual queue: a person takes it" });
   }
   return steps;
 }
@@ -476,69 +487,357 @@ const SIGN_COPY: Record<string, { yes: string; no: string; consequence: string }
   RAMBURSEAZA_CU_APROBARE: { yes: "Approve refund", no: "Decline", consequence: "When you approve, the rules engine issues the refund right away." },
   RESPINGE_TARDIV: { yes: "Confirm rejection", no: "Don’t confirm, refund", consequence: "The customer gets a rejection letter with the legal basis and how to appeal." },
   EXCEPTIE_FRAUDA_CLIENT: { yes: "Confirm exception", no: "Don’t confirm, refund", consequence: "No refund for now. Only use this if the authorities have been notified." },
+  NU_SE_APLICA_T1: { yes: "Confirm recall route", no: "Don’t confirm, refund", consequence: "No next-day refund: VersoML starts a recall and the customer gets a written answer." },
 };
 
-// The reason sent with a signature until the console lets the person pick one (approve: the facts support the
-// decision; reject: they do not).
-const DEFAULT_REASON = { approve: "FACTS_CONFIRMED", reject: "FACTS_DISPUTED" } as const;
+// what the console offers when the server sends no reasons of its own: the two codes every server accepts
+const FALLBACK_REASONS: ReasonCode[] = [
+  { code: "FACTS_CONFIRMED", label: "The facts in the case file support the decision", actions: ["approve"], note_required: false },
+  { code: "FACTS_DISPUTED", label: "The facts in the case file don’t support the decision", actions: ["reject"], note_required: false },
+];
+
+/** Decisions against the customer: the person reads the evidence and gives a view before the recommendation shows. */
+const ADVERSE = new Set(["RESPINGE_TARDIV", "EXCEPTIE_FRAUDA_CLIENT", "NU_SE_APLICA_T1"]);
+
+const NOTE_MAX = 1000;
+
+type SignAction = "approve" | "reject";
 
 interface Signature {
   copy: { yes: string; no: string; consequence: string };
-  busy: "approve" | "reject" | null;
+  busy: boolean;
   locked: boolean;
   resuming: boolean;
   error: string | null;
-  act: (action: "approve" | "reject") => Promise<void>;
+  /** The recommendation stays hidden until the person gives a view (adverse outcomes only). */
+  blind: boolean;
+  adverse: boolean;
+  /** The person's own view, as the action it leads to. */
+  view: SignAction | null;
+  setView: (v: SignAction) => void;
+  choice: SignAction | null;
+  setChoice: (c: SignAction) => void;
+  options: ReasonCode[];
+  reason: string;
+  setReason: (code: string) => void;
+  note: string;
+  setNote: (n: string) => void;
+  noteRequired: boolean;
+  /** The person signs against the view they gave: the note says why. */
+  againstView: boolean;
+  valid: boolean;
+  submit: () => Promise<void>;
 }
 
-/** One signature state, shared by the banner and the compact buttons in the step bar. */
+/** One signature state, shared by the sign-off panel and the button in the step bar. */
 function useSignature(d: CaseDetail | undefined, caseId: string, onDone: () => Promise<void>): Signature {
   const api = useApi();
-  const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const it = d?.interrupt;
-  const copy = SIGN_COPY[String(it?.verdict)] ?? { yes: "Approve", no: "Decline", consequence: "The decision applies right away." };
+  const key = `${it?.verdict ?? ""}|${it?.approval_token ?? ""}`;
+  const [seen, setSeen] = useState(key);
+  const [view, setView] = useState<SignAction | null>(null);
+  const [choice, setChoiceState] = useState<SignAction | null>(null);
+  const [picked, setReason] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (seen !== key) {
+    // a new decision to sign: nothing carries over from the last one
+    setSeen(key);
+    setView(null);
+    setChoiceState(null);
+    setReason("");
+    setNote("");
+    setError(null);
+  }
+  const verdict = String(it?.verdict ?? "");
+  const copy = SIGN_COPY[verdict] ?? { yes: "Approve", no: "Decline", consequence: "The decision applies right away." };
   const resuming = Boolean(it?.resuming);
-  async function act(action: "approve" | "reject") {
-    setBusy(action);
+  const adverse = ADVERSE.has(verdict);
+  const blind = adverse && view === null;
+  const codes = it?.reason_codes?.length ? it.reason_codes : FALLBACK_REASONS;
+  const options = choice ? codes.filter((r) => r.actions.includes(choice)) : [];
+  const reason = options.some((o) => o.code === picked) ? picked : options.length === 1 ? options[0].code : "";
+  const againstView = Boolean(view && choice && view !== choice);
+  const noteRequired = Boolean(options.find((o) => o.code === reason)?.note_required) || againstView;
+  const valid = !blind && choice !== null && reason !== "" && (!noteRequired || note.trim() !== "") && note.length <= NOTE_MAX;
+  const setChoice = (c: SignAction) => {
+    setChoiceState(c);
+    setError(null);
+  };
+  const giveView = (v: SignAction) => {
+    setView(v);
+    setChoiceState(v);
+  };
+  async function submit() {
+    if (!valid || !choice) return;
+    setBusy(true);
     setError(null);
     try {
       // the signer is the console's operator session; the token binds the signature to the decision on screen
-      await api.approve(caseId, { action, reason_code: DEFAULT_REASON[action], approval_token: it?.approval_token ?? undefined });
+      await api.approve(caseId, { action: choice, reason_code: reason, note: note.trim() || undefined, approval_token: it?.approval_token ?? undefined });
       await onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : "The signature wasn’t recorded");
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
-  return { copy, busy, locked: resuming || busy !== null, resuming, error, act };
+  return {
+    copy, busy, locked: resuming || busy, resuming, error, blind, adverse, view, setView: giveView, choice, setChoice,
+    options, reason, setReason, note, setNote, noteRequired, againstView, valid, submit,
+  };
 }
 
-function SignatureBanner({ d, sign }: { d: CaseDetail; sign: Signature }) {
-  const it = d.interrupt!;
+function jumpToSignOff() {
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const panel = document.getElementById("signoff");
+  panel?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  window.setTimeout(() => panel?.querySelector<HTMLElement>("button:not(:disabled), input:not(:disabled)")?.focus({ preventScroll: true }), reduce ? 0 : 320);
+}
+
+/** Time left to the decision's deadline, updated while the panel is open. */
+function SignOffClock({ deadline }: { deadline?: string | null }) {
+  const now = useNowTick(10_000);
+  if (!deadline) return null;
+  const left = timeLeft(deadline, now);
   return (
-    <Banner
-      tone="now"
-      title={it.prompt ?? "This decision needs your approval."}
-      actions={<>
-        <Button busy={sign.busy === "reject"} disabled={sign.locked} onClick={() => sign.act("reject")}>{sign.copy.no}</Button>
-        <Button variant="primary" busy={sign.busy === "approve"} disabled={sign.locked} onClick={() => sign.act("approve")}>{sign.copy.yes}</Button>
-      </>}
-    >
-      {sign.resuming ? "Signature received. Applying the decision…" : sign.copy.consequence}
-      {it.rule_ids?.length ? <span className="ml-1 text-muted">Rules: {it.rule_ids.join(", ")}.</span> : null}
-      {sign.error && <span className="mt-1 block font-medium text-danger">{sign.error}.</span>}
-    </Banner>
+    <p className="shrink-0 text-right leading-tight" title={dateTime(deadline)}>
+      <span className="block text-[0.8rem] text-muted">Due {dateTime(deadline)}</span>
+      <span className={cx("tnum mt-1 block text-[1.05rem] font-semibold", left.tone === "danger" ? "text-danger" : "text-ink")}>{left.text}</span>
+    </p>
   );
 }
 
-/** The same two buttons, in the step bar, once the banner has scrolled away. */
-function CompactSignature({ sign, both = false }: { sign: Signature; both?: boolean }) {
+/**
+ * The sign-off: a decision, a reason and a note, sent with the approval token. For an outcome against the customer
+ * the person first reads the evidence and says what they would decide; only then does the recommendation show.
+ */
+function SignOffPanel({ d, sign }: { d: CaseDetail; sign: Signature }) {
+  const it = d.interrupt!;
+  const deadline = it.deadline ?? d.clock?.t1_deadline ?? d.summary.deadline;
+  const flags = sortFlags(d.review_flags ?? d.summary.review_flags).filter((f) => f.severity !== "info");
+  return (
+    <section
+      id="signoff"
+      aria-labelledby="signoff-title"
+      className="scroll-mt-40 rounded-xl bg-yellow-tint px-5 py-4 shadow-[var(--shadow-raise)] ring-1 ring-inset ring-yellow-line lg:scroll-mt-28"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        <div className="flex min-w-[16rem] flex-1 items-start gap-4">
+          <Dot tone="now" live className="mt-2" />
+          <div className="min-w-0">
+            <h2 id="signoff-title" className="font-semibold">
+              {sign.blind ? "Decide from the evidence first." : it.prompt ?? "This decision needs your signature."}
+            </h2>
+            <p className="mt-0.5 text-[0.9333rem] text-ink-soft">
+              {sign.resuming ? "Signature received. Applying the decision…"
+                : sign.blind ? "This outcome goes against the customer. Read what the bank’s systems recorded and say what you would decide. The rules engine’s recommendation shows next."
+                  : sign.copy.consequence}
+              {!sign.blind && it.rule_ids?.length ? <span className="ml-1 text-muted">Rules: {it.rule_ids.join(", ")}.</span> : null}
+            </p>
+            {flags.length > 0 && (
+              <button
+                type="button"
+                onClick={() => jumpTo("refund")}
+                className="mt-1.5 inline-flex items-center gap-1.5 text-[0.8667rem] font-medium text-warn underline decoration-warn/40 underline-offset-2 hover:decoration-warn"
+              >
+                <Warning aria-hidden size={14} /> Check {flags.length === 1 ? "1 flag" : `${flags.length} flags`} before you sign
+              </button>
+            )}
+          </div>
+        </div>
+        <SignOffClock deadline={deadline} />
+      </div>
+
+      <div className="mt-4 sm:pl-6">
+        {sign.blind ? <OwnView d={d} sign={sign} /> : <SignOffForm d={d} sign={sign} />}
+      </div>
+    </section>
+  );
+}
+
+/** Step one for an adverse outcome: the bank's evidence, then the person's own view. Not a signature. */
+function OwnView({ d, sign }: { d: CaseDetail; sign: Signature }) {
+  const facts = d.facts ?? [];
+  const bank = facts.filter((f) => f.labels?.trust !== "untrusted" && f.summary);
+  const fromCustomer = facts.length - facts.filter((f) => f.labels?.trust !== "untrusted").length;
+  return (
+    <div className="flex flex-col gap-4">
+      {bank.length > 0 ? (
+        <div className="rounded-lg bg-paper px-4 py-3 shadow-[var(--shadow-card)]">
+          <p className="text-[0.8rem] font-medium text-muted">What the bank’s systems recorded</p>
+          <ul className="mt-1.5 flex flex-col gap-1.5">
+            {bank.slice(0, 4).map((f) => (
+              <li key={f.fact_id} className="flex gap-3 text-[0.9333rem]">
+                <span className="id-text w-16 shrink-0 pt-0.5 text-[0.7667rem] text-subtle">{f.fact_id}</span>
+                <span className="min-w-0 text-ink-soft">{f.summary}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.8667rem]">
+            {bank.length > 4 && <span className="text-muted">{bank.length - 4} more in the evidence file</span>}
+            {fromCustomer > 0 && <span className="text-muted">{fromCustomer} from the customer, untrusted</span>}
+            <button type="button" onClick={() => jumpTo("refund")} className="font-medium text-ink-soft underline decoration-line-strong underline-offset-2 hover:text-ink">
+              Compare the claim with the records
+            </button>
+          </p>
+        </div>
+      ) : (
+        <p className="text-[0.9333rem] text-muted">No evidence from the bank’s systems yet. Read the claim and the evidence file below.</p>
+      )}
+      <fieldset>
+        <legend className="font-medium">From the evidence alone, should the customer get the money back?</legend>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button disabled={sign.locked} onClick={() => sign.setView("reject")}>Refund the customer</Button>
+          <Button disabled={sign.locked} onClick={() => sign.setView("approve")}>Don’t refund</Button>
+        </div>
+        <p className="mt-2 text-[0.8rem] text-muted">Your view isn’t a signature. You sign in the next step.</p>
+      </fieldset>
+    </div>
+  );
+}
+
+function SignOffForm({ d, sign }: { d: CaseDetail; sign: Signature }) {
+  const it = d.interrupt!;
+  const noteId = "signoff-note";
+  const hintId = "signoff-hint";
+  const label = (a: SignAction) => (a === "approve" ? sign.copy.yes : sign.copy.no);
+  const hint = !sign.choice ? "Pick a decision."
+    : !sign.reason ? "Pick a reason."
+      : sign.noteRequired && !sign.note.trim() ? "Write the note."
+        : sign.note.length > NOTE_MAX ? `Keep the note under ${NOTE_MAX.toLocaleString("en-US")} characters.` : null;
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void sign.submit();
+      }}
+    >
+      {sign.adverse && sign.view && (
+        <p className={cx("rounded-lg px-3 py-2 text-[0.9333rem]", sign.view === "approve" ? "bg-paper text-ink-soft" : "bg-warn-soft text-warn")}>
+          Your view: <span className="font-medium">{sign.view === "approve" ? "don’t refund" : "refund the customer"}</span>.
+          {" "}The rules engine: <span className="font-medium">“{verdictLabel(it.verdict)}”</span>.
+          {sign.view === "approve" ? " You agree." : " You disagree: if you confirm anyway, the note says why."}
+        </p>
+      )}
+
+      <fieldset>
+        <legend className="text-[0.8667rem] font-medium text-ink-soft">Your decision</legend>
+        <div className="mt-1.5 flex flex-wrap gap-2">
+          {(["approve", "reject"] as const).map((a) => (
+            <label
+              key={a}
+              className={cx(
+                "press inline-flex h-9 cursor-pointer items-center gap-2 rounded-full px-4 text-[0.9333rem] font-medium transition-[background-color,box-shadow] duration-150",
+                "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ink",
+                sign.choice === a ? "bg-ink text-paper" : "bg-paper text-ink shadow-[var(--shadow-card)] hover:bg-hover",
+              )}
+            >
+              <input type="radio" name="signoff-action" value={a} checked={sign.choice === a} disabled={sign.locked} onChange={() => sign.setChoice(a)} className="sr-only" />
+              {label(a)}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {sign.choice && (
+        <fieldset>
+          <legend className="text-[0.8667rem] font-medium text-ink-soft">Reason</legend>
+          <div className="mt-1.5 flex flex-col gap-1">
+            {sign.options.map((o) => (
+              <label key={o.code} className="flex cursor-pointer items-start gap-2.5 rounded-lg px-1 py-1 text-[0.9333rem]">
+                <input
+                  type="radio"
+                  name="signoff-reason"
+                  value={o.code}
+                  checked={sign.reason === o.code}
+                  disabled={sign.locked}
+                  onChange={() => sign.setReason(o.code)}
+                  className="mt-1 size-4 shrink-0 accent-ink"
+                />
+                <span className="min-w-0">
+                  {o.label}
+                  {o.note_required && <span className="text-muted"> · needs a note</span>}
+                  <span className="id-text ml-2 text-[0.7667rem] text-subtle">{o.code}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+
+      <div>
+        <label htmlFor={noteId} className="text-[0.8667rem] font-medium text-ink-soft">
+          Note <span className="font-normal text-muted">{sign.noteRequired ? "(required)" : "(optional)"}</span>
+        </label>
+        <textarea
+          id={noteId}
+          name="note"
+          value={sign.note}
+          onChange={(e) => sign.setNote(e.target.value)}
+          disabled={sign.locked}
+          rows={2}
+          maxLength={NOTE_MAX + 200}
+          aria-required={sign.noteRequired || undefined}
+          aria-describedby={hintId}
+          placeholder={sign.againstView ? "Why you sign against your own view…" : "What you checked, in a sentence…"}
+          className="mt-1.5 w-full rounded-lg bg-paper px-3 py-2 text-[0.9333rem] ring-1 ring-line transition-shadow outline-none focus:ring-2 focus:ring-ink disabled:opacity-60"
+        />
+        <p className="mt-1 flex justify-between gap-3 text-[0.8rem] text-muted">
+          <span>It goes into the evidence file with your signature.</span>
+          <span className={cx("tnum", sign.note.length > NOTE_MAX && "text-danger")}>{sign.note.length}/{NOTE_MAX}</span>
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="submit" variant="primary" busy={sign.busy} disabled={!sign.valid || sign.locked} aria-describedby={hintId}>
+          {sign.choice ? label(sign.choice) : "Sign decision"}
+        </Button>
+        <span id={hintId} className="text-[0.8667rem] text-muted" aria-live="polite">{hint}</span>
+      </div>
+      {sign.error && <p role="alert" className="font-medium text-danger">{sign.error}.</p>}
+
+      <Proposals d={d} />
+    </form>
+  );
+}
+
+/** Suggestions from an outside client over MCP: shown for the person to weigh, never counted as a signature. */
+function Proposals({ d }: { d: CaseDetail }) {
+  const list = d.proposals ?? [];
+  if (!list.length) return null;
+  const verdict = d.interrupt?.verdict;
+  return (
+    <div className="rounded-lg bg-paper px-4 py-3 ring-1 ring-inset ring-line">
+      <p className="flex flex-wrap items-center gap-2 text-[0.8667rem] font-medium text-ink-soft">
+        <Plugs aria-hidden size={16} /> Suggested over MCP
+        <Badge tone="warn">Not a signature</Badge>
+      </p>
+      <ul className="mt-2 flex flex-col gap-2">
+        {list.map((p, i) => (
+          <li key={p.fact_id ?? i} className="text-[0.9333rem]">
+            <span className="font-medium">
+              Suggests “{(p.action === "approve" ? SIGN_COPY[String(p.verdict ?? verdict)]?.yes : SIGN_COPY[String(p.verdict ?? verdict)]?.no) ?? (p.action === "approve" ? "Approve" : "Decline")}”
+            </span>
+            <span className="text-muted"> · {p.source} · {dateTime(p.at)}</span>
+            {p.verdict && verdict && p.verdict !== verdict && <span className="text-warn"> · made for an earlier decision</span>}
+            {p.fact_id && <span className="id-text ml-2 text-[0.7667rem] text-subtle">{p.fact_id}</span>}
+            {p.note && <p className="mt-0.5 text-ink-soft">“{p.note}”</p>}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[0.8rem] text-muted">Untrusted input from outside the console. Only your signature decides.</p>
+    </div>
+  );
+}
+
+/** One button in the step bar (and at the bottom of a phone screen) that brings the sign-off panel back. */
+function CompactSignature({ sign }: { sign: Signature }) {
   return (
     <div className="flex shrink-0 animate-enter items-center gap-2">
-      <Button size="sm" className={both ? undefined : "hidden md:inline-flex"} busy={sign.busy === "reject"} disabled={sign.locked} onClick={() => sign.act("reject")}>{sign.copy.no}</Button>
-      <Button size="sm" variant="primary" busy={sign.busy === "approve"} disabled={sign.locked} onClick={() => sign.act("approve")}>{sign.copy.yes}</Button>
+      <Button size="sm" variant="primary" disabled={sign.locked} onClick={jumpToSignOff}>{sign.blind ? "Give your view" : "Sign decision"}</Button>
     </div>
   );
 }
@@ -695,6 +994,134 @@ function Arguments({ title, model, lines, onCite }: { title: string; model?: str
         </ul>
       ) : <p className="mt-2 text-muted">No arguments.</p>}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- the claim against the bank's records
+
+interface CompareRow { what: string; customer: string | null; bank: string | null; clash: boolean }
+
+const flagOf = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
+
+/** What the customer says next to what the bank's systems recorded, from fields the case already carries. */
+function compareRows(d: CaseDetail): CompareRow[] {
+  const ex = d.extracted ?? {};
+  const rc = d.rule_context ?? {};
+  const sca = flagOf(rc.sca_performed);
+  const scaMethod = typeof rc.sca_method === "string" ? rc.sca_method : null;
+  const device = flagOf(rc.device_known);
+  const simSwap = typeof rc.sim_swap_hours_before === "number" ? rc.sim_swap_hours_before : null;
+  const screen = flagOf(rc.screen_showed_amount_and_payee);
+  const amountValue = isObj(rc.amount) && typeof rc.amount.value === "number" ? rc.amount.value : hasAmount(d.summary.amount) ? d.summary.amount.value : null;
+  const currency = (isObj(rc.amount) && typeof rc.amount.currency === "string" ? rc.amount.currency : d.summary.amount?.currency) ?? "RON";
+  const said = ex.mentioned_amounts?.length ? ex.mentioned_amounts : d.standard?.claimed_amount ? [d.standard.claimed_amount.value] : [];
+  const executed = typeof rc.executed_at === "string" ? rc.executed_at : d.standard?.executed_at ?? null;
+  const notified = typeof rc.notified_at === "string" ? rc.notified_at : d.clock?.notified_at ?? null;
+  const rows: CompareRow[] = [
+    {
+      what: "Authorized the payment",
+      customer: ex.claims_unauthorized === true ? "Says they didn’t authorize it" : ex.claims_unauthorized === false ? "Says they authorized it" : null,
+      bank: sca === true ? `Strong authentication passed${scaMethod ? ` (${scaMethod})` : ""}` : sca === false ? "No strong authentication on record" : null,
+      clash: ex.claims_unauthorized === true && sca === true,
+    },
+    {
+      what: "Approved in the app",
+      customer: ex.client_admits_approving_in_app === true ? "Says they approved it in the app" : ex.client_admits_approving_in_app === false ? "Says they didn’t approve it" : null,
+      bank: screen === true ? "The approval screen showed the amount and payee" : screen === false ? "The approval screen didn’t show the amount and payee" : null,
+      clash: ex.client_admits_approving_in_app === false && screen === true && sca === true,
+    },
+    {
+      what: "Shared a code or password",
+      customer: ex.client_admits_sharing_credentials === true ? "Says they shared one" : ex.client_admits_sharing_credentials === false ? "Says they shared nothing" : null,
+      bank: null,
+      clash: false,
+    },
+    {
+      what: "Device",
+      customer: null,
+      bank: [device === true ? "A device used before on this account" : device === false ? "A device never seen on this account" : null,
+        simSwap !== null ? `SIM changed ${simSwap} h before` : null].filter(Boolean).join(" · ") || null,
+      clash: false,
+    },
+    {
+      what: "Amount",
+      customer: said.length ? said.map((v) => money({ value: v, currency })).join(", ") : null,
+      bank: amountValue !== null ? money({ value: amountValue, currency }) : null,
+      clash: said.length > 0 && amountValue !== null && !said.some((v) => Math.abs(v - amountValue) < 0.01),
+    },
+    {
+      what: "Dates",
+      customer: ex.noticed_at ? `Noticed ${dateTime(ex.noticed_at)}` : null,
+      bank: [executed ? `Paid ${dateTime(executed)}` : null, notified ? `reported ${dateTime(notified)}` : null].filter(Boolean).join(" · ") || null,
+      clash: false,
+    },
+  ];
+  return rows.filter((r) => r.customer !== null || r.bank !== null);
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === "object" && !Array.isArray(v);
+
+function ClaimsVsEvidence({ d }: { d: CaseDetail }) {
+  const rows = compareRows(d);
+  if (!rows.length) return null;
+  const clashes = rows.filter((r) => r.clash).length;
+  return (
+    <section aria-labelledby="case-compare-title" id="case-compare" className="overflow-hidden rounded-xl bg-paper shadow-[var(--shadow-card)]">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line px-5 py-2.5">
+        <h3 id="case-compare-title" className="text-[0.8667rem] font-medium text-ink-soft">The claim against the bank’s records</h3>
+        <span className={cx("text-[0.8rem]", clashes ? "font-medium text-danger" : "text-muted")}>
+          {clashes ? `${clashes} ${clashes === 1 ? "doesn’t match" : "don’t match"}` : "Nothing contradicts"}
+        </span>
+      </div>
+      <div className="hidden grid-cols-[9rem_minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-line bg-canvas px-5 py-2 text-[0.8rem] text-subtle sm:grid">
+        <span /><span>The customer says</span><span>Bank records show</span>
+      </div>
+      <ul className="divide-y divide-line">
+        {rows.map((r) => (
+          <li key={r.what} className={cx("grid gap-x-4 gap-y-1 px-5 py-3 sm:grid-cols-[9rem_minmax(0,1fr)_minmax(0,1fr)]", r.clash && "bg-danger-soft")}>
+            <span className="flex items-center gap-1.5 text-[0.8667rem] font-medium">
+              {r.what}
+              {r.clash && <Warning aria-label="Doesn’t match" size={14} className="text-danger" />}
+            </span>
+            <span className="text-[0.9333rem]">
+              <span className="text-[0.8rem] text-subtle sm:hidden">The customer: </span>
+              {r.customer ?? <span className="text-muted">Not said</span>}
+            </span>
+            <span className="text-[0.9333rem]">
+              <span className="text-[0.8rem] text-subtle sm:hidden">Records: </span>
+              {r.bank ?? <span className="text-muted">No record</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** While the person gives their own view, the recommendation stays out of sight. */
+function HiddenDecision() {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-canvas px-6 py-5 ring-1 ring-inset ring-line">
+      <div className="min-w-[16rem] flex-1">
+        <p className="flex items-center gap-2 text-[0.8667rem] text-ink-soft"><EyeSlash aria-hidden size={16} /> Rules engine decision</p>
+        <p className="mt-1.5 font-semibold">Hidden until you give your view.</p>
+        <p className="mt-0.5 text-[0.9333rem] text-ink-soft">This outcome goes against the customer, so you decide from the evidence first.</p>
+      </div>
+      <Button size="sm" onClick={jumpToSignOff}>Give your view</Button>
+    </div>
+  );
+}
+
+/** A run that failed: the case waits for a person, with the refund deadline still running. */
+function ManualQueueBanner({ d }: { d: CaseDetail }) {
+  const q = d.manual_queue;
+  const deadline = q?.deadline ?? d.clock?.t1_deadline ?? d.summary.deadline;
+  return (
+    <Banner tone="danger" icon={<Warning size={20} className="text-danger" />} title="The run stopped. A person handles this case from the manual queue.">
+      {q?.reason ? <>{q.reason.charAt(0).toUpperCase()}{q.reason.slice(1).replace(/\.$/, "")}. </> : null}
+      {deadline ? <>The refund deadline still applies: {dateTime(deadline)}.</> : "The refund deadline still applies."}
+      {q?.since ? <span className="text-muted"> In the queue since {dateTime(q.since)}.</span> : null}
+    </Banner>
   );
 }
 

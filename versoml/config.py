@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     # URL-urile prin care zonele se văd între ele (în docker: http://client:8000, http://aml:8001)
     versoml_client_url: str | None = None
     versoml_aml_url: str | None = None
+    # Fallback when Bedrock is throttled or down: the Claude API, with a key from console.anthropic.com
+    # (ANTHROPIC_API_KEY in .env or in the environment; never committed)
+    anthropic_api_key: SecretStr | None = None
+
     # Public access (the demo tunnel) and the limits that keep it inside the Bedrock quota
     versoml_public_hosts: str = "footpad-outpour-overrule.ngrok-free.dev"
     versoml_llm_max_concurrency: int = 6

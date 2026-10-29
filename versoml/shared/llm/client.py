@@ -23,7 +23,7 @@ from typing import Any, Awaitable, Callable, TypeVar
 from pydantic import BaseModel
 
 from versoml.config import Settings, get_settings
-from versoml.secrets import install_log_redaction, load_bedrock_key, redact
+from versoml.secrets import install_log_redaction, load_bedrock_key, redact, register_secret
 
 log = logging.getLogger("versoml.llm")
 T = TypeVar("T", bound=BaseModel)
@@ -75,6 +75,7 @@ class CallInfo:
     cost_usd: float = 0.0
     error: str | None = None
     key: str = ""
+    provider: str = ""  # "bedrock" or "anthropic" for a live answer
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -90,7 +91,16 @@ class _Usage:
 
 
 def _price_key(model: str) -> str:
-    return model.replace("anthropic.claude-", "")
+    return model.replace("anthropic.claude-", "").replace("claude-", "")
+
+
+def first_party_id(bedrock_model: str) -> str:
+    """The Claude API's ID for a Bedrock model ID: the same name without the `anthropic.` prefix."""
+    return bedrock_model.removeprefix("anthropic.")
+
+
+# Errors that mean "this provider can't serve us right now": try the next one. A 400 would fail everywhere.
+_PROVIDER_DOWN = ("APIConnectionError", "APITimeoutError", "AuthenticationError", "PermissionDeniedError")
 
 
 def _cost(model: str, usage: Any) -> float:
@@ -165,6 +175,12 @@ class LLMClient:
         self._client = None
         self._live_failed_at: float | None = None
         self.calls: list[CallInfo] = []
+        # the fallback when Bedrock is throttled or down: the Claude API with the team's own API key
+        self.api_key = self.settings.anthropic_api_key.get_secret_value() if self.settings.anthropic_api_key else ""
+        if self.api_key:
+            register_secret(self.api_key)
+        self._api_client = None
+        self._api_failed_at: float | None = None
         self._gates: dict[int, asyncio.Semaphore] = {}
 
     # ------------------------------------------------------------ configurare
@@ -174,12 +190,14 @@ class LLMClient:
         configured = self.settings.versoml_llm_mode
         if configured != "auto":
             return configured
-        if not self.has_key:
-            return "replay"
-        # după o eroare de rețea/acces, revenim la live abia după 60 s
-        if self._live_failed_at and time.time() - self._live_failed_at < 60:
-            return "replay"
-        return "live"
+        return "live" if self._bedrock_up() or self._api_up() else "replay"
+
+    # după o eroare de rețea/acces, un furnizor revine abia după 60 s
+    def _bedrock_up(self) -> bool:
+        return self.has_key and not (self._live_failed_at and time.time() - self._live_failed_at < 60)
+
+    def _api_up(self) -> bool:
+        return bool(self.api_key) and not (self._api_failed_at and time.time() - self._api_failed_at < 60)
 
     def model_for(self, role: Role | str) -> str:
         role = Role(role)
@@ -195,6 +213,7 @@ class LLMClient:
             "region": self.settings.aws_region,
             "models": {r.value: self.model_for(r) for r in Role},
             "live_ok": self.has_key and self._live_failed_at is None,
+            "fallback": "Claude API" if self.api_key else None,
             "replay_entries": len(self.replay),
             "usage": asdict(self.usage),
         }
@@ -246,6 +265,35 @@ class LLMClient:
         rest = [m for m in self.settings.fallback_models if m != primary]
         return [primary, *rest]
 
+    def _routes(self, role: Role) -> list[tuple[str, str]]:
+        """Where a live call goes, in order: Bedrock with its fallback models, then the Claude API with the same
+        models (only when an API key is set). Throttling or an outage on Bedrock moves the call along the list."""
+        models = self._candidates(role)
+        # without an API key Bedrock is the only way out, so it is always tried (as before the fallback existed)
+        routes = [("bedrock", m) for m in models] if self._bedrock_up() or not self.api_key else []
+        if self._api_up():
+            routes += [("anthropic", first_party_id(m)) for m in models[:2]]
+        return routes
+
+    def _client_for(self, provider: str):
+        if provider == "bedrock":
+            return self._get_client()
+        if self._api_client is None:
+            from anthropic import AsyncAnthropic
+
+            self._api_client = AsyncAnthropic(api_key=self.api_key, max_retries=1, timeout=120)
+        return self._api_client
+
+    def _provider_failed(self, provider: str, exc: Exception) -> bool:
+        """Marks a provider down after a network or access error; True when its remaining routes should be skipped."""
+        if type(exc).__name__ not in _PROVIDER_DOWN:
+            return False
+        if provider == "bedrock":
+            self._live_failed_at = time.time()
+        else:
+            self._api_failed_at = time.time()
+        return True
+
     # ------------------------------------------------------------ ieșiri structurate
 
     async def structured(
@@ -267,14 +315,17 @@ class LLMClient:
         if mode == "live":
             _guard(user)
             last_error = None
-            for model in self._candidates(role):
+            skip: set[str] = set()
+            for provider, model in self._routes(role):
+                if provider in skip:
+                    continue
                 started = time.perf_counter()
                 try:
                     kwargs: dict[str, Any] = {}
                     if effort and self._supports_effort(model):
                         kwargs["output_config"] = {"effort": effort}
                     async with self._gate():
-                        response = await self._get_client().messages.parse(
+                        response = await self._client_for(provider).messages.parse(
                             model=model,
                             max_tokens=max_tokens,
                             system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
@@ -291,7 +342,7 @@ class LLMClient:
                         ms=round((time.perf_counter() - started) * 1000),
                         input_tokens=usage.input_tokens or 0, output_tokens=usage.output_tokens or 0,
                         cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
-                        cost_usd=_cost(model, usage), key=key,
+                        cost_usd=_cost(model, usage), key=key, provider=provider,
                     )
                     self.replay.put(key, {"agent": agent, "role": role.value, "model": model,
                                           "schema": schema.__name__, "output": parsed.model_dump(mode="json")})
@@ -300,10 +351,9 @@ class LLMClient:
                     if type(exc).__name__ == "RawPIIError":
                         raise
                     last_error = redact(f"{type(exc).__name__}: {exc}")[:300]
-                    log.warning("LLM call %s on %s failed: %s", agent, model, last_error)
-                    if type(exc).__name__ in ("APIConnectionError", "AuthenticationError", "PermissionDeniedError"):
-                        self._live_failed_at = time.time()
-                        break
+                    log.warning("LLM call %s on %s (%s) failed: %s", agent, model, provider, last_error)
+                    if self._provider_failed(provider, exc):
+                        skip.add(provider)
             mode = "replay"
         else:
             last_error = None
@@ -340,14 +390,17 @@ class LLMClient:
 
         if mode == "live":
             _guard(user)
-            for model in self._candidates(role):
+            skip: set[str] = set()
+            for provider, model in self._routes(role):
+                if provider in skip:
+                    continue
                 started = time.perf_counter()
                 try:
                     kwargs: dict[str, Any] = {}
                     if effort and self._supports_effort(model):
                         kwargs["output_config"] = {"effort": effort}
                     chunks: list[str] = []
-                    async with self._gate(), self._get_client().messages.stream(
+                    async with self._gate(), self._client_for(provider).messages.stream(
                         model=model,
                         max_tokens=max_tokens,
                         system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
@@ -364,7 +417,7 @@ class LLMClient:
                         agent=agent, role=role.value, model=model, mode="live",
                         ms=round((time.perf_counter() - started) * 1000),
                         input_tokens=final.usage.input_tokens or 0, output_tokens=final.usage.output_tokens or 0,
-                        cost_usd=_cost(model, final.usage), key=key,
+                        cost_usd=_cost(model, final.usage), key=key, provider=provider,
                     )
                     self.replay.put(key, {"agent": agent, "role": role.value, "model": model,
                                           "schema": "text", "output": text})
@@ -373,10 +426,9 @@ class LLMClient:
                     if type(exc).__name__ == "RawPIIError":
                         raise
                     last_error = redact(f"{type(exc).__name__}: {exc}")[:300]
-                    log.warning("LLM text call %s on %s failed: %s", agent, model, last_error)
-                    if type(exc).__name__ in ("APIConnectionError", "AuthenticationError", "PermissionDeniedError"):
-                        self._live_failed_at = time.time()
-                        break
+                    log.warning("LLM text call %s on %s (%s) failed: %s", agent, model, provider, last_error)
+                    if self._provider_failed(provider, exc):
+                        skip.add(provider)
             mode = "replay"
 
         if mode == "replay":
@@ -426,56 +478,17 @@ class LLMClient:
         mode = self.mode
         if mode == "live":
             _guard(user)
-            model = self.model_for(role)
-            started = time.perf_counter()
-            messages: list[dict] = [{"role": "user", "content": user}]
-            total_in = total_out = 0
-            nudged = False
-            try:
-                for _ in range(max_turns + 1):
-                    kwargs: dict[str, Any] = {}
-                    if effort and self._supports_effort(model):
-                        kwargs["output_config"] = {"effort": effort}
-                    async with self._gate():
-                        response = await self._get_client().messages.create(
-                            model=model, max_tokens=4000,
-                            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-                            tools=tools, messages=messages, **kwargs,
-                        )
-                    total_in += response.usage.input_tokens or 0
-                    total_out += response.usage.output_tokens or 0
-                    messages.append({"role": "assistant", "content": [b.model_dump(mode="json", exclude_none=True) for b in response.content]})
-                    calls = [b for b in response.content if b.type == "tool_use"]
-                    if not calls and not transcript and not nudged:
-                        # modelul a anunțat un plan fără să cheme nimic: îi cerem o dată să execute
-                        nudged = True
-                        messages.append({"role": "user", "content": "Run the checks now by calling the tools."})
-                        continue
-                    if response.stop_reason != "tool_use" or not calls:
-                        text = "".join(getattr(b, "text", "") for b in response.content).strip()
-                        if not transcript:
-                            break  # niciun tool chemat: cădem pe planul determinist, ca dosarul să aibă probe
-                        cost = round(total_in / 1e6 * PRICES.get(_price_key(model), (3, 15))[0]
-                                     + total_out / 1e6 * PRICES.get(_price_key(model), (3, 15))[1], 6)
-                        info = CallInfo(agent=agent, role=role.value, model=model, mode="live",
-                                        ms=round((time.perf_counter() - started) * 1000),
-                                        input_tokens=total_in, output_tokens=total_out, cost_usd=cost)
-                        return text, transcript, self._record(info)
-                    results = await asyncio.gather(*(execute(c.name, dict(c.input)) for c in calls))
-                    blocks = []
-                    for call, result in zip(calls, results):
-                        transcript.append({"tool": call.name, "input": dict(call.input), "result": result})
-                        if on_tool:
-                            await on_tool(call.name, dict(call.input), result)
-                        blocks.append({"type": "tool_result", "tool_use_id": call.id,
-                                       "content": json.dumps(result, ensure_ascii=False, default=str)[:6000]})
-                    messages.append({"role": "user", "content": blocks})
-            except Exception as exc:  # noqa: BLE001
-                if type(exc).__name__ == "RawPIIError":
-                    raise
-                log.warning("tool_loop %s failed: %s", agent, redact(str(exc))[:200])
-                if type(exc).__name__ in ("APIConnectionError", "AuthenticationError", "PermissionDeniedError"):
-                    self._live_failed_at = time.time()
+            # one model per provider: a tool loop that fails half way can't be resumed elsewhere, so the next
+            # provider only gets a turn when no tool has run yet
+            routes = list(dict.fromkeys((p, m) for p, m in self._routes(role) if m in (
+                self.model_for(role), first_party_id(self.model_for(role)))))
+            for provider, model in routes:
+                if transcript:
+                    break
+                result = await self._tool_turns(provider, model, role, agent, system, user, tools, execute, max_turns,
+                                                effort, on_tool, transcript)
+                if result is not None:
+                    return result
 
         if fallback_plan is None:
             raise LLMUnavailable("no LLM available and no deterministic plan")
@@ -487,6 +500,61 @@ class LLMClient:
         info = CallInfo(agent=agent, role=role.value, model="determinist", mode="offline")
         return "", transcript, self._record(info)
 
+
+    async def _tool_turns(self, provider: str, model: str, role: Role, agent: str, system: str, user: str,
+                          tools: list[dict], execute: Callable[[str, dict], Awaitable[dict]], max_turns: int,
+                          effort: str | None, on_tool: Callable[[str, dict, dict], Awaitable[None]] | None,
+                          transcript: list[dict]) -> tuple[str, list[dict], CallInfo] | None:
+        """The tool loop on one provider. None means it gave no answer (the caller tries the next one, or the plan)."""
+        started = time.perf_counter()
+        messages: list[dict] = [{"role": "user", "content": user}]
+        total_in = total_out = 0
+        nudged = False
+        try:
+            for _ in range(max_turns + 1):
+                kwargs: dict[str, Any] = {}
+                if effort and self._supports_effort(model):
+                    kwargs["output_config"] = {"effort": effort}
+                async with self._gate():
+                    response = await self._client_for(provider).messages.create(
+                        model=model, max_tokens=4000,
+                        system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+                        tools=tools, messages=messages, **kwargs,
+                    )
+                total_in += response.usage.input_tokens or 0
+                total_out += response.usage.output_tokens or 0
+                messages.append({"role": "assistant", "content": [b.model_dump(mode="json", exclude_none=True) for b in response.content]})
+                calls = [b for b in response.content if b.type == "tool_use"]
+                if not calls and not transcript and not nudged:
+                    # modelul a anunțat un plan fără să cheme nimic: îi cerem o dată să execute
+                    nudged = True
+                    messages.append({"role": "user", "content": "Run the checks now by calling the tools."})
+                    continue
+                if response.stop_reason != "tool_use" or not calls:
+                    text = "".join(getattr(b, "text", "") for b in response.content).strip()
+                    if not transcript:
+                        return None  # niciun tool chemat: cădem pe planul determinist, ca dosarul să aibă probe
+                    pin, pout = PRICES.get(_price_key(model), (3, 15))
+                    info = CallInfo(agent=agent, role=role.value, model=model, mode="live",
+                                    ms=round((time.perf_counter() - started) * 1000),
+                                    input_tokens=total_in, output_tokens=total_out,
+                                    cost_usd=round(total_in / 1e6 * pin + total_out / 1e6 * pout, 6), provider=provider)
+                    return text, transcript, self._record(info)
+                results = await asyncio.gather(*(execute(c.name, dict(c.input)) for c in calls))
+                blocks = []
+                for call, result in zip(calls, results):
+                    transcript.append({"tool": call.name, "input": dict(call.input), "result": result})
+                    if on_tool:
+                        await on_tool(call.name, dict(call.input), result)
+                    blocks.append({"type": "tool_result", "tool_use_id": call.id,
+                                   "content": json.dumps(result, ensure_ascii=False, default=str)[:6000]})
+                messages.append({"role": "user", "content": blocks})
+        except Exception as exc:  # noqa: BLE001
+            if type(exc).__name__ == "RawPIIError":
+                raise
+            log.warning("tool_loop %s on %s (%s) failed: %s", agent, model, provider, redact(str(exc))[:200])
+            self._provider_failed(provider, exc)
+        return None
 
 _client: LLMClient | None = None
 

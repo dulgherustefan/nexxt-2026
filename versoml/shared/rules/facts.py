@@ -180,10 +180,15 @@ def sca_evidence_present(x: RuleContextExt) -> bool:
     return x.sca_performed is not None or x.screen_showed_amount_and_payee is not None
 
 
+CARD_PRESENT_ENTRY = ("chip", "contactless", "magstripe", "atm")
+
+
 def card_present(x: RuleContextExt) -> bool | None:
     if x.card_present is not None:
         return x.card_present
-    if x.eci is not None or x.cavv_present is not None:
+    if x.pos_entry_mode in CARD_PRESENT_ENTRY:
+        return True           # citit la POS sau la ATM
+    if x.eci is not None or x.cavv_present is not None or x.pos_entry_mode == "ecommerce":
         return False          # ECI/CAVV există doar la plățile la distanță (e-commerce)
     return None
 
@@ -203,13 +208,25 @@ def is_card(x: RuleContextExt) -> bool:
     return x.channel == Channel.CARD
 
 
+def is_direct_debit(x: RuleContextExt) -> bool:
+    return x.channel == Channel.DIRECT_DEBIT
+
+
+# Problema cu comerciantul -> condiția Visa (Core Rules, ch. 11, grupa 13)
+MERCHANT_ISSUE_CONDITIONS = {"recurring_cancelled": "13.2", "not_as_described": "13.3",
+                             "credit_not_processed": "13.6", "cancelled": "13.7"}
+
+
 def visa_condition(x: RuleContextExt) -> str | None:
     """Condiția Visa a disputei: cea dată explicit sau cea care decurge din tipul cererii."""
     if x.visa_condition:
         return x.visa_condition.strip()
     if x.dispute_type == DisputeType.NEAUTORIZATA:
         cp = card_present(x)
-        return "10.4" if cp is False else None
+        if cp is False:
+            return "10.4"
+        # card prezent la POS: 10.3; 10.1/10.2 cer datele cipului și ale terminalului, pe care le alege un om
+        return "10.3" if cp is True and x.pos_entry_mode != "atm" and x.purchase_type != "atm_cash" else None
     if x.dispute_type == DisputeType.EROARE_PROCESARE:
         if x.duplicate_of:
             return "12.6.1"
@@ -217,6 +234,8 @@ def visa_condition(x: RuleContextExt) -> str | None:
             return "13.9"
         return None
     if x.dispute_type == DisputeType.DISPUTA_COMERCIANT:
+        if x.merchant_issue:
+            return MERCHANT_ISSUE_CONDITIONS[x.merchant_issue]
         return "13.1" if x.scenario == Scenario.MARFA_NELIVRATA else None
     return None
 

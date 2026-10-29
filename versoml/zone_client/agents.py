@@ -1555,8 +1555,13 @@ async def motor_reguli(state: dict) -> dict:
         channel = Channel.TRANSFER_INSTANT
     elif channel_raw == "card":
         channel = Channel.CARD
+    elif channel_raw == "direct_debit" or g(tx, "kind") in ("direct_debit", "utility"):
+        channel = Channel.DIRECT_DEBIT
     else:
         channel = Channel.TRANSFER
+    # where the card was read: POS and ATM are card present (10.1-10.3, 13.9), e-commerce is not (10.4)
+    entry = g(tx, "pos_entry_mode") or {"card_pos": "chip", "card_atm": "atm", "card_ecom": "ecommerce"}.get(
+        g(tx, "kind") or "") if channel == Channel.CARD else None
     records["channel"] = channel.value
     dispute_type, ambiguous, reason = reconcile_type(state.get("classification") or {}, records, state.get("extracted") or {})
     cls = state.get("classification") or {}
@@ -1630,7 +1635,12 @@ async def motor_reguli(state: dict) -> dict:
         complaint_received_at=notified,
         # from the bank's card record; unknown leaves the rules' documented default (Visa)
         card_scheme=records.get("card_scheme") if channel == Channel.CARD else None,
+        pos_entry_mode=entry, purchase_type="atm_cash" if entry == "atm" else None,
         processing_date=executed.date(),
+        # admissions the intake could not find word for word in the text, and the checked vulnerability signals
+        unconfirmed_admissions=list(extracted.get("to_confirm") or []),
+        vulnerability_signals=sorted({str(v.get("kind")) for v in extracted.get("vulnerability") or []
+                                      if isinstance(v, dict) and v.get("kind")}),
         injection_suspected=bool(extracted.get("injection_suspected")),
         # the claimed amount = the one in the text in the payment's currency and closest to the log (the text also
         # mentions the RON 2.99 bait fee); an amount in another currency isn't compared
@@ -1780,7 +1790,8 @@ def _claimed_amount(mentions: list[Money], amount: Money) -> float | None:
 
 CONTACT_STANDARD = {"sms": "sms", "apel": "call", "email": "email", "mesagerie": "messaging", "site": "website",
                     "necunoscut": "unknown"}
-PAYMENT_TYPE = {Channel.CARD: "card", Channel.TRANSFER: "credit_transfer", Channel.TRANSFER_INSTANT: "instant_credit_transfer"}
+PAYMENT_TYPE = {Channel.CARD: "card", Channel.TRANSFER: "credit_transfer", Channel.TRANSFER_INSTANT: "instant_credit_transfer",
+                Channel.DIRECT_DEBIT: "direct_debit"}
 
 
 def standard_record(ctx: RuleContext, extracted: dict, *, pos_entry_mode: str | None = None,
@@ -2308,6 +2319,14 @@ async def recuperare(state: dict) -> dict:
                                       "The payment was authenticated with Visa Secure (ECI 05 and CAVV), so Visa "
                                       "10.4 does not apply and the loss stays with the bank. Recovery goes through "
                                       "other routes.")}
+    elif ctx["channel"] == Channel.DIRECT_DEBIT.value:
+        # a direct debit goes back through the direct debit scheme (PAY-10), never as a credit transfer recall
+        recovery["direct_debit_refund"] = {
+            "eligible": escroc.get("decision") == "RECUPERARE_PROPUSA",
+            "explanation": next((h.get("explanation") for h in rules.get("hits", []) if h.get("rule_id") == "PAY-10"),
+                                "A person decides the claim against the payee's bank."),
+            "deadline": next((dl["due_at"] for dl in rules.get("deadlines", []) if dl.get("rule_id") == "PAY-10"), None),
+        }
     else:
         bene = g(tx, "beneficiary_iban", "counterparty_iban", "to_iban") or ""
         internal = "BDEM" in bene[:8].upper()

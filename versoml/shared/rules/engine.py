@@ -22,8 +22,8 @@ from . import packs  # noqa: F401  (înregistrează regulile)
 from .calendar_ro import local_date
 from .context import AmlRuleContext, AmlRulesOutcome, RuleContextExt, extend
 from .facts import (
-    GN_FIELDS, Env, cite, fmt_d, fmt_dt, fmt_money, gn_indicator_fields, is_card, is_unauthorised, make_env,
-    refund_due,
+    GN_FIELDS, Env, cite, fmt_d, fmt_dt, fmt_money, gn_indicator_fields, is_card, is_direct_debit, is_unauthorised,
+    make_env, refund_due,
 )
 from .packs.dp import apply_human_review, explanation_complete
 from .packs.rec import recall_applicable
@@ -123,6 +123,19 @@ def _decide_declared_refund(d: _Draft, x: RuleContextExt, env: Env, F: Findings)
                    amount=x.amount if x.amount.value > 0 else None)
 
 
+def _decide_direct_debit_refund(d: _Draft, x: RuleContextExt, F: Findings) -> Decision:
+    """An authorized direct debit (PAY-10): the 8-week refund right, answered within 10 business days. A human signs
+    the refund; past the window the answer is adverse and a human signs it too."""
+    found = d.use("PAY-10")
+    if found.outcome == "PAY_DD_WINDOW_EXPIRED":
+        d.next.append("Send a reasoned answer, approved by a human, within the complaint deadline (CMP-01)")
+        return d.build(Verdict.NU_SE_APLICA_T1, human=True, amount=x.amount)
+    due: datetime = found.data["due"]
+    d.next.insert(0, f"Get human sign-off on the {_money(x)} direct debit refund by {fmt_d(due)} (PAY-10)")
+    d.next.append("Claim the amount from the payee's bank through the direct debit scheme (no camt.056 recall)")
+    return d.build(Verdict.RAMBURSEAZA_CU_APROBARE, human=True, deadline=due, amount=x.amount)
+
+
 def _decide_refund(x: RuleContextExt, env: Env, F: Findings) -> Decision:
     d = _Draft(x, Question.RAMBURSARE_T1, F)
     if not x.transaction_identified:
@@ -134,13 +147,17 @@ def _decide_refund(x: RuleContextExt, env: Env, F: Findings) -> Decision:
                    "Ask the Credit Bureau to suspend reporting"]
         return d.build(Verdict.NU_SE_APLICA_T1, human=True, amount=x.amount)
 
+    if "PAY-10" in F:
+        return _decide_direct_debit_refund(d, x, F)
+
     if x.dispute_type == DisputeType.APP:
         d.use("PAY-12")
         for rid in ("DSP-29", "DSP-51", "DSP-50"):
             if rid in F:
                 d.use(rid)
-        d.next += ["Recall the funds urgently (see fraudster recovery)", "Recommend a police report",
-                   "Send an explanatory letter within 15 business days (CMP-01)"]
+        d.next += (["Check the 8-week direct debit refund right before anything else (PAY-10)"] if is_direct_debit(x)
+                   else ["Recall the funds urgently (see fraudster recovery)"])
+        d.next += ["Recommend a police report", "Send an explanatory letter within 15 business days (CMP-01)"]
         return d.build(Verdict.NU_SE_APLICA_T1, human=True, amount=x.amount)
 
     if x.dispute_type in (DisputeType.DISPUTA_COMERCIANT, DisputeType.EROARE_PROCESARE):
@@ -202,6 +219,9 @@ def _decide_refund(x: RuleContextExt, env: Env, F: Findings) -> Decision:
                       "if the human rejects it, refund by the deadline")
     if f01 is not None and f01.data.get("undue_delay_review"):
         reasons.append("PAY-01")
+    if "DP-04" in F:
+        d.use("DP-04")
+        reasons.append("DP-04")
     d.use("PAY-15")
     d.use("PAY-02")
     if "DSP-54" in F:
@@ -239,6 +259,12 @@ def _decide_client_recovery(x: RuleContextExt, env: Env, F: Findings, refund: De
                ["dispute_type"])
         return d.build(Verdict.NU_RECOMANDAM_RECUPERARE, human=False)
 
+    if "PAY-10" in F:
+        d.rule("PAY-10")
+        d.line("The direct debit refund is the payer's right within 8 weeks. There is nothing to recover from the "
+               "customer.", ["channel"])
+        return d.build(Verdict.NU_RECOMANDAM_RECUPERARE, human=False)
+
     f04, f06 = F.get("PAY-04"), F.get("PAY-06")
     if f04 is not None:
         d.use("PAY-04")
@@ -248,7 +274,19 @@ def _decide_client_recovery(x: RuleContextExt, env: Env, F: Findings, refund: De
             d.next.append("Report the staff involvement to compliance")
         return d.build(Verdict.NU_RECOMANDAM_RECUPERARE, human=False)
 
+    if f06 is not None and "DP-04" in F:
+        d.use("DP-04")
+        d.rule("PAY-06")
+        d.line("Gross negligence is not used against a vulnerable customer, so no recovery file opens. A person "
+               "reviews the case.", ["vulnerability_signals"])
+        return d.build(Verdict.NU_RECOMANDAM_RECUPERARE, human=True)
+
     if f06 is not None:
+        if not x.customer_account_invited:
+            # PSR art. 55(2a) as good practice: hear the customer before any finding of gross negligence
+            d.missing.append("The customer's own account of events, invited before any gross negligence finding")
+            d.next.append("Invite the customer to give their account of events and record it before the file "
+                          "concludes (PSR art. 55(2a), good practice)")
         d.use("PAY-06")
         d.use("PAY-15")
         d.use("PAY-02")
@@ -306,7 +344,25 @@ def _decide_fraudster_recovery(x: RuleContextExt, env: Env, F: Findings, refund:
         return d.build(Verdict.NU_RECOMANDAM_RECUPERARE, human=True)
     if is_card(x):
         return _card_recovery(d, x, env, F)
+    if is_direct_debit(x):
+        return _direct_debit_recovery(d, x, F)
     return _transfer_recovery(d, x, env, F)
+
+
+def _direct_debit_recovery(d: _Draft, x: RuleContextExt, F: Findings) -> Decision:
+    """A direct debit is not recalled like a credit transfer: the refund goes back through the direct debit scheme
+    (PAY-10), or, with no mandate, the bank refunds under art. 173 and a human claims it from the payee's bank."""
+    found = F.get("PAY-10")
+    if found is not None and found.outcome == "PAY_DD_REFUND":
+        d.use("PAY-10", line=False)
+        d.line("The amount is claimed from the payee's bank through the direct debit scheme, not by a camt.056 recall.",
+               ["channel"])
+        d.next.append("Submit the direct debit refund claim to the payee's bank (draft; a human sends it)")
+        return d.build(Verdict.RECUPERARE_PROPUSA, human=True, deadline=found.data["due"], amount=x.amount)
+    d.rule("PAY-10")
+    d.line("A direct debit is not recalled like a credit transfer. A human decides the claim against the payee's "
+           "bank (for example, a debit with no valid mandate).", ["channel"])
+    return d.build(Verdict.NU_RECOMANDAM_RECUPERARE, human=True)
 
 
 def _scheme_deadline(F: Findings) -> datetime | None:
@@ -473,6 +529,10 @@ def _guards(dec: Decision, x: RuleContextExt, env: Env, F: Findings) -> tuple[De
         dec = apply_human_review(dec, x, reason="The M2 score is only a signal for a human. A human decides, not the "
                                                "score (GDPR art. 22; CJEU SCHUFA ruling).")
         applied.append("DP-02")
+    if "DP-04" in F and not dec.requires_human:
+        dec = dec.model_copy(update={"requires_human": True, "decided_by": "rules+human",
+                                     "rule_ids": [*dec.rule_ids, "DP-04"] if "DP-04" not in dec.rule_ids
+                                     else dec.rule_ids})
     if not explanation_complete(dec):
         dec = dec.model_copy(update={"requires_human": True, "decided_by": "rules+human",
                                      "rule_ids": [*dec.rule_ids, "DP-03"]})

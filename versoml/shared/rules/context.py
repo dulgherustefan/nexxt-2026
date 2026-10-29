@@ -35,6 +35,9 @@ class RuleContextExt(RuleContext):
     # card și schemă                                                                  DSP-20..DSP-53
     card_scheme: Literal["visa", "mastercard"] | None = None
     card_present: bool | None = None
+    pos_entry_mode: str | None = None                # din jurnalul cardului: chip, contactless, magstripe, atm, ecommerce
+    # problema cu comerciantul, din fapte (13.2, 13.3, 13.6, 13.7)
+    merchant_issue: Literal["recurring_cancelled", "not_as_described", "credit_not_processed", "cancelled"] | None = None
     processing_date: date | None = None
     visa_condition: str | None = None                # condiția propusă de clasificator (ex. "13.1")
     prior_disputes_120d: int | None = None
@@ -68,6 +71,10 @@ class RuleContextExt(RuleContext):
     claimed_amount_low_confidence: bool = False
     customer_claims_unauthorised: bool | None = None  # clientul spune că nu a făcut plata (extragerea)
     llm_mode: str | None = None                      # cum s-a citit reclamația: live, replay sau offline (regex)
+    unconfirmed_admissions: list[str] = Field(default_factory=list)   # recunoașteri fără citat exact (to_confirm)
+    # vulnerabilitatea clientului (citate verificate din reclamație)                 DP-04
+    vulnerability_signals: list[str] = Field(default_factory=list)  # varsta, boala, doliu, constrangere, confuzie
+    customer_account_invited: bool = False           # clientul a fost invitat să-și relateze versiunea
 
 
 def extend(ctx: RuleContext, **flags: Any) -> RuleContextExt:

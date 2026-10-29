@@ -1,25 +1,25 @@
 {
-  "built_at": "2026-10-29T00:22:06+00:00",
+  "built_at": "2026-10-29T07:16:30+00:00",
   "chunker_version": "5",
   "embedding_model": "cohere.embed-v4:0",
-  "static_fingerprint": "9e7184f1f02f1dd4496cddd016f2399e285800380b4c12c2823189d51c355239",
+  "static_fingerprint": "64c65c848a85702f8770235abd4fa9b105898f999a217cf6691315d396074486",
   "precedents_fingerprint": "90461ea051d862606b8f33513c9723bb42985ce75c3232e21bd5558b2cb92869",
   "counts": {
-    "static": 434,
+    "static": 435,
     "precedents": 365,
     "by_kind": {
       "case_study": 19,
       "guidance": 136,
       "law": 163,
       "precedent": 365,
-      "rule": 66,
+      "rule": 67,
       "typology": 50
     }
   },
   "coverage": {
     "kb": {
-      "chunks": 434,
-      "with_vectors": 434
+      "chunks": 435,
+      "with_vectors": 432
     },
     "precedents": {
       "chunks": 365,

@@ -75,6 +75,7 @@ class Channel(str, Enum):
     CARD = "card"
     TRANSFER = "transfer"
     TRANSFER_INSTANT = "transfer_instant"
+    DIRECT_DEBIT = "direct_debit"            # debit direct (Legea 209/2019, art. 182-185)
 
 
 class DisputeType(str, Enum):
@@ -164,6 +165,13 @@ class ClaimPoint(BaseModel):
     quote: str = ""          # citatul exact din reclamație
 
 
+class VulnerabilitySignal(BaseModel):
+    """Un semnal de vulnerabilitate din reclamație, cu citatul exact care îl susține."""
+
+    kind: Literal["varsta", "boala", "doliu", "constrangere", "confuzie"]
+    quote: str = ""
+
+
 class ExtractedClaim(BaseModel):
     """Ce scoate LLM-ul izolat din textul neîncrezut. Doar câmpuri tipizate."""
 
@@ -179,6 +187,7 @@ class ExtractedClaim(BaseModel):
     requested_remedy: str | None = None
     points: list[ClaimPoint] = Field(default_factory=list)
     injection_suspected: bool = False             # textul conține instrucțiuni către sistem
+    vulnerability: list[VulnerabilitySignal] = Field(default_factory=list)
     language: str = "ro"
     # the same mentions in standard form (versoml.shared.canonical): ISO 4217 amounts, E.164 phones, canonical hosts
     amounts: list[Money] = Field(default_factory=list)
@@ -194,7 +203,7 @@ class StandardRecord(BaseModel):
 
     schema_version: Literal["versoml.case.v1"] = "versoml.case.v1"
     case_id: str
-    payment_type: Literal["card", "credit_transfer", "instant_credit_transfer"]
+    payment_type: Literal["card", "credit_transfer", "instant_credit_transfer", "direct_debit"]
     amount: Money | None = None                   # ISO 4217
     executed_at: datetime | None = None           # ISO 8601, Bucharest time with that day's offset
     reported_at: datetime | None = None

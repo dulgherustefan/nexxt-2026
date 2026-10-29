@@ -48,6 +48,8 @@ VISA_104_OPEN_DAYS = 120          # Table 11-29 [P]
 VISA_131_OPEN_DAYS = 120          # Table 11-92 [P]
 VISA_131_CAP_DAYS = 540           # Table 11-92 [P]
 VISA_131_WAIT_DAYS = 15           # Table 11-92 [P]; ancora [U]
+VISA_131_TRAVEL_WAIT_DAYS = 30    # Core Rules 24.10.2026, 13.1: MCC 4722 și vânzătorii terți de bilete [P]
+VISA_TRAVEL_MCCS = frozenset({"4722"})
 VISA_104_DISPUTE_CAP = 35         # Table 11-28 [P]; ce se numără [U]
 VISA_FRAUD_RPT_TXN_DAYS = 60      # §1.9.4.3 [P]
 VISA_FRAUD_RPT_NOTICE_DAYS = 30   # §1.9.4.3 [P]; lectura [U]
@@ -168,7 +170,10 @@ def visa_dispute_window(x: RuleContextExt, env: Env) -> DisputeWindow | None:
         due, verified = min(visa_due(base, VISA_131_OPEN_DAYS), visa_due(proc, VISA_131_CAP_DAYS)), True
         if x.expected_delivery_date is None:
             anchor = proc if env.p("visa_131_wait_anchor") == "processing_date" else local_date(x.executed_at)
-            earliest = visa_due(anchor, VISA_131_WAIT_DAYS)
+            wait = VISA_131_TRAVEL_WAIT_DAYS if x.merchant_mcc in VISA_TRAVEL_MCCS else VISA_131_WAIT_DAYS
+            earliest = visa_due(anchor, wait)
+        else:
+            earliest = x.expected_delivery_date   # se așteaptă data de livrare promisă
     else:
         due, verified = visa_due(proc, env.p("visa_other_open_days")), False
     return DisputeWindow(cond, due, earliest, verified, known, local_date(x.now) > due)
@@ -191,11 +196,15 @@ def chargeback_recoverable(x: RuleContextExt, env: Env) -> tuple[str, list[str],
     if cond is not None and not is_valid_condition(cond):
         return "INCERT", ["DSP-20"], cond
     if is_unauthorised(x):
-        if card_present(x) is not False:
+        present = card_present(x)
+        if present is None or (present and cond is None):
             return "INCERT", ["DSP-52"], None
         window = visa_dispute_window(x, env)
         if window and window.expired:
-            return "NU", ["DSP-24"], "10.4"
+            return "NU", ["DSP-24"], cond
+        if present:
+            # 10.3 is the candidate; 10.1/10.2 need the chip and terminal data, so a person picks the condition
+            return "INCERT", ["DSP-24"] if window and not window.verified else ["DSP-52"], cond
         if x.prior_disputes_120d is not None and x.prior_disputes_120d > VISA_104_DISPUTE_CAP:
             return "NU", ["DSP-26"], "10.4"
         if x.prior_disputes_120d is None and x.prior_disputes_12m > VISA_104_DISPUTE_CAP:
@@ -336,6 +345,10 @@ def dsp_57_untrusted_text(x: RuleContextExt, env: Env) -> Finding | None:
         how = "from a recorded answer" if x.llm_mode == "replay" else "by pattern matching"
         reasons.append((f"the complaint was read {how}, not by a live model, so a human checks what it says",
                         ("llm_mode",)))
+    if x.unconfirmed_admissions:
+        reasons.append((f"the customer's admissions ({', '.join(x.unconfirmed_admissions)}) were not found word for "
+                        "word in the complaint, so a human confirms them with the customer before they count",
+                        ("unconfirmed_admissions",)))
     if not reasons:
         return None
     security = x.injection_suspected or (x.claimed_amount is not None and abs(x.claimed_amount - x.amount.value) > 0.005)
@@ -472,8 +485,9 @@ def dsp_21_single_dispute(x: RuleContextExt, env: Env) -> Finding | None:
       exceptions=("PAY_CHARGEBACK_WINDOW", "DSP_DEADLINE_UNVERIFIED"), tests=("DT-01", "DT-05", "DT-09", "DT-10"))
 def dsp_24_dispute_window(x: RuleContextExt, env: Env) -> Finding | None:
     """10.4: 120 days from processing. 13.1: 120 days from processing or from the last expected delivery, at
-    most 540, after a 15-day wait when there is no delivery date ([U] anchor). Other conditions: “120 days for
-    most” [U], so `DSP_DEADLINE_UNVERIFIED` and a human decides."""
+    most 540; the dispute waits for the expected delivery date, or 15 days when there is none ([U] anchor), 30 days
+    for travel agencies (MCC 4722). Other conditions (card-present fraud 10.1-10.3, 13.2, 13.3, 13.6, 13.7, 13.9):
+    “120 days for most” [U], so `DSP_DEADLINE_UNVERIFIED` and a human decides."""
     if not is_card(x) or card_scheme(x, env) != "visa" or x.dispute_type == DisputeType.APP:
         return None
     w = visa_dispute_window(x, env)
@@ -489,7 +503,7 @@ def dsp_24_dispute_window(x: RuleContextExt, env: Env) -> Finding | None:
     anchor = "" if w.anchor_known else " (no processing date, so the payment date is the conservative anchor)"
     if w.earliest:
         deadlines.append(Deadline(rule_id="DSP-24", name=f"Earliest Visa {w.condition} dispute date "
-                                  "(after the 15-day wait)", due_at=end_of_day(w.earliest), basis=basis,
+                                  "(after the waiting period)", due_at=end_of_day(w.earliest), basis=basis,
                                   business_days=False))
     data = {"condition": w.condition, "due": w.due, "earliest": w.earliest}
     if w.expired:
@@ -503,7 +517,8 @@ def dsp_24_dispute_window(x: RuleContextExt, env: Env) -> Finding | None:
                        "the deadline.", tuple(fields), data=data, deadlines=tuple(deadlines))
     text = f"The Visa {w.condition} dispute can be opened until {fmt_d(w.due)}{anchor}."
     if w.earliest:
-        text += f" With no delivery date, the earliest date is {fmt_d(w.earliest)} (15-day wait, [U] anchor)."
+        text += (f" The earliest date is {fmt_d(w.earliest)}" + (" (the expected delivery date)." if
+                 x.expected_delivery_date else " (the waiting period, [U] anchor)."))
     return Finding("DSP-24", "in_termen", text, tuple(fields), data=data, deadlines=tuple(deadlines))
 
 

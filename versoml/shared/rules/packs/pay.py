@@ -344,17 +344,53 @@ def pay_09_preauth(x: RuleContextExt, env: Env) -> Finding | None:
                    "operations team corrects it. This is not a chargeback case.", ("preauth_release_late",))
 
 
-@rule("PAY-10", title="Direct debit: request within 8 weeks, answer within 10 business days",
-      basis="Law 209/2019, art. 182–185", confidence=P, pack="PAY", source=SRC, kind="calculator",
-      exceptions=("PAY_DD_WINDOW_EXPIRED",), aliases=("DSP-12",), tests=("TC-32",))
 def direct_debit_refund_due(debit_on: date, requested_on: date, cal: BusinessCalendar | None = None) -> date | None:
-    """Answer deadline for a direct debit refund request. `None` means the 8-week window has closed
-    (`PAY_DD_WINDOW_EXPIRED`)."""
+    """PAY-10: termenul de răspuns la o cerere de rambursare a unui debit direct. `None` = fereastra de 8 săptămâni
+    s-a închis (`PAY_DD_WINDOW_EXPIRED`)."""
     from ..calendar_ro import add_business_days
 
     if requested_on > debit_on + timedelta(weeks=8):
         return None
     return add_business_days(requested_on, 10, cal)
+
+
+@rule("PAY-10", title="Direct debit: request within 8 weeks, answer within 10 business days",
+      basis="Law 209/2019, art. 182–185", confidence=P, pack="PAY", source=SRC, questions=(Q_T1, Q_ESCROC),
+      exceptions=("PAY_DD_REFUND", "PAY_DD_WINDOW_EXPIRED"), aliases=("DSP-12",), tests=("TC-32", "DD-01"))
+def pay_10_direct_debit(x: RuleContextExt, env: Env) -> Finding | None:
+    """A payer can ask for the refund of an authorized direct debit within 8 weeks of the debit, and the bank
+    answers within 10 business days. The route is the refund through the direct debit scheme, not a recall of a
+    credit transfer. For a debit in euro under the SEPA core scheme the refund needs no reason; in other currencies
+    the conditions of art. 182 apply and a human checks them. A debit with no mandate is an unauthorized payment
+    (art. 173) and keeps the next-business-day refund; a debit authorized under manipulation follows the APP route,
+    where a human weighs the same 8-week right."""
+    if x.channel.value != "direct_debit" or x.credit_fraud or x.dispute_type not in (
+            DisputeType.DISPUTA_COMERCIANT, DisputeType.EROARE_PROCESARE):
+        return None
+    debit_on, requested_on = local_date(x.executed_at), local_date(x.notified_at)
+    due = direct_debit_refund_due(debit_on, requested_on, env.cal)
+    closes = debit_on + timedelta(weeks=8)
+    fields = ("executed_at", "notified_at", "channel")
+    if due is None:
+        return Finding("PAY-10", "PAY_DD_WINDOW_EXPIRED",
+                       f"The refund request came on {fmt_d(requested_on)}, after the 8-week window for the direct "
+                       f"debit closed on {fmt_d(closes)} (Law 209/2019, art. 182–185). A human answers the complaint; "
+                       "a debit with no valid mandate can still be an unauthorized payment.", fields,
+                       data={"due": None, "closes": closes})
+    sepa = x.amount.currency.upper() == "EUR"
+    condition = ("No reason is needed (SEPA core direct debit in euro)." if sepa else
+                 "A human checks the conditions of art. 182 (the mandate did not state the exact amount, and the "
+                 "amount exceeded what the payer could reasonably expect), unless the contract gives an unconditional "
+                 "right.")
+    return Finding("PAY-10", "PAY_DD_REFUND",
+                   f"The direct debit refund was requested within 8 weeks of the debit (by {fmt_d(closes)}). The bank "
+                   f"refunds or answers with reasons by {fmt_d(due)}, 10 business days from the request "
+                   f"(Law 209/2019, art. 182–185). {condition} The amount is claimed from the payee's bank through "
+                   "the direct debit scheme, not by a credit transfer recall.", fields,
+                   data={"due": end_of_day(due), "closes": closes, "unconditional": sepa},
+                   deadlines=(Deadline(rule_id="PAY-10", name="Direct debit refund answer (10 business days)",
+                                       due_at=end_of_day(due), basis="Law 209/2019, art. 182–185",
+                                       business_days=True),))
 
 
 def refund_can_be_withheld(payer_fraud_suspected: bool, grounds_sent_to_authority: bool) -> bool:

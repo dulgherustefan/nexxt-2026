@@ -11,8 +11,8 @@ from __future__ import annotations
 from versoml.contracts import Confidence, Decision, DisputeType, Question, RationaleLine, Verdict
 
 from ..context import RuleContextExt
-from ..facts import cite
-from ..registry import rule
+from ..facts import Env, cite
+from ..registry import Finding, rule
 
 S = Confidence.S
 SRC = "docs/context/11 §2.7"
@@ -49,6 +49,28 @@ def apply_human_review(decision: Decision, x: RuleContextExt, *, reason: str | N
         "requires_human": True, "decided_by": "rules+human", "rule_ids": rule_ids,
         "rationale": [*decision.rationale, RationaleLine(text=text, cites=cites)],
     })
+
+
+VULNERABILITY_LABELS = {"varsta": "age", "boala": "illness", "doliu": "bereavement", "constrangere": "coercion",
+                        "confuzie": "confusion"}
+
+
+@rule("DP-04", title="A vulnerable customer always goes to a person and is never refused on gross negligence",
+      basis="Good practice: UK PSR PS25/5 (vulnerability overrides the consumer standard of caution); PSR recital 82 "
+            "(Council text ST-8221-2026-INIT, future law)", confidence=Confidence.U, pack="DP", source=SRC,
+      questions=(Question.RAMBURSARE_T1, Question.RECUPERARE_CLIENT), exceptions=("DP_VULNERABLE_CUSTOMER",),
+      tests=("VU-01",))
+def dp_04_vulnerable_customer(x: RuleContextExt, env: Env) -> Finding | None:
+    """The complaint shows signs of vulnerability (age, illness, bereavement, coercion, confusion), each backed by an
+    exact quote. Every decision on the case goes to a person, and gross negligence is never a ground to recover the
+    loss from the customer. This is good practice, not a statutory duty under Law 209/2019."""
+    if not x.vulnerability_signals:
+        return None
+    listed = ", ".join(VULNERABILITY_LABELS.get(k, k) for k in x.vulnerability_signals)
+    return Finding("DP-04", "DP_VULNERABLE_CUSTOMER",
+                   f"The complaint shows signs of vulnerability ({listed}). A person handles the case, and gross "
+                   "negligence is not used against the customer.", ("vulnerability_signals",),
+                   data={"signals": list(x.vulnerability_signals)})
 
 
 @rule("DP-03", title="Every decision states its rule, legal basis and explanation", basis="CJEU ruling C-203/22 "

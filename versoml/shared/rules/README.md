@@ -32,10 +32,10 @@ poate trimite și prin `params`.
 
 | Pachet | Sursa | Reguli |
 |---|---|---|
-| PAY | docs/context/11 §2.5 (Legea 209/2019, C-70/25) | PAY-01…09, PAY-12, PAY-15; PAY-10 calculator |
+| PAY | docs/context/11 §2.5 (Legea 209/2019, C-70/25) | PAY-01…10 (PAY-10: debitul direct, 8 săptămâni), PAY-12, PAY-15 |
 | DSP | docs/context/14 (Visa Core Rules, Mastercard [S]) | DSP-03, 16, 20–34, 37, 40, 42, 43, 50–55, 57–59 |
 | CMP | docs/context/11 §2.6 | CMP-01…04 (+ verificarea scrisorii: puncte, căi de sesizare) |
-| DP | docs/context/11 §2.7 | DP-02 (GDPR art. 22, gardă), DP-03 (explicație, gardă) |
+| DP | docs/context/11 §2.7 | DP-02 (GDPR art. 22, gardă), DP-03 (explicație, gardă), DP-04 (client vulnerabil, bună practică [U]) |
 | AML | docs/context/11 §2.2 (Legea 129/2019 art. 6–8) | AML-01…09, doar în `evaluate_aml` |
 | **REC** | **extensie**: docs/05 §3–4, ghidurile EPC | REC-01 camt.056 FRAD [S], REC-02 15 zile bancare SCT Inst [S], REC-03 beneficiar BDEM [U], REC-04 RON [U], REC-05 fereastra [U] |
 | **URM** | **extensie**: docs/05 §3–5 | URM-01 AI Act art. 5(1)(d) [S], URM-02 tipping-off art. 38(2)/47(1) [S], URM-03 semnale de risc [U], URM-04 propunere RTS [U] |

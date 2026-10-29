@@ -555,8 +555,9 @@ if (DIST / "assets").exists():
 def spa(path: str):
     if path.startswith(("api/", "diode/", "mcp")):
         raise HTTPException(404)
-    target = DIST / path
-    if path and target.is_file():
+    target = (DIST / path).resolve()
+    # a decoded path can climb out of dist/ (../ or %2e%2e%2f): only serve files inside it
+    if path and target.is_relative_to(DIST.resolve()) and target.is_file():
         return FileResponse(target)
     index = DIST / "index.html"
     if index.exists():

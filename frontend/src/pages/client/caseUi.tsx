@@ -15,7 +15,13 @@ export interface StatusView {
   group: "you" | "running" | "closed";
 }
 
-export function caseStatus(status: string | null | undefined, requiresHuman = false): StatusView {
+/**
+ * `verdict` matters for a case the agents have finished without closing it: missing details wait on a person
+ * (who asks the customer), and a dispute outside the refund rule goes the normal complaint route.
+ */
+export function caseStatus(status: string | null | undefined, requiresHuman = false, verdict?: string | null): StatusView {
+  if (status === "IN_ANALIZA" && verdict === "INFORMATII_SUPLIMENTARE") return { label: "Missing details", tone: "now", group: "you" };
+  if (status === "IN_ANALIZA" && verdict === "NU_SE_APLICA_T1") return { label: "Normal complaint route", tone: "neutral", group: "closed" };
   switch (status) {
     case "ASTEAPTA_APROBARE":
       return { label: "Needs approval", tone: "now", live: true, group: "you" };
@@ -40,8 +46,8 @@ export function caseStatus(status: string | null | undefined, requiresHuman = fa
   }
 }
 
-export function StatusLine({ status, requiresHuman }: { status?: string | null; requiresHuman?: boolean }) {
-  const s = caseStatus(status, requiresHuman);
+export function StatusLine({ status, requiresHuman, verdict }: { status?: string | null; requiresHuman?: boolean; verdict?: string | null }) {
+  const s = caseStatus(status, requiresHuman, verdict);
   return (
     <span className={cx("inline-flex items-center gap-2 whitespace-nowrap", s.tone === "danger" ? "text-danger" : s.tone === "ok" ? "text-ok" : "text-ink-soft")}>
       <Dot tone={s.tone} live={s.live} />

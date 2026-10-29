@@ -10,7 +10,7 @@ import { caseStatus, scenarioLabel, StatusLine } from "./caseUi";
 type Filter = "you" | "running" | "today" | "closed" | "all";
 
 // one source for the groups: the same function that gives the status label
-const group = (c: CaseSummary) => caseStatus(String(c.status), c.requires_human).group;
+const group = (c: CaseSummary) => caseStatus(String(c.status), c.requires_human, c.verdict).group;
 const needsYou = (c: CaseSummary) => group(c) === "you";
 const isClosed = (c: CaseSummary) => group(c) === "closed";
 
@@ -210,7 +210,7 @@ function CaseList({ cases, onOpen }: { cases: CaseSummary[]; onOpen: (id: string
       </div>
       <ul className="divide-y divide-line">
         {cases.map((c) => {
-          const s = caseStatus(String(c.status), c.requires_human);
+          const s = caseStatus(String(c.status), c.requires_human, c.verdict);
           return (
             <li key={c.case_id}>
               <button
@@ -243,7 +243,7 @@ function CaseList({ cases, onOpen }: { cases: CaseSummary[]; onOpen: (id: string
                 </span>
                 <span className="tnum text-right font-medium md:hidden">{hasAmount(c.amount) ? money(c.amount) : "—"}</span>
                 <span className="text-[0.8667rem] md:text-[0.9333rem]" title={statusTitle(c)}>
-                  <StatusLine status={String(c.status)} requiresHuman={c.requires_human} />
+                  <StatusLine status={String(c.status)} requiresHuman={c.requires_human} verdict={c.verdict} />
                 </span>
                 <span className="text-right text-[0.8667rem] md:text-left md:text-[0.9333rem]">
                   <DeadlineText deadline={c.deadline} done={isClosed(c)} />

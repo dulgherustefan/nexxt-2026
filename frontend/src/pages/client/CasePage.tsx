@@ -198,7 +198,8 @@ const CLOSED = ["RAMBURSAT", "RESPINS", "INCHIS", "EXCEPTIE", "TRASEU_APP"];
 /** Where the case stands on each of its five parts, read from the case itself. */
 function journey(d: CaseDetail): JourneyStep[] {
   const status = String(d.summary.status);
-  const working = status === "IN_ANALIZA" || status === "NOU";
+  // a sealed case is finished even when its status stays open (missing details, the normal complaint route)
+  const working = (status === "IN_ANALIZA" || status === "NOU") && !d.ledger?.sealed;
   const pick = isPickPending(d);
   const signing = Boolean(d.interrupt?.pending) && !pick;
   const refund = d.decisions?.find((x) => x.question === "rambursare_t1");
@@ -385,7 +386,7 @@ function BackLink() {
 function CaseHeader({ d }: { d: CaseDetail }) {
   const s = d.summary;
   const deadline = d.clock?.t1_deadline ?? s.deadline;
-  const closed = ["RAMBURSAT", "RESPINS", "INCHIS", "EXCEPTIE", "TRASEU_APP"].includes(String(s.status));
+  const closed = ["RAMBURSAT", "RESPINS", "INCHIS", "EXCEPTIE", "TRASEU_APP"].includes(String(s.status)) || s.verdict === "NU_SE_APLICA_T1";
   return (
     <div className="flex flex-col gap-4">
       <BackLink />
@@ -414,7 +415,7 @@ function CaseHeader({ d }: { d: CaseDetail }) {
         <dl className="flex flex-wrap items-end gap-x-10 gap-y-3">
           <div>
             <dt className="text-[0.8rem] text-muted">Status</dt>
-            <dd className="mt-1 text-[0.9333rem] font-medium"><StatusLine status={String(s.status)} requiresHuman={s.requires_human} /></dd>
+            <dd className="mt-1 text-[0.9333rem] font-medium"><StatusLine status={String(s.status)} requiresHuman={s.requires_human} verdict={s.verdict} /></dd>
           </div>
           <div>
             <dt className="text-[0.8rem] text-muted">Refund due {deadline ? `· ${dateTime(deadline)}` : ""}</dt>

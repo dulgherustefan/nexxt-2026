@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
@@ -21,6 +22,7 @@ from versoml import __version__
 from versoml.config import ROOT
 from versoml.contracts import Zone
 from versoml.secrets import install_log_redaction
+from versoml.shared import ratelimit
 from versoml.shared.events import TICKER
 from versoml.zone_client.service import get_service
 
@@ -116,6 +118,26 @@ async def cache_built_assets(request: Request, call_next):
     if request.url.path.startswith("/assets/") and response.status_code == 200:
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     return response
+
+
+# What reaches Bedrock from the website: a case run (directly, or from a Demo Bank dispute) and a knowledge answer.
+LIMITED = [(re.compile(r"^/api/cases/[^/]+/run$"), "case_run"), (re.compile(r"^/api/bank/[^/]+/dispute$"), "case_run"),
+           (re.compile(r"^/api/kb/ask$"), "kb_ask")]
+
+
+@app.middleware("http")
+async def public_limits(request: Request, call_next):
+    """Per-person and shared limits on the calls that cost Bedrock time, so a public demo stays inside the quota."""
+    if request.method == "POST":
+        for pattern, policy in LIMITED:
+            if pattern.match(request.url.path):
+                refusal = ratelimit.check(policy, ratelimit.caller_of(request.headers))
+                if refusal:
+                    log.info("limit %s reached", refusal.policy)
+                    return JSONResponse({"detail": refusal.text()}, status_code=429,
+                                        headers={"Retry-After": str(refusal.retry_after)})
+                break
+    return await call_next(request)
 
 
 def svc():

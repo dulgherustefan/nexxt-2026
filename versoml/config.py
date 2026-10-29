@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     # URL-urile prin care zonele se văd între ele (în docker: http://client:8000, http://aml:8001)
     versoml_client_url: str | None = None
     versoml_aml_url: str | None = None
+    # Public access (the demo tunnel) and the limits that keep it inside the Bedrock quota
+    versoml_public_hosts: str = "footpad-outpour-overrule.ngrok-free.dev"
+    versoml_llm_max_concurrency: int = 6
+    versoml_case_runs_per_caller: int = 5  # per 10 minutes
+    versoml_case_runs_per_hour: int = 40  # every entry point together
+    versoml_kb_asks_per_caller: int = 10  # per 10 minutes
+    versoml_kb_asks_per_hour: int = 120
+    versoml_mcp_calls_per_caller: int = 60  # per minute
+
     # Secretul comun doar pentru dioda de date (generat la prima rulare dacă lipsește)
     versoml_diode_secret: SecretStr | None = None
 

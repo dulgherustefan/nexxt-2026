@@ -372,13 +372,14 @@ function Balance({ state, txs, now }: { state: BankState; txs: BankTransaction[]
     };
   }, [state.balance]);
 
-  const refund = useMemo(
-    () =>
-      txs
-        .filter((t) => isRefundTx(t) && now - new Date(t.ts).getTime() < 24 * 3600_000)
-        .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())[0],
-    [txs, now],
-  );
+  // the chip tells the latest news only: a refund older than the latest payment out belongs to an earlier dispute
+  const refund = useMemo(() => {
+    const at = (t: BankTransaction) => new Date(t.ts).getTime();
+    const latestOut = Math.max(0, ...txs.filter((t) => isOut(t)).map(at));
+    return txs
+      .filter((t) => isRefundTx(t) && now - at(t) < 24 * 3600_000 && at(t) > latestOut)
+      .sort((a, b) => at(b) - at(a))[0];
+  }, [txs, now]);
   const ok = typeof state.balance === "number" && Number.isFinite(state.balance);
 
   return (

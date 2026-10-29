@@ -200,6 +200,7 @@ const STATUS: Record<CaseStatus, string> = {
   TRASEU_APP: "APP fraud review",
   INCHIS: "Closed",
   REFUZAT: "Declined",
+  COADA_MANUALA: "Manual queue",
 };
 
 export function statusLabel(s: string | null | undefined): string {
@@ -259,6 +260,7 @@ export function statusTone(s: string | null | undefined): Tone {
       return "ink";
     case "ASTEAPTA_APROBARE":
     case "EXCEPTIE":
+    case "COADA_MANUALA":
       return "alert";
     case "IN_ANALIZA":
       return "yellow";

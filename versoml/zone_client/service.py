@@ -39,6 +39,38 @@ SCENARIO_TITLES = {
 }
 QUESTION_LABELS = {"rambursare_t1": "the next-business-day refund", "recuperare_client": "recovery from the customer",
                    "recuperare_escroc": "recovery from the scammer", "raspuns_reclamatie": "the complaint reply"}
+# a run that failed: a person handles the case, and the refund deadline keeps running
+MANUAL_QUEUE = "COADA_MANUALA"
+# the refund (or the rejection) is settled: no deadline left to watch
+SETTLED = ("RAMBURSAT", "RESPINS", "EXCEPTIE", "INCHIS")
+
+
+def deadline_escalation(doc: dict, at: datetime) -> dict | None:
+    """Deterministic: is a case nobody has settled close to or past its deadline? The refund deadline counts while
+    the refund is open (a declined refund, a pending signature and the manual queue included); once the
+    next-business-day rule does not apply, the written answer's deadline does. None when nothing is at risk."""
+    from versoml.shared.rules import calendar_ro, get_params
+
+    if not doc.get("case_id") or doc.get("status") in SETTLED:
+        return None
+    params = get_params()
+    if doc.get("verdict") == Verdict.NU_SE_APLICA_T1.value or doc.get("status") == "TRASEU_APP":
+        what, due = "written answer", A.parse_dt((doc.get("clock") or {}).get("answer_deadline"))
+        lead = params["complaint_alert_lead_business_days"]
+        close = due is not None and calendar_ro.business_days_between(at, due) <= lead
+    else:
+        received = A.parse_dt(doc.get("received_at"))
+        what = "refund"
+        due = A.parse_dt(doc.get("deadline")) or (calendar_ro.end_of_next_business_day(received) if received else None)
+        close = due is not None and (due - at).total_seconds() <= params["refund_sla_alert_hours"] * 3600
+    if due is None or not close:
+        return None
+    left = int((due - at).total_seconds())
+    when = fmt.fmt_datetime(due)
+    message = (f"The {what} deadline ({when}) has passed: escalate now" if left < 0 else
+               f"The {what} deadline ({when}) is {left / 3600:.1f} hours away: this case has priority")
+    return {"level": "breached" if left < 0 else "at_risk", "what": what, "deadline": due.isoformat(),
+            "seconds_left": left, "message": message}
 
 
 def _remap(value: Any, renames: dict[str, str], delta: timedelta) -> Any:
@@ -226,11 +258,35 @@ class ClientService:
                                                                                      "status": doc.get("status")})
         except Exception as exc:  # noqa: BLE001 - the error shows in the trace and does not stop the server
             log.exception("run %s failed", case_id)
-            self.rt.cases.update(case_id, {"status": "EROARE", "error": str(exc)[:300]})
-            await em.run_error(f"Error: {str(exc)[:200]}")
+            await self._to_manual_queue(case_id, em, exc)
+
+    async def _to_manual_queue(self, case_id: str, em: Emitter, exc: Exception) -> None:
+        """A run that fails hands the case to a person instead of stopping quietly (a RawPIIError included): the
+        refund deadline keeps running from the customer's report while the case waits in the manual queue."""
+        from versoml.shared.rules.calendar_ro import end_of_next_business_day
+
+        doc = self.rt.cases.get(case_id) or {}
+        received = A.parse_dt(doc.get("received_at")) or now()
+        deadline = doc.get("deadline") or end_of_next_business_day(received).isoformat()
+        why = ("personal data would have reached the model unmasked, so the run stopped before the call"
+               if type(exc).__name__ == "RawPIIError" else f"the run stopped on an error ({type(exc).__name__})")
+        queue = {"since": now().isoformat(), "reason": why, "deadline": deadline}
+        # the run is over, so pollers stop waiting; the case is not: a person takes it from here
+        self.rt.cases.update(case_id, {"status": MANUAL_QUEUE, "error": str(exc)[:300], "deadline": deadline,
+                                       "manual_queue": queue, "finished_at": now().isoformat()})
+        try:
+            self.rt.ledger.append(case_id, "case.manual_queue", "service.run", {"error": type(exc).__name__}, queue,
+                                  f"The case went to the manual queue: {why}. The refund deadline "
+                                  f"({fmt.fmt_datetime(deadline)}) still applies")
+            if (doc.get("ledger") or {}).get("sealed"):
+                self.rt.ledger.seal(case_id)  # the new evidence item goes under a new seal
+        except Exception as err:  # noqa: BLE001 - the case document keeps the queue entry anyway
+            log.warning("manual queue fact for %s: %s", case_id, type(err).__name__)
+        await em.run_error(f"Error: {str(exc)[:200]}. The case is in the manual queue; the refund deadline "
+                           f"({fmt.fmt_datetime(deadline)}) still applies")
 
     async def approve(self, case_id: str, action: str, note: str | None = None, approver: str | None = None,
-                      tx_id: str | None = None) -> dict:
+                      tx_id: str | None = None, reason_code: str | None = None) -> dict:
         doc = self.rt.cases.get(case_id) or {}
         pending = doc.get("interrupt") or {}
         if not pending.get("pending") or pending.get("resuming"):
@@ -242,12 +298,19 @@ class ClientService:
                     else "This case waits for approve or reject, not for a payment pick."}
         if picking and tx_id is not None and tx_id not in {c.get("tx_id") for c in pending.get("candidates") or []}:
             return {"ok": False, "status": doc.get("status"), "detail": "That payment is not one of the candidates."}
-        # one resume per thread: a double click does not start two resumes of the same graph
-        self.rt.cases.update(case_id, {"interrupt": {**pending, "resuming": True}})
-        run_id = doc.get("run_id", "run")
         answer = {"action": action, "note": note, "approver": approver or "OPERATOR-01"}
         if picking:
             answer["tx_id"] = tx_id
+        else:
+            # a signature carries its reason: a code that fits the action and a text (the note, or the question the
+            # person answered), sealed in the ledger with it
+            reason = A.signature_reason(action, reason_code, note, pending.get("prompt"))
+            if "error" in reason:
+                return {"ok": False, "status": doc.get("status"), "detail": reason["error"]}
+            answer.update(reason)
+        # one resume per thread: a double click does not start two resumes of the same graph
+        self.rt.cases.update(case_id, {"interrupt": {**pending, "resuming": True}})
+        run_id = doc.get("run_id", "run")
         resume = Command(resume=answer)
         self._spawn(self._drive(case_id, run_id, resume))
         return {"ok": True, "status": "IN_ANALIZA"}
@@ -284,6 +347,10 @@ class ClientService:
             "verdict": doc.get("verdict"), "deadline": deadline, "sla_seconds_left": left,
             "requires_human": bool(t1.get("requires_human")) or bool((doc.get("interrupt") or {}).get("pending")),
             "dispute_type": doc.get("dispute_type"),
+            "escalation": deadline_escalation(doc, now()),
+            # what the console flags for the person: a reading without a live model, the text against the records
+            "llm_degraded": doc.get("llm_mode") in ("replay", "offline"),
+            "type_conflict": bool(doc.get("classification_conflict")),
         }
 
     def detail(self, case_id: str) -> dict | None:
@@ -317,7 +384,9 @@ class ClientService:
             "interrupt": doc.get("interrupt") or {"pending": False}, "hold": doc.get("hold") or {"received": False},
             "ledger": self.rt.ledger.summary(case_id),
             "aml_referral": doc.get("aml_referral"), "decision_seconds": doc.get("decision_seconds"),
-            "llm_mode": doc.get("llm_mode"),
+            "llm_mode": doc.get("llm_mode"), "classification_conflict": doc.get("classification_conflict"),
+            "tasks": doc.get("tasks") or [], "refund": doc.get("refund"), "signature": doc.get("signature"),
+            "manual_queue": doc.get("manual_queue"),
             "story": self._story(doc, facts),
         }
 
@@ -379,9 +448,7 @@ class ClientService:
                 recoverable += value
             if d.get("decision_seconds"):
                 seconds.append(float(d["decision_seconds"]))
-            summary = self._summary(d)
-            if summary["sla_seconds_left"] is not None and 0 < summary["sla_seconds_left"] < 6 * 3600 \
-                    and d.get("status") not in ("RAMBURSAT", "RESPINS", "INCHIS"):
+            if deadline_escalation(d, now()):
                 at_risk += 1
         open_ = sum(v for k, v in by_status.items() if k not in ("RAMBURSAT", "RESPINS", "INCHIS", "EXCEPTIE"))
         return {"today": self._today(cases), "cases_total": len(cases), "open": open_,
@@ -403,7 +470,7 @@ class ClientService:
 
         received = [d for d in cases if on_today(d.get("received_at"))]
         refunded = [d for d in cases if d.get("status") == "RAMBURSAT" and on_today(d.get("refunded_at"))]
-        decided = [d for d in cases if on_today(d.get("finished_at"))]
+        decided = [d for d in cases if on_today(d.get("finished_at")) and d.get("status") != MANUAL_QUEUE]
         return {"date": today.isoformat(), "timezone": "Europe/Bucharest", "received": len(received),
                 "decided": len(decided), "refunded": len(refunded),
                 "amount_refunded": round(sum(float((d.get("amount") or {}).get("value") or 0) for d in refunded), 2),

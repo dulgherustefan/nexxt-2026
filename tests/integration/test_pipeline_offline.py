@@ -23,11 +23,12 @@ from versoml.config import get_settings
 seed_all(settings=get_settings())
 from versoml.zone_client.service import get_service
 
-async def run(sid, action="approve"):
+async def run(sid, action="approve", case_id=None):
     s = get_service()
     await s.graph()
-    case_id = s.create_case(sid)
-    await s.run_case(case_id)
+    if case_id is None:
+        case_id = s.create_case(sid)
+        await s.run_case(case_id)
     prompts = []
     for _ in range(400):
         await asyncio.sleep(0.25)
@@ -48,6 +49,12 @@ async def run(sid, action="approve"):
             "nodes": {n["id"]: n.get("status") for n in d["pipeline"]["nodes"]},
             "rejected_by": d["summary"].get("rejected_by"), "finished": bool((s.rt.cases.get(case_id) or {}).get("finished_at")),
             "standard": d.get("standard"),
+            "interrupts": [e.data for e in s.rt.bus.history(case_id) if e.name == "interrupt"],
+            "tasks": d.get("tasks"), "refund": d.get("refund"), "summary": d["summary"],
+            "hits": [[h["rule_id"], h["outcome"]] for h in (d.get("rules") or {}).get("hits", [])],
+            "rule_ids": {x["question"]: x["rule_ids"] for x in d["decisions"]},
+            "context": {k: (d.get("rule_context") or {}).get(k) for k in ("executed_at", "loss_reported_at", "llm_mode")},
+            "signatures": [f["content"] for f in d["facts"] if f["kind"] == "human.signature"],
             "verify": s.rt.ledger.verify(case_id).get("valid")}
 
 async def main():
@@ -55,6 +62,13 @@ async def main():
     for sid in ["demo_t1", "card_visa_secure", "reclamatie_tardiva", "frauda_client"]:
         out[sid] = await run(sid)
     out["declined"] = await run("frauda_client", "reject")
+    out["app"] = await run("vishing_securitate")
+    out["app_not_confirmed"] = await run("cont_sigur", "reject")
+    # the customer of demo_t1 told the bank already; a debit after that moment is disputed in a new case
+    s = get_service()
+    tx = s.demo_scam("CUST-DEMO-01")
+    case_id = await s.bank_dispute("CUST-DEMO-01", tx["transaction_id"], "I did not make this one either.")
+    out["after_notice"] = await run(None, case_id=case_id)
     print("RESULT" + json.dumps(out), flush=True)
     await get_service().close()
 
@@ -143,9 +157,58 @@ def test_sign_off_prompt_names_the_real_reason(results):
     assert "the customer has risk signals" in prompt and "over the cap" not in prompt
 
 
-@pytest.mark.parametrize("sid", ["demo_t1", "card_visa_secure", "reclamatie_tardiva", "frauda_client"])
+@pytest.mark.parametrize("sid", ["demo_t1", "card_visa_secure", "reclamatie_tardiva", "frauda_client", "app",
+                                 "app_not_confirmed", "after_notice"])
 def test_what_a_person_reads_is_english(results, sid):
     r = results[sid]
     texts = r["summaries"] + r["fact_summaries"] + r["messages"] + r["prompts"]
     romanian = [t for t in texts if t and ROMANIAN.search(re.sub(r"https?://\S+|\b[\w.-]+\.(?:example|test)\b", "", t))]
     assert romanian == [], romanian[:5]
+
+
+def test_an_app_route_waits_for_a_signature_with_a_reason(results):
+    r = results["app"]
+    assert r["decisions"]["rambursare_t1"] == "NU_SE_APLICA_T1" and r["status"] == "TRASEU_APP"
+    [prompt] = r["prompts"]
+    assert "does not apply" in prompt and "refunded by" in prompt
+    assert r["interrupts"][0]["deadline"]                          # the refund clock travels with the question
+    [signature] = r["signatures"]
+    assert signature["reason_code"] == "FACTS_CONFIRMED" and signature["reason_text"] and signature["note"] == "test"
+
+
+def test_a_route_a_person_does_not_confirm_is_refunded_on_their_signature(results):
+    r = results["app_not_confirmed"]
+    assert r["status"] == "RAMBURSAT" and r["decisions"]["rambursare_t1"] == "RAMBURSEAZA_CU_APROBARE"
+    assert r["signatures"][0]["reason_code"] == "FACTS_DISPUTED"
+    assert "We have refunded the full amount" in r["body"]          # the letter follows the signed decision
+
+
+def test_the_refund_goes_to_the_account_debited_and_records_the_customers_share(results):
+    r = results["demo_t1"]
+    refund = r["refund"]
+    assert refund["amount"] == refund["debited"] == 3200.0 and refund["currency"] == "RON"
+    assert refund["to_account"].startswith("RO") and "•" in refund["to_account"]
+    assert refund["retained"] is False and refund["payer_liability"] == 150.0      # EUR 30 at the [U] rate, waived
+
+
+def test_a_reading_without_a_live_model_is_flagged_and_signed(results):
+    r = results["demo_t1"]
+    assert r["context"]["llm_mode"] == "offline" and r["summary"]["llm_degraded"] is True
+    assert ["DSP-57", "extragere_de_confirmat"] in r["hits"]
+    assert r["decisions"]["rambursare_t1"] == "RAMBURSEAZA_CU_APROBARE" and r["prompts"]
+    assert "read without a live model" in r["prompts"][0]
+
+
+def test_reporting_an_unauthorized_payment_opens_a_block_task_and_a_decline_a_reply_task(results):
+    [block] = [t for t in results["demo_t1"]["tasks"] if t["kind"] == "block_instrument"]
+    assert block["due_at"] and block["status"] == "open" and "177" in block["basis"]
+    reply = next(t for t in results["declined"]["tasks"] if t["kind"] == "written_answer")
+    assert reply["due_at"] and "224" in reply["basis"]
+
+
+def test_a_debit_after_the_customers_report_is_the_banks_loss(results):
+    r = results["after_notice"]
+    assert r["context"]["loss_reported_at"] < r["context"]["executed_at"]
+    assert ["PAY-04", "raspundere_0"] in r["hits"] and ["DSP-58", "ancora_constatare"] in r["hits"]
+    assert "PAY-04" in r["rule_ids"]["recuperare_client"] and r["decisions"]["recuperare_client"] == "NU_RECOMANDAM_RECUPERARE"
+    assert r["status"] == "RAMBURSAT" and r["refund"]["payer_liability"] == 0.0

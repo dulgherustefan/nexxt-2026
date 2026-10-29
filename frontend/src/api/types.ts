@@ -381,7 +381,9 @@ export type CaseStatus =
   | "TRASEU_APP"
   | "INCHIS"
   /** A person declined the refund: VersoML stopped and the case is handled by hand. */
-  | "REFUZAT";
+  | "REFUZAT"
+  /** The run failed (a privacy stop included): a person handles the case and the refund deadline still runs. */
+  | "COADA_MANUALA";
 
 export type ModelRole = "opus" | "sonnet" | "haiku";
 
@@ -451,6 +453,59 @@ export interface CaseSummary {
   rejected_by?: string | null;
   rejected_at?: ISODate | null;
   approved_at?: ISODate | null;
+  /** Close to or past the refund (or written answer) deadline, on a case nobody has settled. */
+  escalation?: CaseEscalation | null;
+  /** The complaint was read from a recorded answer or by pattern matching, not by a live model. */
+  llm_degraded?: boolean;
+  /** The complaint's text and the bank's records disagree on the kind of claim. */
+  type_conflict?: boolean;
+}
+
+export interface CaseEscalation {
+  level: "at_risk" | "breached";
+  what: "refund" | "written answer" | string;
+  deadline: ISODate;
+  seconds_left: number;
+  message: string;
+}
+
+/** The text (M1) against the bank's records: the records decide and a person confirms. */
+export interface ClassificationConflict {
+  text_type: DisputeType | string;
+  fact_type: DisputeType | string;
+  reason: string;
+  fact_id?: string;
+}
+
+/** A follow-up a person owns, with its legal deadline (e.g. block the instrument, write the reasoned answer). */
+export interface CaseTask {
+  kind: "block_instrument" | "written_answer" | string;
+  title: string;
+  due_at: ISODate | null;
+  basis: string;
+  status: "open" | string;
+  created_at?: ISODate;
+  fact_id?: string;
+}
+
+/** What went back to the customer, where, and the customer's share under Law 209/2019, art. 179(1). */
+export interface RefundRecord {
+  amount: number;
+  currency: string;
+  debited: number;
+  to_account?: string | null;
+  payer_liability?: number | null;
+  cap?: number | null;
+  retained: boolean;
+  basis: string;
+}
+
+/** The reason behind a signature: a code that fits the action and a text. */
+export interface SignatureReason {
+  reason_code: string | null;
+  reason_text: string;
+  /** False when the text is the question the person answered (no note was given). */
+  reason_from_note: boolean;
 }
 
 export interface DebateArgument {
@@ -517,7 +572,7 @@ export interface Interrupt {
   amount?: number;
   deadline?: ISODate | null;
   rule_ids?: string[];
-  answer?: { action?: string; approver?: string; note?: string; tx_id?: string | null } | null;
+  answer?: ({ action?: string; approver?: string; note?: string; tx_id?: string | null } & Partial<SignatureReason>) | null;
   /** Zona AML: recomandarea regulilor (de ex. „RTS_PROPUS”) atașată întreruperii. */
   recommendation?: string | null;
   /** `kind: "pick_transaction"`: the payments a person picks from. */
@@ -560,6 +615,11 @@ export interface CaseDetail {
   standard?: StandardRecord | null;
   /** One plain-language sentence per decision, with the rule behind it. */
   reasons?: DecisionReason[];
+  classification_conflict?: ClassificationConflict | null;
+  tasks?: CaseTask[];
+  refund?: RefundRecord | null;
+  signature?: SignatureReason | null;
+  manual_queue?: { since: ISODate; reason: string; deadline: ISODate } | null;
 }
 
 // ------------------------------------------------------------------ identification, routing, knowledge
@@ -756,6 +816,8 @@ export interface ApproveBody {
   action: ApproveAction;
   note?: string;
   approver?: string;
+  /** With approve or reject: why (e.g. FACTS_CONFIRMED, FACTS_DISPUTED, OTHER with a note). */
+  reason_code?: string;
   /** With `pick_transaction`: the payment the person picked, or null for "none of these". */
   tx_id?: string | null;
 }

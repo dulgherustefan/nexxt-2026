@@ -547,10 +547,14 @@ class ClientRepo(_Repo):
                 "currency": "RON", "ts": iso(ts), "status": "booked", "balance_after": new_balance,
                 "session_id": session_id, "device_id": device_id, "created": True}
 
-    def post_refund(self, case_id: str, customer_ref: str, amount: float, idempotency_key: str) -> dict:
+    def post_refund(self, case_id: str, customer_ref: str, amount: float, idempotency_key: str, *,
+                    account_iban: str | None = None, currency: str = "RON") -> dict:
         """Rambursare (instrucțiune simulată, emisă de motorul de reguli). Aceeași cheie => același rezultat,
-        fără a credita încă o dată. Reutilizarea cheii pentru alt caz sau altă sumă e o eroare."""
+        fără a credita încă o dată. Reutilizarea cheii pentru alt caz, altă sumă sau altă monedă e o eroare.
+        Banii se întorc în contul debitat (`account_iban`; implicit contul principal), în moneda plății: un cont
+        în altă monedă e o eroare, nu o conversie."""
         amount = round(float(amount), 2)
+        currency = (currency or "RON").upper()
         if amount <= 0:
             raise ValueError("the amount must be positive")
         if not idempotency_key:
@@ -560,20 +564,29 @@ class ClientRepo(_Repo):
             old = c.execute("SELECT * FROM refunds WHERE idempotency_key=?", (idempotency_key,)).fetchone()
             if old is not None:
                 o = row_to_dict(old)
-                if o["case_id"] != case_id or o["customer_ref"] != customer_ref or abs(o["amount"] - amount) > 0.005:
-                    raise ValueError("idempotency_key was already used for another case or another amount")
-                bal = c.execute("SELECT balance FROM accounts WHERE customer_ref=? ORDER BY is_primary DESC LIMIT 1",
-                                (customer_ref,)).fetchone()[0]
-                return {**o, "balance_after": round(bal, 2), "created": False, "idempotent_replay": True}
-            acc = c.execute("SELECT * FROM accounts WHERE customer_ref=? ORDER BY is_primary DESC, iban LIMIT 1",
-                            (customer_ref,)).fetchone()
+                if o["case_id"] != case_id or o["customer_ref"] != customer_ref or abs(o["amount"] - amount) > 0.005 \
+                        or (o.get("currency") or "RON") != currency:
+                    raise ValueError("idempotency_key was already used for another case, amount or currency")
+                credited = c.execute("SELECT account_iban FROM transactions WHERE tx_id=?", (o["tx_id"],)).fetchone()
+                bal = c.execute("SELECT balance FROM accounts WHERE iban=?", (credited[0],)).fetchone()[0]
+                return {**o, "account_iban": credited[0], "balance_after": round(bal, 2), "created": False,
+                        "idempotent_replay": True}
+            if account_iban:
+                acc = c.execute("SELECT * FROM accounts WHERE customer_ref=? AND iban=?",
+                                (customer_ref, account_iban)).fetchone()
+            else:
+                acc = c.execute("SELECT * FROM accounts WHERE customer_ref=? ORDER BY is_primary DESC, iban LIMIT 1",
+                                (customer_ref,)).fetchone()
             if acc is None:
-                raise KeyError(f"unknown customer: {customer_ref}")
+                raise KeyError(f"unknown account for customer {customer_ref}" if account_iban
+                               else f"unknown customer: {customer_ref}")
+            if (acc["currency"] or "RON").upper() != currency:
+                raise ValueError(f"the account is in {acc['currency']}, the refund in {currency}")
             h = hashlib.sha256(idempotency_key.encode()).hexdigest()[:10].upper()
             tx_id, refund_id = f"TX-RF-{h}", f"RF-{h}"
             new_balance = round(acc["balance"] + amount, 2)
             t = {"tx_id": tx_id, "customer_ref": customer_ref, "account_iban": acc["iban"], "direction": "credit",
-                 "kind": "refund", "channel": "internal", "amount": amount, "currency": "RON", "ts": iso(ts),
+                 "kind": "refund", "channel": "internal", "amount": amount, "currency": currency, "ts": iso(ts),
                  "ts_epoch": epoch(ts), "booked_at": iso(ts), "description": f"Refund for dispute {case_id}",
                  "counterparty_name": art.BANK_NAME, "counterparty_iban": None, "status": "booked", "disputable": 0,
                  "case_tag": case_id, "balance_after": new_balance, "idempotency_key": f"refund:{idempotency_key}",
@@ -581,11 +594,13 @@ class ClientRepo(_Repo):
             insert(c, "transactions", [t], list(t))
             c.execute("UPDATE accounts SET balance=? WHERE iban=?", (new_balance, acc["iban"]))
             r = {"refund_id": refund_id, "case_id": case_id, "customer_ref": customer_ref, "amount": amount,
-                 "currency": "RON", "idempotency_key": idempotency_key, "tx_id": tx_id, "ts": iso(ts),
+                 "currency": currency, "idempotency_key": idempotency_key, "tx_id": tx_id, "ts": iso(ts),
                  "status": "executat", "synthetic": 1}
             insert(c, "refunds", [r], list(r))
-            self._notify(c, customer_ref, ts, "rambursare", f"We refunded {fmt_ron(amount)} for dispute {case_id}.")
-        return {**r, "synthetic": True, "balance_after": new_balance, "created": True, "idempotent_replay": False}
+            self._notify(c, customer_ref, ts, "rambursare",
+                         f"We refunded {fmt_ron(amount, currency)} for dispute {case_id}.")
+        return {**r, "account_iban": acc["iban"], "synthetic": True, "balance_after": new_balance, "created": True,
+                "idempotent_replay": False}
 
     # -------- scenarii live
     def apply_scenario(self, bundle: Any) -> dict:

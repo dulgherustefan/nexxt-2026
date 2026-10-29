@@ -42,6 +42,22 @@ def test_replay_key_ignores_english_dates():
     assert a == b and a != c
 
 
+def test_replay_key_carries_the_case_scope():
+    # two complaints that normalize to the same text never share a recording; a rerun of the same one still does
+    a = LLMClient._key("haiku", "s", "Case CT-2026-481516, paid on 29 Oct 2026", "X", scope="c0ffee00c0ffee00")
+    b = LLMClient._key("haiku", "s", "Case CT-2026-234200, paid on 3 Nov 2026", "X", scope="deadbeefdeadbeef")
+    again = LLMClient._key("haiku", "s", "Case CT-2026-999999, paid on 4 Nov 2026", "X", scope="c0ffee00c0ffee00")
+    assert a != b and a == again
+    assert LLMClient._key("haiku", "s", "x", "X", scope="") == LLMClient._key("haiku", "s", "x", "X")
+
+
+def test_a_recording_for_another_case_is_not_replayed(tmp_path, committed):
+    replay = LLMClient(Settings(versoml_var_dir=tmp_path / "var", versoml_llm_mode="replay"))
+    got, info = asyncio.run(replay.structured(role=Role.HAIKU, agent="t", system="s", user="old input", schema=Out,
+                                              scope="c0ffee00c0ffee00", fallback=lambda: Out(verdict="FALLBACK")))
+    assert (got.verdict, info.mode) == ("FALLBACK", "offline")
+
+
 def test_store_reads_every_file_and_writes_only_its_own(tmp_path):
     committed = tmp_path / "committed.jsonl"
     committed.write_text(json.dumps(_row("k1", "A")) + "\n", encoding="utf-8")

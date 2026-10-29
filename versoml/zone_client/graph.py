@@ -25,6 +25,7 @@ class CaseState(TypedDict, total=False):
     complaint: dict
     pseudo: dict
     extracted: dict
+    llm_mode: str
     match: dict
     declared: dict
     classification: dict

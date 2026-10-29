@@ -116,3 +116,13 @@ def test_points_are_copied_exactly_for_cmp_01():
                                                                                             "block that account.")))
     assert letter.points_answered == ["Please give me my money back.", "I think it's a ring, block that account."]
     assert "You also wrote: “I think it's a ring, block that account.”" in body(letter)
+
+
+def test_a_refund_that_keeps_the_customers_share_says_what_went_back():
+    kept = state("RAMBURSEAZA", refunded=True)
+    kept["refund"] = {"done": True, "amount": 3050.0, "currency": "RON", "debited": 3200.0, "payer_liability": 150.0,
+                      "retained": True}
+    text = body(_fallback_letter(kept))
+    assert "We have refunded RON 3,050.00 to your account" in text and "the first RON 150.00" in text
+    assert "full amount" not in text and check_letter(text).passed
+    assert "We have refunded the full amount" in body(_fallback_letter(CASES["refunded"]))

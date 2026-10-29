@@ -167,10 +167,38 @@ ESCALATION_REASONS: dict[str, str] = {
     # the other causes the engine escalates on
     "DSP_SECURITY_SIGNAL": "the complaint text contains instructions or an amount that does not match our records",
     "suma_de_confirmat": "the amount in the customer's document needs checking against our records",
+    "extragere_de_confirmat": "the complaint was read without a live model",
     "PAY_FRAUD_NOTICE_MISSING": "a fraud hold came in but the authority has not been told in writing",
     "DSP_CE3_MET": "earlier undisputed card payments match this one (Visa CE3.0)",
 }
 GENERIC_ESCALATION = "the amount is over the cap or there are risk signals"
+
+# why a person signed the way they did: a code and a text, both sealed with the signature (GDPR art. 22). The
+# first code of each action is the one used until the console sends a code of its own.
+SIGNATURE_REASONS: dict[str, dict[str, str]] = {
+    "approve": {"FACTS_CONFIRMED": "the facts in the case file support the proposed decision",
+                "OTHER": "another reason, given in the text"},
+    "reject": {"FACTS_DISPUTED": "the facts in the case file do not support the proposed decision",
+               "FRAUD_SUSPECTED": "a suspicion of fraud by the customer, to be reported to the authority in writing",
+               "EVIDENCE_MISSING": "evidence the decision needs is missing",
+               "OTHER": "another reason, given in the text"},
+}
+
+
+def signature_reason(action: str, code: str | None, note: str | None, prompt: str | None) -> dict:
+    """The reason behind an approve or a reject: a code that fits the action and a text. The text is the person's
+    note; without one it is the question they answered, and `reason_from_note` says so. {"error": ...} when the
+    reason cannot be accepted."""
+    codes = SIGNATURE_REASONS.get(action) or {}
+    code = (code or next(iter(codes), "")).strip().upper()
+    if code not in codes:
+        return {"error": f"Reason code {code or '(none)'} does not fit {action}: use one of {', '.join(codes)}."}
+    text = (note or "").strip()
+    if code == "OTHER" and not text:
+        return {"error": "OTHER needs the reason written in the note."}
+    if len(text) > 1000:
+        return {"error": "Keep the reason under 1,000 characters."}
+    return {"reason_code": code, "reason_text": text or prompt or codes[code], "reason_from_note": bool(text)}
 
 
 def escalation_reasons(hits: list[dict] | None) -> list[str]:
@@ -236,6 +264,14 @@ def wrap_data(tag: str, text: str) -> str:
     the block itself. The ID is 16 hex characters: the LLM client strips those from replay keys."""
     rid = secrets.token_hex(8)
     return f'<{tag} id="{rid}">\n{text}\n</{tag} id="{rid}">'
+
+
+def replay_scope(state: dict) -> str:
+    """The case's part of every replay key: a hash of what the customer sent and who sent it. A rerun of the same
+    complaint still replays; a recording made for another complaint never answers this one."""
+    complaint = state.get("complaint") or {}
+    blob = _json([complaint.get("customer_ref"), complaint.get("text"), complaint.get("attachments") or []])
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
 def parse_dt(value: Any) -> datetime | None:
@@ -520,7 +556,7 @@ async def receptor(state: dict) -> dict:
     out, info = await c.rt.llm.structured(
         role=Role.HAIKU, agent=AG["receptor"], system=P.RECEPTOR_SYSTEM,
         user=wrap_data("complaint", pseudo_text), schema=P.ReceptorOut,
-        fallback=lambda: fallback_extract(pseudo_text), max_tokens=2500,
+        fallback=lambda: fallback_extract(pseudo_text), max_tokens=2500, scope=replay_scope(state),
     )
     restore = lambda s: c.rt.privacy.restore(s, vault) if s else s  # noqa: E731
     injection_quote = out.injection_quote or deterministic_injection
@@ -553,10 +589,14 @@ async def receptor(state: dict) -> dict:
         await c.em.custom("injection_detected", "Instructions found in the complaint: ignored and flagged for a person",
                           {"fact_id": inj, "quote": injection_quote}, step="receptor", agent=AG["receptor"])
     c.save({"extracted": extracted.model_dump(mode="json"), "llm_mode": info.mode})
+    if info.mode != "live":
+        await c.em.custom("llm_degraded", f"The complaint was read in {info.mode} mode, not by a live model: a person "
+                                          "checks the extraction", {"mode": info.mode, "fact_id": fid},
+                          step="receptor", agent=AG["receptor"])
     await c.finish("receptor", f"Extraction done ({info.mode}, {model})",
                    {"llm": info.as_dict(), "injection": extracted.injection_suspected})
     return {"pseudo": {"text": pseudo_text, "vault": vault}, "extracted": extracted.model_dump(mode="json"),
-            "fact_map": fact_map}
+            "fact_map": {**fact_map, "llm_mode": fid}, "llm_mode": info.mode}
 
 
 def _standard_mentions(complaint: Complaint, out: "P.ReceptorOut",
@@ -665,10 +705,14 @@ async def identificare(state: dict) -> dict:
                           agent=AG["identificare"])
 
     if match.needs_human and match.candidates and match.customer_ref:
+        from versoml.shared.rules.calendar_ro import end_of_next_business_day
+
         candidates = [x.model_dump(mode="json") for x in match.candidates]
         prompt = f"Which payment is the customer disputing? {match.reason} Pick one, or choose none of these."
+        # the refund clock runs from the customer's report while the person picks
         payload = {"kind": "pick_transaction", "prompt": prompt, "options": ["pick_transaction"],
-                   "candidates": candidates, "customer_ref": match.customer_ref, "reason": match.reason}
+                   "candidates": candidates, "customer_ref": match.customer_ref, "reason": match.reason,
+                   "deadline": end_of_next_business_day(received).isoformat()}
         if not resuming:
             c.track("identificare", "waiting", "A person picks the disputed payment")
             c.save({"interrupt": {"pending": True, **payload}, "status": "ASTEAPTA_APROBARE",
@@ -866,24 +910,71 @@ async def clasificator(state: dict) -> dict:
 # ---------------------------------------------------------------- 3. Deadline clock
 
 
+async def add_task(c: Ctx, step: str, kind: str, title: str, due_at: Any, basis: str) -> dict:
+    """A follow-up a person owns, with its deadline: a ledger fact and an entry in the case's task list (one per
+    kind)."""
+    due = parse_dt(due_at)
+    task = {"kind": kind, "title": title, "due_at": due.isoformat() if due else None, "basis": basis,
+            "status": "open", "created_at": now().isoformat()}
+    fid = await c.fact(step, f"task.{kind}", "tasks.create", {"kind": kind}, task,
+                       title + (f" (due {fmt_datetime(due)})" if due else ""),
+                       Labels(conf="client", trust=Trust.TRUSTED, sinks=[Sink.CLIENT]))
+    tasks = [t for t in (c.rt.cases.get(c.case_id) or {}).get("tasks") or [] if t.get("kind") != kind]
+    c.save({"tasks": [*tasks, {**task, "fact_id": fid}]})
+    await c.em.custom("task", title, {**task, "fact_id": fid}, step=step, agent=AG[step])
+    return task
+
+
+def customer_notice(c: Ctx, state: dict, received: datetime) -> tuple[datetime, str | None]:
+    """The first time this customer told the bank about a payment they did not make: this complaint, or an earlier
+    claim of theirs in this zone. Debits after that moment are the bank's loss (Law 209/2019, art. 177(c)).
+    Returns (the moment, the earlier case or None)."""
+    ref = _customer_ref(state)
+    told, earlier = received, None
+    if not ref:
+        return told, earlier
+    for d in c.rt.cases.all():
+        if d.get("case_id") in (None, c.case_id) or d.get("customer_ref") != ref or d.get("status") == "EROARE":
+            continue
+        if d.get("dispute_type") != DisputeType.NEAUTORIZATA.value \
+                and not (d.get("extracted") or {}).get("claims_unauthorized"):
+            continue
+        at = parse_dt(d.get("received_at"))
+        if at and at < told:
+            told, earlier = at, d["case_id"]
+    return told, earlier
+
+
 async def ceasornicar(state: dict) -> dict:
     c = Ctx(state)
     await c.start("ceasornicar", "Starting the legal clocks from the moment the customer told us")
+    from versoml.shared.rules import get_params
     from versoml.shared.rules.calendar_ro import add_business_days, end_of_next_business_day
 
     received = parse_dt(state["complaint"]["received_at"]) or now()
     t1 = end_of_next_business_day(received)
     answer = add_business_days(received, 15)
+    told, earlier = customer_notice(c, state, received)
     clock = {"notified_at": received.isoformat(), "t1_deadline": t1.isoformat(),
-             "answer_deadline": answer.isoformat()}
+             "answer_deadline": answer.isoformat(), "customer_told_at": told.isoformat(), "told_in_case": earlier}
     fid = await c.fact("ceasornicar", "clock.started", "rules.calendar_ro", {"notified_at": received.isoformat()},
                        clock, f"Refund deadline: {fmt_datetime(t1)} (end of the next business day). Written reply "
-                              f"due by {fmt_date(answer)} (15 business days)",
+                              f"due by {fmt_date(answer)} (15 business days)"
+                              + (f". The customer first reported an unauthorized payment on {fmt_datetime(told)} "
+                                 f"(case {earlier})" if earlier else ""),
                        Labels(conf="client", trust=Trust.TRUSTED, sinks=[Sink.CLIENT, Sink.LETTER]))
     c.save({"clock": clock, "deadline": t1.isoformat()})
     await c.em.custom("clock", "The refund clock is running", clock, step="ceasornicar", agent=AG["ceasornicar"])
+    # the customer reports a payment they did not make: the instrument is blocked now, whatever the decision
+    if (state.get("extracted") or {}).get("claims_unauthorized") \
+            or (state.get("classification") or {}).get("dispute_type") == DisputeType.NEAUTORIZATA.value:
+        minutes = int(get_params()["block_instrument_sla_minutes"])
+        await add_task(c, "ceasornicar", "block_instrument",
+                       "Block the card or the app access the customer reported, so no payment goes out after the "
+                       "report", received + timedelta(minutes=minutes),
+                       "Law 209/2019, art. 166(1)(b) and art. 177(c)")
     await c.finish("ceasornicar", f"Refund due by {fmt_datetime(t1)}")
-    return {"clock": clock, "fact_map": {"notified_at": fid}}
+    return {"clock": clock, "fact_map": {"notified_at": fid, "bank_noted_at": fid, "loss_reported_at": fid}}
 
 
 # ---------------------------------------------------------------- 4. Collectors (in parallel)
@@ -984,9 +1075,12 @@ async def colector_tranzactie(state: dict) -> dict:
 
 def sca_from_events(events: list[dict]) -> dict:
     """What the SCA log says about the payment. Only a successful authentication counts as SCA: a declined or
-    expired attempt, a "none" method or a card token provisioning is not one (the same rule as the scenarios)."""
-    approved = [e for e in events if g(e, "result", default="approved") in ("approved", "success", "authenticated")
-                and g(e, "method", default="") != "none" and g(e, "purpose", default="payment") != "token_provisioning"]
+    expired attempt, a "none" method or a card token provisioning is not one (the same rule as the scenarios). An
+    attempt with no result in the log leaves SCA unknown (None): it is never read as approved."""
+    attempts = [e for e in events if g(e, "method", default="") != "none"
+                and g(e, "purpose", default="payment") != "token_provisioning"]
+    approved = [e for e in attempts if g(e, "result") in ("approved", "success", "authenticated")]
+    unreadable = not approved and any(g(e, "result") is None for e in attempts)
     payment_ok = next((e for e in approved if g(e, "purpose", default="payment") == "payment"), None)
     payment_auth = payment_ok or next((e for e in events if g(e, "purpose", default="payment") == "payment"), None)
     enrollment = next((e for e in approved if g(e, "purpose") == "device_enrollment"), None)
@@ -998,11 +1092,11 @@ def sca_from_events(events: list[dict]) -> dict:
     elif enrollment:
         shown = False  # the payment left from an enrolled device; the SCA step never showed the amount
     cavv = g(payment_auth or {}, "cavv_present", "cavv")
-    return {"sca_performed": bool(approved),
+    return {"sca_performed": None if unreadable else bool(approved),
             "sca_method": g(used or payment_auth or {}, "method", default="none"),
             "sca_step": "payment" if payment_ok else "device_enrollment" if enrollment else None,
             "screen_showed_amount_and_payee": shown, "eci": K.eci_code(g(payment_auth or {}, "eci")),
-            "cavv_present": None if cavv is None else bool(cavv)}
+            "cavv_present": None if cavv is None else bool(cavv), "sca_unreadable": unreadable}
 
 
 async def colector_sca(state: dict) -> dict:
@@ -1034,8 +1128,28 @@ async def colector_sca(state: dict) -> dict:
         fact_map["sca_performed"] = await c.fact("colector_sca", "sca.none", "sca-logs.get_auth_events",
                                                  {"tx_id": tx_id}, {"events": 0}, "No SCA authentication in the log")
     await c.finish("colector_sca", f"{plural(len(events), 'SCA event')}; the screen "
-                                   + ("showed" if shown else "did not show") + " the amount and the payee")
+                                   + ("showed" if shown else "did not show") + " the amount and the payee"
+                                   + ("; an attempt has no result in the log, so SCA is unknown"
+                                      if sca["sca_unreadable"] else ""))
     return {"records": records, "fact_map": fact_map}
+
+
+def device_known_from(history: list[dict], device_id: str | None, executed_at: datetime) -> bool | None:
+    """Whether the payment's device is the customer's: known = trusted and enrolled at least a day before the
+    payment (a phone enrolled minutes ago counts as new). A device not on a customer's list is new. Without a
+    history, or a record without its trust flag or enrollment date, the answer is unknown (None), never trusted."""
+    if not device_id or not history:
+        return None
+    entry = next((d for d in history if g(d, "device_id", "fingerprint", "device_fingerprint") == device_id), None)
+    if entry is None:
+        return False
+    trusted = g(entry, "trusted", "known")
+    enrolled = parse_dt(g(entry, "enrolled_at", "first_seen", "first_seen_at"))
+    if trusted is False:
+        return False
+    if trusted is None or enrolled is None:
+        return None
+    return enrolled < executed_at - timedelta(days=1)
 
 
 async def colector_dispozitiv(state: dict) -> dict:
@@ -1057,20 +1171,21 @@ async def colector_dispozitiv(state: dict) -> dict:
     device_id = g(session or {}, "device_id", "device_fingerprint")
     if session:
         executed_at = parse_dt(g(tx or {}, "executed_at", "ts", "timestamp")) or now()
-        # known = enrolled at least a day before the payment (a phone enrolled minutes ago counts as new)
-        known_ids = {g(d, "device_id", "fingerprint", "device_fingerprint") for d in history
-                     if g(d, "trusted", "known", default=True)
-                     and (parse_dt(g(d, "enrolled_at", "first_seen", "first_seen_at")) or executed_at)
-                     < executed_at - timedelta(days=1)}
-        device_known = bool(g(session, "device_known")) if g(session, "device_known") is not None else device_id in known_ids
+        if g(session, "device_known") is not None:
+            device_known = bool(g(session, "device_known"))
+        else:
+            device_known = device_known_from(history, device_id, executed_at)
         click = parse_dt(g(session, "link_clicked_at", "click_at", "clicked_at"))
         executed = parse_dt(g(tx or {}, "executed_at", "ts", "timestamp"))
         seconds = g(session, "seconds_after_click")
         if seconds is None and click and executed:
             seconds = int((executed - click).total_seconds())
-        records.update({"device_known": device_known, "seconds_after_click": seconds, "session": session})
+        records.update({"device_known": device_known, "seconds_after_click": seconds, "session": session,
+                        "device_unreadable": device_known is None})
+        what = {True: "Known device", False: "NEW device, never seen before"}.get(
+            device_known, "Device with no enrollment history: whether it is the customer's is unknown")
         fid = await c.fact("colector_dispozitiv", "device.session", "device.get_session", {"session_id": session_id},
-                           session, ("Known device" if device_known else "NEW device, never seen before")
+                           session, what
                            + (f"; the payment went out {seconds} s after the link was clicked" if seconds is not None else ""))
         fact_map.update({"device_known": fid, "seconds_after_click": fid})
     executed = parse_dt(g(tx or {}, "executed_at", "ts", "timestamp")) or now()
@@ -1268,21 +1383,45 @@ def _age_hours(rdap: dict | None) -> float | None:
 # ---------------------------------------------------------------- 5. The rules engine
 
 
+def unauthorised_signals(records: dict, extracted: dict) -> list[str]:
+    """What points to a payment the customer did not make: the bank's logs, and the customer's own words."""
+    signals = []
+    if records.get("sca_performed") is False:
+        signals.append("the bank's log shows no strong authentication for the payment")
+    if records.get("device_known") is False:
+        signals.append("the payment came from a device the customer had not used before")
+    if extracted.get("claims_unauthorized") is True:
+        signals.append("the customer says they did not make it")
+    return signals
+
+
 def reconcile_type(cls: dict, records: dict, extracted: dict) -> tuple[DisputeType, bool, str]:
-    """The final classification: the text (M1) reconciled with the facts in the bank's systems."""
+    """The final classification: the text (M1) reconciled with the facts in the bank's systems. A merchant or
+    processing-error label from the text never outweighs the signs of an unauthorized payment, and a log the
+    collectors could not read sends the case to a person."""
     ml_type = DisputeType(cls.get("dispute_type", "neautorizata"))
     approved_in_app = bool(records.get("screen_showed_amount_and_payee")) and bool(records.get("device_known"))
     if records.get("duplicate_of"):
         return DisputeType.EROARE_PROCESARE, False, "duplicate payment found in bank-core"
     if ml_type in (DisputeType.DISPUTA_COMERCIANT, DisputeType.EROARE_PROCESARE):
-        return ml_type, bool(cls.get("ambiguous")), "the text describes a problem with the merchant"
+        signals = unauthorised_signals(records, extracted)
+        if not signals:
+            return ml_type, bool(cls.get("ambiguous")), "the text describes a problem with the merchant"
+        reason = (f"the text suggests {label(DISPUTE_LABELS, ml_type)} but {join_and(signals)}: the facts decide, "
+                  "and a person confirms")
+        return DisputeType.NEAUTORIZATA, True, reason
     fact_type = DisputeType.APP if approved_in_app and records.get("channel") != "card" else DisputeType.NEAUTORIZATA
     if records.get("device_known") is False:
         fact_type = DisputeType.NEAUTORIZATA
-    ambiguous = bool(cls.get("ambiguous")) or fact_type != ml_type
+    gaps = [what for key, what in (("sca_unreadable", "an SCA attempt has no result in the log"),
+                                   ("device_unreadable", "the device has no enrollment history"))
+            if records.get(key)]
+    ambiguous = bool(cls.get("ambiguous")) or fact_type != ml_type or bool(gaps)
     reason = ("the facts match the text" if fact_type == ml_type else
               f"the text suggests {label(DISPUTE_LABELS, ml_type)} but the facts show "
               f"{label(DISPUTE_LABELS, fact_type)}: the facts decide, and a person is told")
+    if gaps:
+        reason += f"; {join_and(gaps)}, so a person checks who authorized it"
     return fact_type, ambiguous, reason
 
 
@@ -1303,6 +1442,10 @@ async def motor_reguli(state: dict) -> dict:
     records["channel"] = channel.value
     dispute_type, ambiguous, reason = reconcile_type(state.get("classification") or {}, records, state.get("extracted") or {})
     cls = state.get("classification") or {}
+    text_type = cls.get("dispute_type") or DisputeType.NEAUTORIZATA.value
+    # the text and the bank's records disagree on what kind of claim this is: the console shows it to the person
+    conflict = ({"text_type": text_type, "fact_type": dispute_type.value, "reason": reason}
+                if ambiguous and text_type != dispute_type.value else None)
     scenario = cls.get("scenario")
     hint = (state.get("scenario_hint") or "")
     if hint and hint in Scenario._value2member_map_:
@@ -1338,6 +1481,7 @@ async def motor_reguli(state: dict) -> dict:
     hold = doc.get("hold") or {}
     executed = parse_dt(g(tx, "executed_at", "ts", "timestamp")) or now()
     notified = parse_dt(state["complaint"]["received_at"]) or now()
+    told = parse_dt((state.get("clock") or {}).get("customer_told_at")) or notified
     extracted = state.get("extracted") or {}
     claimed = [m for m in (K.money(x) for x in extracted.get("amounts") or extracted.get("mentioned_amounts") or []) if m]
     main = _main_tx_id(state)
@@ -1386,12 +1530,26 @@ async def motor_reguli(state: dict) -> dict:
         client_fraud_score=float(signal["score"]) if signal and signal.get("score") is not None else None,
         client_admits_sharing_credentials=(state.get("extracted") or {}).get("client_admits_sharing_credentials"),
         client_admits_approving_in_app=(state.get("extracted") or {}).get("client_admits_approving_in_app"),
+        customer_claims_unauthorised=extracted.get("claims_unauthorized"),
         hold_signal=bool(hold.get("hold")), hold_authority_notified=bool(hold.get("authority_notified")),
+        # the moment the customer told the bank: debits after it are the bank's loss (art. 177(c)), and a debit after
+        # an earlier report was known to the bank as soon as it went out (DSP-58)
+        loss_reported_at=told, bank_noted_at=max(told, executed),
+        llm_mode=state.get("llm_mode") or doc.get("llm_mode"),
         fact_ids={k: v for k, v in fact_map.items() if isinstance(v, str)},
     )
     await c.em.custom("classification_final", f"Final classification: {label(DISPUTE_LABELS, dispute_type)} ({reason})",
                       {"dispute_type": dispute_type.value, "ambiguous": ambiguous}, step="motor_reguli",
                       agent=AG["motor_reguli"])
+    if conflict:
+        conflict["fact_id"] = await c.fact(
+            "motor_reguli", "classification.conflict", "rules.reconcile_type", {"text_type": text_type}, conflict,
+            f"The text reads as {label(DISPUTE_LABELS, text_type)}, the bank's records as "
+            f"{label(DISPUTE_LABELS, dispute_type)}: the records decide and a person confirms",
+            Labels(conf="client", trust=Trust.TRUSTED, sinks=[Sink.CLIENT]))
+        await c.em.custom("classification_conflict", f"The text and the bank's records disagree: {reason}", conflict,
+                          step="motor_reguli", agent=AG["motor_reguli"])
+    c.save({"classification_conflict": conflict})
     outcome = evaluate(ctx)
     for hit in outcome.hits:
         await c.em.custom("rule_hit", f"{hit.rule_id}: {hit.outcome}", hit.model_dump(mode="json"),
@@ -1585,53 +1743,70 @@ async def rambursare(state: dict) -> dict:
                                      "A person follows up and the customer is asked for the details", status="skipped")
         return {"refund": {"done": False, "status": "IN_ANALIZA"}}
 
+    # every decision that needs a person stops here for a signature, the "no next-business-day refund" route too
     if verdict in (Verdict.RAMBURSEAZA_CU_APROBARE.value, Verdict.EXCEPTIE_FRAUDA_CLIENT.value,
-                   Verdict.RESPINGE_TARDIV.value) or (d and d.get("requires_human") and verdict != Verdict.NU_SE_APLICA_T1.value):
+                   Verdict.RESPINGE_TARDIV.value) or (d and d.get("requires_human")):
+        deadline = (d.get("deadline") if d else None) or (state.get("clock") or {}).get("t1_deadline")
+        refund_verdict = verdict in REFUND_VERDICTS
+        refund_prompt = refund_approval_prompt(amount, deadline, (state.get("rules") or {}).get("hits"), currency)
         prompt = {
-            Verdict.RAMBURSEAZA_CU_APROBARE.value: refund_approval_prompt(
-                amount, d.get("deadline") if d else None, (state.get("rules") or {}).get("hits"), currency),
+            Verdict.RAMBURSEAZA.value: refund_prompt,
+            Verdict.RAMBURSEAZA_CU_APROBARE.value: refund_prompt,
             Verdict.EXCEPTIE_FRAUDA_CLIENT.value: "The AML zone sent a HOLD approved by an analyst, and the authority "
                                                  "has been notified. Confirm the C-70/25 exception (no refund for now)?",
             Verdict.RESPINGE_TARDIV.value: "The customer told us more than 13 months after the payment (art. 169). "
                                           "An unfavorable decision needs a person's approval (GDPR art. 22). "
                                           "Confirm the rejection?",
+            Verdict.NU_SE_APLICA_T1.value: route_prompt(state["rule_context"], deadline),
         }.get(verdict, "This decision needs a person's signature.")
-        payload = {"kind": "aprobare_rambursare" if verdict == Verdict.RAMBURSEAZA_CU_APROBARE.value else "semnatura_decizie",
+        payload = {"kind": "aprobare_rambursare" if refund_verdict else "semnatura_decizie",
                    "verdict": verdict, "prompt": prompt, "options": ["approve", "reject"], "amount": amount,
-                   "deadline": d.get("deadline") if d else None, "rule_ids": d.get("rule_ids", []) if d else []}
+                   "deadline": deadline, "rule_ids": d.get("rule_ids", []) if d else []}
         if not resuming:
             c.track("rambursare", "waiting", "Needs approval")
             c.save({"interrupt": {"pending": True, **payload}, "status": "ASTEAPTA_APROBARE"})
             await c.em.custom("interrupt", prompt, payload, step="rambursare", agent=AG["rambursare"])
-        answer = interrupt(payload)
+        answer = interrupt(payload) or {}
         c.save({"interrupt": {**payload, "pending": False, "resuming": False, "answer": answer}})
-        approved = (answer or {}).get("action") == "approve"
-        approver = (answer or {}).get("approver") or "OPERATOR-01"
+        approved = answer.get("action") == "approve"
+        approver = answer.get("approver") or "OPERATOR-01"
+        reason = _signature(answer, prompt)
         await c.fact("rambursare", "human.signature", "console.operator", {"approver": approver},
-                     {"action": (answer or {}).get("action"), "note": (answer or {}).get("note")},
-                     f"{approver} {'approved' if approved else 'rejected'} the {verdict} decision")
+                     {"action": answer.get("action"), "note": answer.get("note"), **reason},
+                     f"{approver} {'approved' if approved else 'rejected'} the {verdict} decision"
+                     + (f" ({reason['reason_code']})" if reason.get("reason_code") else ""))
         c.save({"approved_by" if approved else "rejected_by": approver,
-                "approved_at" if approved else "rejected_at": now().isoformat()})
-        if verdict == Verdict.RAMBURSEAZA_CU_APROBARE.value and approved:
-            return await _issue_refund(c, state, amount, customer_ref, approved_by=approver)
-        status = {Verdict.EXCEPTIE_FRAUDA_CLIENT.value: "EXCEPTIE", Verdict.RESPINGE_TARDIV.value: "RESPINS"}.get(
-            verdict, "IN_ANALIZA")
-        if verdict == Verdict.RAMBURSEAZA_CU_APROBARE.value and not approved:
+                "approved_at" if approved else "rejected_at": now().isoformat(), "signature": reason})
+        if refund_verdict and approved:
+            return await _issue_refund(c, state, customer_ref, approved_by=approver)
+        if refund_verdict:
             # the person declined the refund: VersoML stops here and the case is theirs to handle by hand.
             # The refund deadline still applies (refund, or report suspected fraud to the authority, DSP-05).
             c.save({"status": "REFUZAT"})
+            answer_due = (_decision(state, Question.RASPUNS_RECLAMATIE) or {}).get("deadline") \
+                or (state.get("clock") or {}).get("answer_deadline")
+            await add_task(c, "rambursare", "written_answer",
+                           "Write to the customer why the refund was declined, answering every point and naming "
+                           "where to complain (ANPC, ANAF, BNR, CSALB)", answer_due, "Law 209/2019, art. 224-225")
             await c.finish("rambursare", f"Refund declined by {approver}: no refund from VersoML. "
                                          "A person handles the case; the refund deadline still applies")
             return {"refund": {"done": False, "status": "REFUZAT", "declined_by": approver}}
-        if verdict in (Verdict.EXCEPTIE_FRAUDA_CLIENT.value, Verdict.RESPINGE_TARDIV.value) and not approved:
-            # the person did not confirm the unfavorable decision: refund within the deadline
-            return await _issue_refund(c, state, amount, customer_ref, approved_by=approver)
+        if not approved and not state["rule_context"].get("credit_fraud"):
+            # the person did not confirm the unfavorable decision: refund within the deadline, signed by them
+            decisions = _overridden(state, verdict, approver)
+            c.save({"decisions": decisions, "verdict": Verdict.RAMBURSEAZA_CU_APROBARE.value,
+                    "verdict_by_rules": verdict})
+            refunded = await _issue_refund(c, {**state, "decisions": decisions}, customer_ref, approved_by=approver)
+            return {**refunded, "decisions": decisions}
+        route = "TRASEU_APP" if state["rule_context"]["dispute_type"] == "app" else "IN_ANALIZA"
+        status = {Verdict.EXCEPTIE_FRAUDA_CLIENT.value: "EXCEPTIE", Verdict.RESPINGE_TARDIV.value: "RESPINS",
+                  Verdict.NU_SE_APLICA_T1.value: route}.get(verdict, "IN_ANALIZA")
         c.save({"status": status})
         await c.finish("rambursare", f"Decision signed by {approver}: {status}")
         return {"refund": {"done": False, "status": status}}
 
     if verdict == Verdict.RAMBURSEAZA.value:
-        return await _issue_refund(c, state, amount, customer_ref, approved_by=None)
+        return await _issue_refund(c, state, customer_ref, approved_by=None)
 
     status = "TRASEU_APP" if state["rule_context"]["dispute_type"] == "app" else "IN_ANALIZA"
     c.save({"status": status})
@@ -1639,10 +1814,82 @@ async def rambursare(state: dict) -> dict:
     return {"refund": {"done": False, "status": status}}
 
 
-async def _issue_refund(c: Ctx, state: dict, amount: float, customer_ref: str, approved_by: str | None) -> dict:
+def route_prompt(ctx: dict, deadline: Any) -> str:
+    """The question for a signed "the next-business-day refund does not apply" decision, and what each answer
+    does."""
+    why = {"app": "the customer approved the payment under manipulation (APP)",
+           "disputa_comerciant": "this is a dispute with the merchant",
+           "eroare_procesare": "this is a processing error"}.get(str(ctx.get("dispute_type")),
+                                                                 "it follows another route")
+    if ctx.get("credit_fraud"):
+        return ("The next-business-day refund does not apply: a loan was taken out in the customer's name. An "
+                "unfavorable decision needs a person's approval (GDPR art. 22). Confirm the credit fraud route?")
+    when = fmt_deadline(deadline)
+    return (f"The next-business-day refund does not apply: {why}. An unfavorable decision needs a person's approval "
+            f"(GDPR art. 22). Confirm the recovery and support route? If you reject it, the payment is treated as "
+            f"unauthorized and refunded" + (f" by {when}." if when else "."))
+
+
+def _signature(answer: dict, prompt: str) -> dict:
+    """The reason the service checked and sent with the answer; an answer that came without one gets the default
+    for its action."""
+    if answer.get("reason_code"):
+        return {k: answer.get(k) for k in ("reason_code", "reason_text", "reason_from_note")}
+    reason = signature_reason(str(answer.get("action") or ""), None, answer.get("note"), prompt)
+    return reason if "error" not in reason else {"reason_code": None, "reason_text": prompt, "reason_from_note": False}
+
+
+def _overridden(state: dict, verdict: str, approver: str) -> list[dict]:
+    """The decisions once a person did not confirm an unfavorable refund decision: the refund is due, on their
+    signature. The rules engine's own decision stays in the ledger (rules.outcome)."""
+    line = {"text": f"{approver} did not confirm {verdict}: the payment is refunded by the deadline.", "cites": []}
+    out = []
+    for d in state.get("decisions") or []:
+        if d.get("question") in (Question.RAMBURSARE_T1.value, Question.RASPUNS_RECLAMATIE.value) \
+                and d.get("decision") == verdict:
+            d = {**d, "decision": Verdict.RAMBURSEAZA_CU_APROBARE.value, "requires_human": True, "decided_by": "human",
+                 "rationale": [*(d.get("rationale") or []), line]}
+        out.append(d)
+    return out
+
+
+def refund_plan(ctx: dict) -> dict:
+    """What goes back, in the currency debited: the payment's amount, less the customer's share under Law
+    209/2019, art. 179(1) only when the bank keeps it (the [U] parameter `retain_payer_liability`). In the art. 177
+    cases the share is zero; without a EUR rate for the currency it is unknown, and nothing is kept."""
+    from versoml.shared.rules import RuleContextExt, get_params
+    from versoml.shared.rules.facts import eur_cap_in
+    from versoml.shared.rules.packs.pay import art177_reasons, payer_liability
+
+    x = RuleContextExt.model_validate(ctx)
+    params = get_params()
+    art177 = bool(art177_reasons(x))
+    cap = eur_cap_in(x.amount.currency, 30.0, params["eur_ron_rate"])
+    share = None if cap is None else payer_liability(
+        x.amount.value, payer_fraud=False, art177_case=art177, intent_or_gross_negligence_proven=False,
+        lost_stolen_misappropriated=True, cap=cap)
+    kept = bool(params["retain_payer_liability"]) and bool(share)
+    return {"debited": x.amount.value, "currency": x.amount.currency,
+            "refund": round(x.amount.value - (share if kept else 0), 2), "payer_liability": share, "cap": cap,
+            "retained": kept, "basis": "Law 209/2019, art. 177" if art177 else "Law 209/2019, art. 179(1)"}
+
+
+def _liability_words(plan: dict) -> str:
+    share, currency = plan["payer_liability"], plan["currency"]
+    if share is None:
+        return "the customer's share under art. 179(1) can't be worked out in this currency, so nothing is kept"
+    if not share:
+        return "the customer bears nothing (art. 177)"
+    if plan["retained"]:
+        return f"the customer's share under art. 179(1), {money(share, currency)}, is kept back"
+    return f"the customer's share under art. 179(1), up to {money(share, currency)}, is waived"
+
+
+async def _issue_refund(c: Ctx, state: dict, customer_ref: str, approved_by: str | None) -> dict:
     context = {"within_auto_cap": approved_by is None, "approved_by_human": approved_by is not None}
     decision = c.rt.authorize("motor", "refund.issue", Zone.CLIENT, context)
-    currency = (state["rule_context"].get("amount") or {}).get("currency") or "RON"
+    plan = refund_plan(state["rule_context"])
+    amount, currency = plan["refund"], plan["currency"]
     if not decision.allowed:
         await c.em.custom("policy_denied", "Cedar denied the refund instruction", decision.model_dump(mode="json"),
                           step="rambursare", agent=AG["rambursare"])
@@ -1661,17 +1908,24 @@ async def _issue_refund(c: Ctx, state: dict, amount: float, customer_ref: str, a
         await c.finish("rambursare", f"Already refunded in {prior['case_id']}: no double payment")
         return {"refund": {"done": True, "status": "RAMBURSAT", "duplicate_of": prior["case_id"]}}
     key = f"refund-{c.case_id}"
-    result = c.rt.repo.post_refund(c.case_id, customer_ref, amount, key)
+    # back to the account the payment left, in the payment's currency (an account in another currency is an error)
+    account = g((state.get("records") or {}).get("transaction") or {}, "account_iban")
+    result = (c.rt.repo.post_refund(c.case_id, customer_ref, amount, key, account_iban=account, currency=currency)
+              if amount > 0 else {"status": "nothing to refund: the customer's share covers the payment"})
+    refund = {"amount": amount, "currency": currency, "debited": plan["debited"],
+              "to_account": K.mask_iban(account) if account else None,
+              **{k: plan[k] for k in ("payer_liability", "cap", "retained", "basis")}}
     await c.fact("rambursare", "refund.instruction", "refund.issue", {"idempotency_key": key},
-                 {"amount": amount, "result": result, "approved_by": approved_by, "decided_by": "MotorReguli"},
-                 f"Refund instruction for {money(amount, currency)} issued by the rules engine"
-                 + (f", approved by {approved_by}" if approved_by else " (under the cap, no signals)"))
+                 {**refund, "result": result, "approved_by": approved_by, "decided_by": "MotorReguli"},
+                 f"Refund instruction for {money(amount, currency)} to the account debited, issued by the rules engine"
+                 + (f", approved by {approved_by}" if approved_by else " (under the cap, no signals)")
+                 + f"; {_liability_words(plan)}")
     # the "We've refunded you…" notification is written by core banking (post_refund), like any other transaction
-    c.save({"status": "RAMBURSAT", "refunded_at": now().isoformat()})
-    await c.em.custom("refund", f"Refunded {money(amount, currency)}", {"amount": amount, "approved_by": approved_by},
+    c.save({"status": "RAMBURSAT", "refunded_at": now().isoformat(), "refund": refund})
+    await c.em.custom("refund", f"Refunded {money(amount, currency)}", {**refund, "approved_by": approved_by},
                       step="rambursare", agent=AG["rambursare"])
     await c.finish("rambursare", f"Refunded {money(amount, currency)} before the refund deadline")
-    return {"refund": {"done": True, "status": "RAMBURSAT", "amount": amount}}
+    return {"refund": {"done": True, "status": "RAMBURSAT", **refund}}
 
 
 # ---------------------------------------------------------------- 8. The debate (recovery route only)
@@ -1770,7 +2024,7 @@ def rubric(ctx: dict, fm: dict) -> tuple[list[dict], int]:
          "client_admits_approving_in_app"),
         ("Payment from a new device (favors the customer)", ctx.get("device_known") is False, -2, "device_known"),
         ("Payment within 5 minutes of the click (favors the customer)",
-         (ctx.get("seconds_after_click") or 10**6) < 300, -1, "seconds_after_click"),
+         ctx.get("seconds_after_click") is not None and ctx["seconds_after_click"] < 300, -1, "seconds_after_click"),
         ("SIM swap before the payment (favors the customer)", ctx.get("sim_swap_hours_before") is not None, -3,
          "sim_swap_hours_before"),
     ]
@@ -1812,7 +2066,7 @@ async def dezbatere(state: dict) -> dict:
         role = Role.OPUS if side == "procuror" else Role.SONNET
         return await c.rt.llm.structured(role=role, agent=AG[side], system=system, user=question, schema=P.Argument,
                                          effort="medium", max_tokens=3000,
-                                         fallback=lambda: _fallback_argument(side, ctx, fm))
+                                         fallback=lambda: _fallback_argument(side, ctx, fm), scope=replay_scope(state))
 
     (pro, pro_info), (con, con_info) = await asyncio.gather(statement("procuror"), statement("avocat"))
 
@@ -1825,7 +2079,8 @@ async def dezbatere(state: dict) -> dict:
                                          user=question + "\n\n" + wrap_data("other_side", other_text)
                                          + f"\n\nNumber your replies from {first}.",
                                          schema=P.Argument, effort="low", max_tokens=2000,
-                                         fallback=lambda: P.Argument(claims=[], missing_evidence=[], strongest_point=""))
+                                         fallback=lambda: P.Argument(claims=[], missing_evidence=[], strongest_point=""),
+                                         scope=replay_scope(state))
 
     (pro_r, _), (con_r, _) = await asyncio.gather(rebut("procuror", pro, con), rebut("avocat", con, pro))
     pro_lines, pro_bad = _verify(pro.claims + pro_r.claims, valid, set(kb_ids))
@@ -1956,7 +2211,7 @@ async def recuperare(state: dict) -> dict:
         draft, info = await c.rt.llm.structured(
             role=Role.SONNET, agent=AG["recuperare"], system=P.DNSC_SYSTEM,
             user=wrap_data("attack_indicators", masked), schema=P.DnscDraft, effort="low",
-            max_tokens=1500, fallback=lambda: _fallback_dnsc(attack))
+            max_tokens=1500, fallback=lambda: _fallback_dnsc(attack), scope=replay_scope(state))
         restore = lambda s: c.rt.privacy.restore(s, vault) if s else s  # noqa: E731
         recovery["dnsc_report"] = {"title": restore(draft.title), "text": restore(draft.body),
                                    "indicators": [restore(x) for x in draft.indicators],
@@ -2031,13 +2286,19 @@ def _fallback_letter(state: dict, references: list[str] | None = None) -> P.Lett
     when_paid = " earlier that day" if paid_on and paid_on == told_on else on_paid
     you_told = f"On {told_on} you told us" if told_on else "You told us"
     by, answer_by = fmt_datetime(t1.get("deadline")), fmt_date(ans.get("deadline"))
-    refunded = bool((state.get("refund") or {}).get("done"))
+    back = state.get("refund") or {}
+    refunded = bool(back.get("done"))
+    # the bank kept the customer's share under art. 179(1): the letter says how much went back
+    kept = money(float(back["payer_liability"]), back.get("currency") or "RON") if back.get("retained") else None
     quick = bool(paid and told and (told - paid) <= timedelta(days=2))
     law = ""
     if verdict in REFUND_VERDICTS:
         subject = f"Refund of {amount} for a {kind}{to_whom}"
         opening = (f"{you_told} that you did not make the {kind} of {amount}{to_whom}{when_paid}. "
-                   + ("We have refunded the full amount to your account." if refunded else
+                   + (f"We have refunded {money(float(back['amount']), back.get('currency') or 'RON')} to your "
+                      f"account: under Article 179 of Law 209/2019 the first {kept} of the loss stays with you."
+                      if refunded and kept else
+                      "We have refunded the full amount to your account." if refunded else
                       f"We will refund the full amount to your account by {by}." if by else
                       "We will refund the full amount to your account.")
                    + (" Thank you for telling us so quickly." if quick else " Thank you for telling us about it."))
@@ -2151,6 +2412,12 @@ def _letter_brief(state: dict, c: Ctx) -> dict:
         "points": [p["text"] for p in (state.get("extracted") or {}).get("points", [])],
         "evidence_ids": sorted({v for v in (ctx.get("fact_ids") or {}).values()})[:20],
     }
+    back = state.get("refund") or {}
+    if back.get("retained"):
+        # the bank kept the customer's share under art. 179(1): the letter says what went back
+        currency = back.get("currency") or "RON"
+        out["refund"] = {"amount": money(float(back["amount"]), currency), "basis": "Law 209/2019, art. 179(1)",
+                         "customer_share_kept": money(float(back["payer_liability"]), currency)}
     if declared_only(state):
         # the customer's statement, not the bank's records: no amount when they gave none
         if not float(value.get("value") or 0):
@@ -2214,6 +2481,11 @@ def _numbers_allowed(c: "Ctx", state: dict):
     return allowed
 
 
+def _cmp_rows(hits: list) -> list[dict]:
+    """The CMP checks of the letter that goes out (the last draft, after any rewrite)."""
+    return [{"rule_id": h.rule_id, "outcome": h.outcome, "explanation": h.explanation} for h in hits]
+
+
 async def redactor(state: dict) -> dict:
     c = Ctx(state)
     if (state.get("refund") or {}).get("status") == "REFUZAT":
@@ -2236,7 +2508,7 @@ async def redactor(state: dict) -> dict:
     fallback = lambda: _fallback_letter(state, references)  # noqa: E731
     out, info = await c.rt.llm.structured(
         role=Role.SONNET, agent=AG["redactor"], system=P.LETTER_SYSTEM,
-        user=brief, schema=P.LetterOut, effort="low", max_tokens=3000, fallback=fallback)
+        user=brief, schema=P.LetterOut, effort="low", max_tokens=3000, fallback=fallback, scope=replay_scope(state))
     valid = {f.fact_id for f in c.rt.ledger.facts(c.case_id)}
     points = [p["text"] for p in (state.get("extracted") or {}).get("points", [])]
     vault = (state.get("pseudo") or {}).get("vault") or {}
@@ -2260,9 +2532,8 @@ async def redactor(state: dict) -> dict:
     if "\n\n" + ADR_BLOCK in pseudo_body and ADR_BLOCK not in "\n\n".join(p.text for p in out.paragraphs):
         await c.em.custom("rule_hit", "CMP-03: the ANPC / ANAF / BNR / CSALB paragraph was missing, so it was added",
                           {"rule_id": "CMP-03", "outcome": "bloc_adaugat"}, step="redactor", agent=AG["redactor"])
-    cmp_checks = [{"rule_id": h.rule_id, "outcome": h.outcome, "explanation": h.explanation} for h in cmp_hits]
     await c.finish("redactor", f"Letter drafted ({info.mode}); {plural(len(out.points_answered), 'point')} answered",
-                   {"llm": info.as_dict(), "cmp": cmp_checks})
+                   {"llm": info.as_dict(), "cmp": _cmp_rows(cmp_hits)})
 
     await c.start("filtru_zid", "Checking the letter: every number against the case file, forbidden terms, canary "
                                 "tokens, personal data")
@@ -2275,7 +2546,7 @@ async def redactor(state: dict) -> dict:
                           {"mismatches": num["mismatches"]}, step="filtru_zid", agent=AG["filtru_zid"])
         retry, _ = await c.rt.llm.structured(
             role=Role.SONNET, agent=AG["redactor"], system=P.LETTER_SYSTEM, user=brief + N.feedback(num["mismatches"]),
-            schema=P.LetterOut, effort="low", max_tokens=3000, fallback=fallback)
+            schema=P.LetterOut, effort="low", max_tokens=3000, fallback=fallback, scope=replay_scope(state))
         rewritten = True
         second = numbers(retry)
         out, num = retry, second
@@ -2293,11 +2564,11 @@ async def redactor(state: dict) -> dict:
         retry, _ = await c.rt.llm.structured(
             role=Role.SONNET, agent=AG["redactor"], system=P.LETTER_SYSTEM,
             user=brief + feedback, schema=P.LetterOut, effort="low",
-            max_tokens=3000, fallback=fallback)
-        candidate, _hits = compose(retry)
+            max_tokens=3000, fallback=fallback, scope=replay_scope(state))
+        candidate, candidate_hits = compose(retry)
         second = check_letter(candidate)
         if second.passed:
-            out, pseudo_body, result = retry, candidate, second
+            out, pseudo_body, result, cmp_hits = retry, candidate, second, candidate_hits
             cites = sorted({x for p in out.paragraphs for x in p.cites if x in valid})
             num = numbers(out)
     numeric_check = {**num, "rewritten": rewritten}
@@ -2307,7 +2578,7 @@ async def redactor(state: dict) -> dict:
     status = "draft" if passed else "blocked"
     letter = {"case_id": c.case_id, "subject": restore(out.subject), "body": body, "cites": cites,
               "points_answered": out.points_answered, "filter": result.model_dump(mode="json"), "status": status,
-              "cmp_checks": cmp_checks, "numeric_check": numeric_check}
+              "cmp_checks": _cmp_rows(cmp_hits), "numeric_check": numeric_check}
     if not result.passed:
         c.rt.record_block(c.case_id, result.reasons, result.blocked_terms)
         await c.em.custom("wall_block", "The wall blocked the letter: " + "; ".join(result.reasons[:2]),
@@ -2392,12 +2663,14 @@ async def _add_precedent(c: "Ctx", state: dict) -> None:
 
     doc = c.rt.cases.get(c.case_id) or {}
     decisions = {d.get("question"): d.get("decision") for d in state.get("decisions") or []}
+    escroc = decisions.get("recuperare_escroc")
     reported, refunded = parse_dt(doc.get("received_at")), parse_dt(doc.get("refunded_at"))
     reasons = decision_reasons(state.get("decisions"), state.get("rule_context") or {}, state.get("extracted"),
                                (state.get("rules") or {}).get("hits"))
     outcome = {"decision": decisions.get("rambursare_t1"), "status": doc.get("status"),
                "refund_days": round((refunded - reported).total_seconds() / 86400, 2) if reported and refunded else None,
-               "recovered": decisions.get("recuperare_escroc") in ("RECHEMARE", "CHARGEBACK"),
+               # a recall or a chargeback here is only a draft: nothing is recovered when the case is sealed
+               "recovery_proposed": escroc if escroc in ("RECHEMARE", "CHARGEBACK") else None,
                "note": reasons[0]["sentence"] if reasons else None, "decisions": decisions,
                "rule_ids": sorted({r for d in state.get("decisions") or [] for r in d.get("rule_ids") or []})}
     ctx = state.get("rule_context") or {}

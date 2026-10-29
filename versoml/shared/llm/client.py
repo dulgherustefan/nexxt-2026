@@ -111,7 +111,8 @@ def _cost(model: str, usage: Any) -> float:
 
 
 class ReplayStore:
-    """Recorded answers, key = hash(role, system, input, schema), in JSONL files.
+    """Recorded answers, key = hash(role, system, input, schema, and the case's scope when there is one), in JSONL
+    files.
 
     `path` is the only file written (by live runs: var/replay/replay.jsonl, outside git). `read_also` are
     read-only files, such as the recordings committed in versoml/data/replay. When a key appears more than
@@ -243,8 +244,11 @@ class LLMClient:
         return text
 
     @classmethod
-    def _key(cls, role: str, system: str, user: str, schema: str) -> str:
-        blob = json.dumps([role, system, cls._normalize(user), schema], ensure_ascii=False, sort_keys=True)
+    def _key(cls, role: str, system: str, user: str, schema: str, scope: str = "") -> str:
+        """`scope` ties a recording to one case (a hash of what the customer sent): the normalized text alone can be
+        the same for two cases, and replay must never answer one case with another's recording."""
+        parts = [role, system, cls._normalize(user), schema, *([scope] if scope else [])]
+        blob = json.dumps(parts, ensure_ascii=False, sort_keys=True)
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
     def _supports_effort(self, model: str) -> bool:
@@ -307,9 +311,10 @@ class LLMClient:
         effort: str | None = None,
         max_tokens: int = 4000,
         fallback: Callable[[], T] | None = None,
+        scope: str = "",
     ) -> tuple[T, CallInfo]:
         role = Role(role)
-        key = self._key(role.value, system, user, schema.__name__)
+        key = self._key(role.value, system, user, schema.__name__, scope)
         mode = self.mode
 
         if mode == "live":
@@ -382,9 +387,10 @@ class LLMClient:
         max_tokens: int = 3000,
         on_delta: Callable[[str], Awaitable[None]] | None = None,
         fallback: Callable[[], str] | None = None,
+        scope: str = "",
     ) -> tuple[str, CallInfo]:
         role = Role(role)
-        key = self._key(role.value, system, user, "text")
+        key = self._key(role.value, system, user, "text", scope)
         mode = self.mode
         last_error = None
 

@@ -44,6 +44,9 @@ export function caseStatus(status: string | null | undefined, requiresHuman = fa
       return { label: "Declined, with a person", tone: "neutral", group: "closed" };
     case "EROARE":
       return { label: "Failed: restart the case", tone: "danger", group: "you" };
+    case "COADA_MANUALA":
+      // the run failed; the refund deadline still runs for the person who takes the case
+      return { label: "Manual queue: a person handles it", tone: "danger", group: "you" };
     default:
       return { label: status ?? "—", tone: "neutral", group: "running" };
   }

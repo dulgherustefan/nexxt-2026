@@ -147,6 +147,31 @@ def test_post_transfer_and_refund_idempotent(dbs, clock):
     assert any("activated on a new device" in n for n in notes) and any(n.startswith("You sent RON 3,200.00 to ") for n in notes)
 
 
+def test_refund_goes_back_to_the_account_debited_in_its_currency(dbs, clock):
+    repo = ClientRepo(dbs[0], clock=clock)
+    with sqlite3.connect(dbs[0]) as c:
+        ref, savings = c.execute("SELECT customer_ref, iban FROM accounts WHERE is_primary=0 AND currency='RON' "
+                                 "ORDER BY iban LIMIT 1").fetchone()
+        primary = c.execute("SELECT iban FROM accounts WHERE customer_ref=? AND is_primary=1", (ref,)).fetchone()[0]
+
+    def balance(iban: str) -> float:
+        with sqlite3.connect(dbs[0]) as c:
+            return c.execute("SELECT balance FROM accounts WHERE iban=?", (iban,)).fetchone()[0]
+
+    before_savings, before_primary = balance(savings), balance(primary)
+    r = repo.post_refund("CT-2026-910001", ref, 250.0, "refund:CT-2026-910001", account_iban=savings, currency="RON")
+    assert r["account_iban"] == savings and r["currency"] == "RON"
+    assert balance(savings) == pytest.approx(before_savings + 250) and balance(primary) == pytest.approx(before_primary)
+    again = repo.post_refund("CT-2026-910001", ref, 250.0, "refund:CT-2026-910001", account_iban=savings, currency="RON")
+    assert again["idempotent_replay"] and again["account_iban"] == savings
+    with pytest.raises(ValueError):                        # the same key in another currency
+        repo.post_refund("CT-2026-910001", ref, 250.0, "refund:CT-2026-910001", currency="EUR")
+    with pytest.raises(ValueError):                        # no conversion: a RON account takes no EUR refund
+        repo.post_refund("CT-2026-910002", ref, 50.0, "refund:CT-2026-910002", account_iban=savings, currency="EUR")
+    with pytest.raises(KeyError):                          # an account that is not the customer's
+        repo.post_refund("CT-2026-910003", "CUST-DEMO-01", 50.0, "refund:CT-2026-910003", account_iban=savings)
+
+
 def test_aml_profile_has_no_demographics(seeded):
     repo = AmlRepo(seeded["aml_db"], clock=lambda: WORLD_NOW)
     p = repo.account_profile(demo_mule(7)["iban"])

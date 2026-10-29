@@ -5,7 +5,7 @@ Two surfaces, one brand:
 - **Homepage** (`src/pages/home`): dark graphite (`night*`) with Raiffeisen yellow `#FEE600` as the light in the room: the headline accent, the beams, the progress bars, the one yellow button (charcoal `#2B2D33` text). Motion-led: animated grid, beams from inputs into VersoML, a pinned scroll story, fingerprints that settle.
 - **Console** (`/cases` and the rest): calm, after Mercury and Linear, in a light and a dark theme (the sun/moon toggle in the sidebar; the choice is saved, the system setting is the default). Quiet greys, statuses as a dot and a word, and Raiffeisen yellow on what a person acts on: the primary button, the active page in the sidebar, the "Waiting for you" lane, the step that needs you. The homepage stays dark and the Demo Bank pages stay light whatever the toggle says (`usePageTheme`).
 
-The mark is a V split down the middle: the ink half is the case as reported, the yellow half is the verso, the side the bank has to prove (`src/ui/Logo.tsx`, `public/favicon.svg`).
+The mark is a V split down the middle, each arm folded once like a ribbon so its darker back shows: the ink half is the case as reported, the yellow half is the verso, the side the bank has to prove (`src/ui/Logo.tsx`, `public/favicon.svg`).
 
 Tokens live in `src/styles/index.css` (`@theme`). Primitives live in `src/ui/kit.tsx`; animated pieces live in `src/components/fx` (adapted from Magic UI, MIT). Use them; don't restyle them locally.
 

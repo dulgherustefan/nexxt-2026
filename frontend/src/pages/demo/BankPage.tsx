@@ -8,7 +8,6 @@ import {
   Briefcase,
   Bus,
   ChatCircleText,
-  Check,
   CircleNotch,
   Coffee,
   CreditCard,
@@ -18,11 +17,9 @@ import {
   FirstAidKit,
   ForkKnife,
   GasPump,
-  Hourglass,
   Info,
   Lightning,
   Money,
-  Pause,
   ShieldCheck,
   ShieldWarning,
   ShoppingCart,
@@ -132,7 +129,7 @@ export default function BankPage() {
   const open = sheet !== null;
 
   return (
-    <div className="min-h-dvh bg-canvas text-ink sm:grid sm:place-items-center sm:bg-line sm:p-6">
+    <div className="font-native min-h-dvh bg-canvas text-ink sm:grid sm:place-items-center sm:bg-line sm:p-6">
       <div className="relative mx-auto flex h-dvh w-full max-w-[440px] flex-col overflow-hidden bg-canvas sm:h-[min(880px,calc(100dvh-3rem))] sm:w-[400px] sm:rounded-[32px] sm:shadow-[var(--shadow-overlay)]">
         <AppBar alias={data?.customer_alias ?? (bank.error ? "—" : "…")} inert={open} />
 
@@ -162,7 +159,7 @@ export default function BankPage() {
             )
           ) : (
             <>
-              <Balance state={data} txs={txs} now={now} />
+              <Balance state={data} txs={txs} now={now} alias={data.customer_alias} />
               {tracked.length > 0 && (
                 <section aria-label="Your disputes" className="flex flex-col gap-3 px-4 pb-3">
                   {tracked.map((d) => (
@@ -260,7 +257,7 @@ function BankButton({ variant = "secondary", size = "md", busy, icon, className,
         "transition-[background-color,color,box-shadow,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-55",
         size === "sm" ? "h-10 px-4 text-[0.8667rem]" : size === "lg" ? "h-[3.25rem] px-6 text-[1rem]" : "h-11 px-5 text-[0.9333rem]",
         variant === "primary"
-          ? "bg-ink text-paper shadow-[0_1px_2px_rgb(18_19_22/0.16)] hover:bg-ink-soft"
+          ? "bg-yellow text-on-yellow shadow-[0_1px_2px_rgb(18_19_22/0.12)] hover:bg-yellow-hover"
           : variant === "ghost"
             ? "text-ink-soft hover:bg-hover hover:text-ink"
             : "bg-paper text-ink shadow-[var(--shadow-card)] hover:bg-hover",
@@ -295,20 +292,20 @@ const keepTogether = (s: string) => s.replace(/(•{4}) (?=\d)/g, "$1\u00A0");
 // ------------------------------------------------------------------ top bar and first load
 
 function AppBar({ alias, inert }: { alias: string; inert: boolean }) {
+  const who = alias.replace(/^Demo /, "");
+  const digits = who.match(/\d+/)?.[0];
   return (
-    <header inert={inert} className="relative z-10 flex items-center justify-between gap-3 bg-canvas px-5 pt-[max(0.875rem,env(safe-area-inset-top))] pb-2.5">
-      <div className="flex min-w-0 items-center gap-2.5">
-        <BankMark className="size-8" />
-        <div className="min-w-0 leading-tight">
-          <p className="text-[1rem] font-semibold tracking-[-0.01em]">Demo Bank</p>
-          <p className="text-[0.75rem] text-subtle">Demo · synthetic data</p>
-        </div>
+    <header inert={inert} className="relative z-10 flex items-center justify-between gap-3 bg-canvas px-5 pt-[max(0.875rem,env(safe-area-inset-top))] pb-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <BankMark className="size-7" />
+        <p className="text-[1.0625rem] font-semibold tracking-[-0.015em]">Demo Bank</p>
       </div>
-      <span className="inline-flex h-9 max-w-[48%] items-center gap-2 rounded-full bg-paper pr-3.5 pl-1 text-[0.8667rem] font-medium shadow-[var(--shadow-card)]">
-        <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-canvas text-ink-soft">
-          <User size={15} weight="bold" />
-        </span>
-        <span className="truncate">{alias.replace(/^Demo /, "")}</span>
+      <span
+        title={who}
+        aria-label={`Signed in as ${who}`}
+        className="tnum grid size-9 shrink-0 place-items-center rounded-full bg-paper text-[0.8125rem] font-semibold text-ink-soft shadow-[var(--shadow-card)]"
+      >
+        {digits ? digits.slice(-2) : <User aria-hidden size={16} weight="bold" />}
       </span>
     </header>
   );
@@ -357,7 +354,7 @@ function BootError({ notFound, refName, message, onRetry }: { notFound: boolean;
 
 // ------------------------------------------------------------------ balance
 
-function Balance({ state, txs, now }: { state: BankState; txs: BankTransaction[]; now: number }) {
+function Balance({ state, txs, now, alias }: { state: BankState; txs: BankTransaction[]; now: number; alias?: string }) {
   const prev = useRef(state.balance);
   const [rising, setRising] = useState(false);
   useEffect(() => {
@@ -383,11 +380,14 @@ function Balance({ state, txs, now }: { state: BankState; txs: BankTransaction[]
   const ok = typeof state.balance === "number" && Number.isFinite(state.balance);
 
   return (
-    <section aria-labelledby="balance-label" className="px-5 pt-4 pb-6">
-      <p id="balance-label" className="text-[0.8667rem] text-muted">Current account</p>
-      <p className={cx("mt-1.5 flex items-baseline gap-2 transition-colors duration-500", rising ? "text-ok" : "text-ink")}>
-        <span className="text-[1.15rem] font-medium opacity-80">RON</span>
-        <span className="tnum text-[2.6rem] leading-none font-semibold tracking-[-0.035em]">
+    <section aria-labelledby="balance-label" className="mx-4 mt-2 mb-4 rounded-[24px] bg-paper px-5 pt-4 pb-5 shadow-[var(--shadow-card)]">
+      <p id="balance-label" className="flex items-center justify-between gap-3 text-[0.8125rem] text-muted">
+        <span>Current account</span>
+        {alias && <span className="truncate">{alias.replace(/^Demo /, "")}</span>}
+      </p>
+      <p className={cx("mt-2 flex items-baseline gap-1.5 transition-colors duration-500", rising ? "text-ok" : "text-ink")}>
+        <span className="text-[1.0625rem] font-medium text-muted">RON</span>
+        <span className="tnum text-[2.5rem] leading-none font-semibold tracking-[-0.03em]">
           {ok ? (
             <NumberFlow
               value={state.balance}
@@ -400,7 +400,7 @@ function Balance({ state, txs, now }: { state: BankState; txs: BankTransaction[]
           )}
         </span>
       </p>
-      <p className="tnum mt-2 text-[0.8667rem] tracking-[0.01em] text-muted">{state.iban_masked || "IBAN not available"}</p>
+      <p className="tnum mt-2.5 text-[0.8125rem] text-subtle">{state.iban_masked || "IBAN not available"}</p>
       {refund && (
         <p className="mt-3 inline-flex animate-enter items-center gap-1.5 rounded-full bg-ok-soft px-3 py-1 text-[0.8rem] font-medium text-ok">
           <ArrowCounterClockwise aria-hidden size={14} weight="bold" />
@@ -421,75 +421,28 @@ const STATE_WORD: Record<Step["state"], string> = {
   info: "see the note below",
 };
 
-const MARK_ICON: Record<NonNullable<Step["mark"]>, Icon> = {
-  recover: ArrowCounterClockwise,
-  wait: Hourglass,
-  stop: X,
-  closed: Check,
-  pause: Pause,
-};
-
-function StepDot({ step }: { step: Step }) {
-  switch (step.state) {
-    case "done":
-      return (
-        <span className="grid size-5 place-items-center rounded-full bg-ink text-paper">
-          <Check aria-hidden size={11} weight="bold" />
-        </span>
-      );
-    case "ok":
-      return (
-        <span className="grid size-5 place-items-center rounded-full bg-ok text-paper">
-          <Check aria-hidden size={11} weight="bold" />
-        </span>
-      );
-    case "now":
-      return (
-        <span className="grid size-5 place-items-center rounded-full bg-paper ring-2 ring-ink ring-inset">
-          <span className="live-dot block size-2 rounded-full bg-ink" />
-        </span>
-      );
-    case "info": {
-      const MarkIcon = MARK_ICON[step.mark ?? "wait"];
-      return (
-        <span className="grid size-5 place-items-center rounded-full bg-ink-soft text-paper">
-          <MarkIcon aria-hidden size={11} weight="bold" />
-        </span>
-      );
-    }
-    default:
-      return <span className="block size-5 rounded-full bg-paper ring-2 ring-line-strong ring-inset" />;
-  }
-}
-
 function Tracker({ steps }: { steps: Step[] }) {
-  const reached = steps.reduce((n, s, i) => (s.state === "todo" ? n : i), 0);
-  const progress = steps.length > 1 ? reached / (steps.length - 1) : 0;
-  const refunded = steps[steps.length - 1]?.state === "ok";
   return (
-    <div className="relative mt-4">
-      <span aria-hidden className="absolute top-[9px] right-2.5 left-2.5 h-0.5 rounded-full bg-line" />
-      <span
-        aria-hidden
-        className={cx("absolute top-[9px] right-2.5 left-2.5 h-0.5 origin-left rounded-full transition-transform duration-700 ease-[var(--ease-out)]", refunded ? "bg-ok" : "bg-ink")}
-        style={{ transform: `scaleX(${progress})` }}
-      />
-      <ol aria-label="Dispute progress" className="relative grid grid-cols-3">
-        {steps.map((s, i) => (
-          <li
-            key={`${s.label}-${i}`}
-            aria-current={s.state === "now" ? "step" : undefined}
-            className={cx("flex flex-col gap-2", i === 0 ? "items-start text-left" : i === steps.length - 1 ? "items-end text-right" : "items-center text-center")}
-          >
-            <StepDot step={s} />
-            <span className={cx("text-[0.8rem] leading-tight", s.state === "todo" ? "text-subtle" : s.state === "ok" ? "font-semibold text-ok" : "font-medium text-ink")}>
-              {s.label}
-              <span className="sr-only">: {STATE_WORD[s.state]}</span>
-            </span>
-          </li>
-        ))}
-      </ol>
-    </div>
+    <ol aria-label="Dispute progress" className="mt-4 grid grid-cols-3 gap-1.5">
+      {steps.map((s, i) => (
+        <li key={`${s.label}-${i}`} aria-current={s.state === "now" ? "step" : undefined} className="flex min-w-0 flex-col gap-2">
+          <span aria-hidden className="relative block h-1 overflow-hidden rounded-full bg-line">
+            <span
+              className={cx(
+                "absolute inset-0 origin-left rounded-full transition-[transform,background-color] duration-700 ease-[var(--ease-out)]",
+                s.state === "ok" ? "bg-ok" : s.state === "now" ? "bg-yellow" : s.state === "todo" ? "bg-transparent" : "bg-ink",
+                s.state === "todo" ? "scale-x-0" : "scale-x-100",
+              )}
+            />
+            {s.state === "now" && <span className="absolute inset-y-0 left-0 w-1/3 animate-[bar-run_1.4s_var(--ease-in-out)_infinite] rounded-full bg-on-yellow/25" />}
+          </span>
+          <span className={cx("truncate text-[0.75rem] leading-tight", s.state === "todo" ? "text-subtle" : s.state === "ok" ? "font-semibold text-ok" : "font-medium text-ink")}>
+            {s.label}
+            <span className="sr-only">: {STATE_WORD[s.state]}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -515,6 +468,8 @@ function DisputeCard({ d, tx, refund, now, onHide }: {
   const writeBy = answerBy(res.data?.clock?.answer_deadline);
   const amount = tx ? amountText(tx.amount) : summary?.amount ? amountText(summary.amount.value) : null;
   const done = status === "RAMBURSAT";
+  const current = [...steps].reverse().find((x) => x.state !== "todo");
+  const headline = done ? "Refunded" : current?.state === "now" ? current.label : current?.label ?? "Received";
 
   let foot: ReactNode = null;
   if (done) {
@@ -532,12 +487,13 @@ function DisputeCard({ d, tx, refund, now, onHide }: {
   }
 
   return (
-    <article className={cx("animate-enter rounded-2xl bg-paper p-4 shadow-[var(--shadow-card)]", done && "ring-1 ring-ok-line")}>
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="font-semibold">Your dispute</h2>
-        <span className="tnum shrink-0 rounded-md bg-canvas px-1.5 py-0.5 font-mono text-[0.72rem] text-ink-soft">{d.case_id}</span>
+    <article className={cx("animate-enter rounded-[20px] bg-paper p-4 shadow-[var(--shadow-card)]", done && "ring-1 ring-ok-line")}>
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-[0.8125rem] font-medium text-muted">Your dispute</h2>
+        <span className="tnum shrink-0 text-[0.75rem] text-subtle">{d.case_id}</span>
       </div>
-      <p className="mt-0.5 text-[0.8667rem] text-muted">
+      <p className={cx("mt-1 text-[1.0625rem] font-semibold tracking-[-0.01em]", done && "text-ok")}>{headline}</p>
+      <p className="mt-0.5 truncate text-[0.8125rem] text-muted">
         {keepTogether(tx?.description ?? "Disputed payment")}
         {amount ? <span className="tnum whitespace-nowrap"> · {amount}</span> : null}
       </p>
@@ -553,7 +509,7 @@ function DisputeCard({ d, tx, refund, now, onHide }: {
             <Tracker steps={steps} />
             {note && <p className="mt-3 text-[0.8667rem] text-ink-soft">{note}</p>}
           </div>
-          {foot && <div className="mt-3.5 border-t border-line pt-3 text-[0.9333rem] text-ink-soft">{foot}</div>}
+          {foot && <div className="mt-3.5 border-t border-line pt-3 text-[0.875rem] leading-snug text-ink-soft">{foot}</div>}
           {res.error && (
             <p className="mt-2.5 flex items-center gap-1.5 text-[0.8rem] text-danger">
               <WifiSlash aria-hidden size={14} />
@@ -594,38 +550,47 @@ function NoteIcon({ n }: { n: BankNotification }) {
 const noteKey = (n: BankNotification) => `${n.ts}|${n.text}`;
 
 function Notifications({ notes, now }: { notes: BankNotification[]; now: number }) {
-  const [all, setAll] = useState(false);
-  const shown = all ? notes : notes.slice(0, 3);
+  const [open, setOpen] = useState(false);
   const fresh = useFreshKeys(notes.map(noteKey));
+  if (!notes.length) return null;
+  const latest = notes[0];
   return (
     <section aria-labelledby="bank-notes" className="px-4 pt-3">
-      <div className="flex items-baseline justify-between gap-3 px-1">
-        <h2 id="bank-notes" className="text-[0.9333rem] font-semibold">Notifications</h2>
-        {notes.length > 3 && (
-          <button type="button" className="text-[0.8667rem] font-medium text-muted transition-colors hover:text-ink" onClick={() => setAll((v) => !v)}>
-            {all ? "Show fewer" : `Show all ${notes.length}`}
-          </button>
-        )}
-      </div>
-      {notes.length === 0 ? (
-        <p className="mt-2 rounded-2xl bg-paper px-4 py-3.5 text-[0.9333rem] text-muted shadow-[var(--shadow-card)]">No new notifications.</p>
-      ) : (
-        <ul className="mt-2 divide-y divide-line overflow-hidden rounded-2xl bg-paper shadow-[var(--shadow-card)]">
-          {shown.map((n) => {
-            const k = noteKey(n);
-            const refund = noteKind(n) === "refund";
-            return (
-              <li key={k} className={cx("flex items-start gap-3 px-4 py-3", fresh(k) && "animate-enter")}>
+      <div className="overflow-hidden rounded-[20px] bg-paper shadow-[var(--shadow-card)]">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-hover"
+        >
+          <NoteIcon n={latest} />
+          <span className="min-w-0 flex-1">
+            <span id="bank-notes" className="flex items-baseline justify-between gap-2 text-[0.8125rem] text-muted">
+              <span>Messages</span>
+              <span className="tnum">{shortWhen(latest.ts, now)}</span>
+            </span>
+            <span className={cx("mt-0.5 block truncate text-[0.9375rem]", fresh(noteKey(latest)) ? "font-semibold" : "font-medium")}>{latest.text}</span>
+          </span>
+          {notes.length > 1 && (
+            <span className="tnum grid h-6 min-w-6 shrink-0 place-items-center rounded-full bg-canvas px-2 text-[0.75rem] font-semibold text-ink-soft">
+              {notes.length}
+            </span>
+          )}
+        </button>
+        {open && (
+          <ul className="animate-enter divide-y divide-line border-t border-line">
+            {notes.slice(1).map((n) => (
+              <li key={noteKey(n)} className="flex items-start gap-3 px-4 py-3">
                 <NoteIcon n={n} />
                 <span className="min-w-0 flex-1 pt-0.5">
-                  <span className={cx("block text-[0.9333rem] leading-snug", refund ? "font-semibold text-ink" : "text-ink-soft")}>{keepTogether(n.text)}</span>
-                  <span className="tnum mt-0.5 block text-[0.8rem] text-subtle">{shortWhen(n.ts, now)}</span>
+                  <span className="block text-[0.875rem] leading-snug text-ink-soft">{keepTogether(n.text)}</span>
+                  <span className="tnum mt-0.5 block text-[0.75rem] text-subtle">{shortWhen(n.ts, now)}</span>
                 </span>
               </li>
-            );
-          })}
-        </ul>
-      )}
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }
@@ -670,11 +635,31 @@ function TxIcon({ t, large, onCanvas }: { t: BankTransaction; large?: boolean; o
   );
 }
 
+/** Who the money went to as the title, what kind of payment under it: "Julia Oprea" over "Transfer · 03:29". */
+const TX_KINDS: Array<[RegExp, string, "title" | "detail"]> = [
+  [/^Transfer to\s+/i, "Transfer", "title"],
+  [/^Transfer from\s+/i, "Money in", "title"],
+  [/^Payment to\s+/i, "Payment", "title"],
+  [/^Card payment at\s+/i, "Card payment", "title"],
+  [/^Refund for dispute\s+/i, "Refund", "detail"],
+];
+
+function txTitle(description: string): { title: string; detail: string | null } {
+  for (const [pattern, kind, rest] of TX_KINDS) {
+    if (pattern.test(description)) {
+      const remainder = description.replace(pattern, "");
+      return rest === "title" ? { title: remainder, detail: kind } : { title: kind, detail: `Dispute ${remainder}` };
+    }
+  }
+  return { title: description, detail: null };
+}
+
 function TxMeta({ t, tracked, refunded }: { t: BankTransaction; tracked: TrackedDispute[]; refunded: boolean }) {
   const disputed = isDisputed(t, tracked);
+  const detail = txTitle(t.description || "").detail;
   return (
-    <span className="tnum block text-[0.8rem] text-muted">
-      {clock(t.ts, false)}
+    <span className="tnum block truncate text-[0.8125rem] text-muted">
+      {detail ? `${detail} · ` : ""}{clock(t.ts, false)}
       {refunded ? (
         <> · <span className="font-medium text-ok">Refunded</span></>
       ) : disputed ? (
@@ -704,32 +689,35 @@ function Transactions({ txs, tracked, refundedIds, now, onOpen, onDispute }: {
     return out;
   }, [sorted, now]);
   const fresh = useFreshKeys(sorted.map((t) => t.id));
+  // one button on screen: the newest payment that can still be disputed (older ones open from their row)
+  const inlineId = sorted.find((t) => canDispute(t, tracked) && isRecent(t, now))?.id;
 
   return (
-    <section aria-labelledby="bank-tx" className="px-4 pt-6 pb-2">
-      <h2 id="bank-tx" className="px-1 text-[0.9333rem] font-semibold">Transactions</h2>
+    <section aria-labelledby="bank-tx" className="px-4 pt-5 pb-2">
+      <h2 id="bank-tx" className="px-1 text-[1.0625rem] font-semibold tracking-[-0.01em]">Transactions</h2>
       {sorted.length === 0 ? (
-        <p className="mt-2 rounded-2xl bg-paper px-4 py-3.5 text-[0.9333rem] text-muted shadow-[var(--shadow-card)]">No transactions yet.</p>
+        <p className="mt-2 rounded-[20px] bg-paper px-4 py-3.5 text-[0.9375rem] text-muted shadow-[var(--shadow-card)]">No transactions yet.</p>
       ) : (
-        groups.map((g) => (
-          <div key={g.day} className="mt-3">
-            <h3 className="px-1 pb-1.5 text-[0.8rem] font-medium text-muted">{g.day}</h3>
-            <ul className="divide-y divide-line overflow-hidden rounded-2xl bg-paper shadow-[var(--shadow-card)]">
+        <div className="mt-2.5 overflow-hidden rounded-[20px] bg-paper shadow-[var(--shadow-card)]">
+        {groups.map((g) => (
+          <div key={g.day}>
+            <h3 className="px-4 pt-3 pb-1 text-[0.75rem] font-medium text-subtle">{g.day}</h3>
+            <ul>
               {g.items.map((t) => {
                 const out = isOut(t);
-                const inline = canDispute(t, tracked) && isRecent(t, now);
+                const inline = t.id === inlineId;
                 return (
                   <li key={t.id} className={cx(fresh(t.id) && "animate-enter")}>
-                    <button type="button" onClick={() => onOpen(t)} className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-hover active:bg-hover">
+                    <button type="button" onClick={() => onOpen(t)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover active:bg-hover">
                       <TxIcon t={t} />
                       <span className="min-w-0 flex-1">
-                        <span className="line-clamp-2 block text-[0.9333rem] leading-snug font-medium break-words">{keepTogether(t.description || "Transaction")}</span>
+                        <span className="block truncate text-[0.9375rem] leading-snug font-medium">{keepTogether(txTitle(t.description || "Transaction").title)}</span>
                         <TxMeta t={t} tracked={tracked} refunded={isRefunded(t) || refundedIds.has(t.id)} />
                       </span>
-                      <span className={cx("tnum shrink-0 text-[0.9333rem] font-semibold whitespace-nowrap", !out && "text-ok")}>{signedAmount(t)}</span>
+                      <span className={cx("tnum shrink-0 text-[0.9375rem] font-semibold whitespace-nowrap", !out && "text-ok")}>{signedAmount(t)}</span>
                     </button>
                     {inline && (
-                      <div className="px-4 pb-3.5 pl-16">
+                      <div className="px-4 pb-3 pl-16">
                         <BankButton
                           variant="primary"
                           size="sm"
@@ -746,7 +734,8 @@ function Transactions({ txs, tracked, refundedIds, now, onOpen, onDispute }: {
               })}
             </ul>
           </div>
-        ))
+        ))}
+        </div>
       )}
     </section>
   );
@@ -855,7 +844,8 @@ function TxSheet({ refName, tx, mode, disputed, refunded, disputable, onMode, on
           <div className="mt-3">
             <div className="flex flex-col items-center text-center">
               <TxIcon t={tx} large />
-              <p className="mt-3 max-w-full font-medium break-words">{keepTogether(tx.description || "Transaction")}</p>
+              <p className="mt-3 max-w-full font-semibold break-words">{keepTogether(txTitle(tx.description || "Transaction").title)}</p>
+              {txTitle(tx.description || "").detail && <p className="text-[0.8125rem] text-muted">{txTitle(tx.description || "").detail}</p>}
               <p className={cx("tnum mt-1 text-[2rem] leading-tight font-semibold tracking-[-0.03em]", !isOut(tx) && "text-ok")}>{signedAmount(tx)}</p>
               <p className="tnum mt-1 text-[0.8667rem] text-muted">{fullWhen(tx.ts)}</p>
             </div>
@@ -894,8 +884,8 @@ function TxSheet({ refName, tx, mode, disputed, refunded, disputable, onMode, on
             <div className="flex items-center gap-3 rounded-2xl bg-canvas p-3.5">
               <TxIcon t={tx} onCanvas />
               <div className="min-w-0 flex-1">
-                <p className="line-clamp-2 leading-snug font-medium break-words">{keepTogether(tx.description || "Transaction")}</p>
-                <p className="tnum text-[0.8rem] text-muted">{fullWhen(tx.ts)}</p>
+                <p className="truncate leading-snug font-medium">{keepTogether(txTitle(tx.description || "Transaction").title)}</p>
+                <p className="tnum truncate text-[0.8125rem] text-muted">{[txTitle(tx.description || "").detail, fullWhen(tx.ts)].filter(Boolean).join(" · ")}</p>
               </div>
               <p className="tnum shrink-0 font-semibold">{signedAmount(tx)}</p>
             </div>

@@ -195,6 +195,11 @@
 }
 
 @layer utilities {
+  /* The phone pages (Demo Bank, the fake courier page) use the phone's own face: SF Pro on iPhone, Roboto on Android. */
+  .font-native {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    letter-spacing: -0.005em;
+  }
   .tnum { font-variant-numeric: tabular-nums; }
   /* IDs (PAY-03, EV-004, CT-2026-118020): the text face with even digits, not a code font. Mono is for hashes and code. */
   .id-text { font-family: var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }

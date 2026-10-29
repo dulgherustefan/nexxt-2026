@@ -23,7 +23,7 @@ from versoml.config import get_settings
 seed_all(settings=get_settings())
 from versoml.zone_client.service import get_service
 
-async def run(sid):
+async def run(sid, action="approve"):
     s = get_service()
     await s.graph()
     case_id = s.create_case(sid)
@@ -34,7 +34,7 @@ async def run(sid):
         doc = s.rt.cases.get(case_id) or {}
         if (doc.get("interrupt") or {}).get("pending"):
             prompts.append(doc["interrupt"].get("prompt"))
-            await s.approve(case_id, "approve", "test", "OPERATOR-TEST")
+            await s.approve(case_id, action, "test", "OPERATOR-TEST")
         if doc.get("finished_at") or doc.get("status") == "EROARE":
             break
     d = s.detail(case_id)
@@ -46,12 +46,14 @@ async def run(sid):
             "fact_summaries": [f["summary"] for f in d["facts"]],
             "messages": [e.message for e in s.rt.bus.history(case_id)],
             "nodes": {n["id"]: n.get("status") for n in d["pipeline"]["nodes"]},
+            "rejected_by": d["summary"].get("rejected_by"), "finished": bool((s.rt.cases.get(case_id) or {}).get("finished_at")),
             "verify": s.rt.ledger.verify(case_id).get("valid")}
 
 async def main():
     out = {}
     for sid in ["demo_t1", "card_visa_secure", "reclamatie_tardiva", "frauda_client"]:
         out[sid] = await run(sid)
+    out["declined"] = await run("frauda_client", "reject")
     print("RESULT" + json.dumps(out), flush=True)
     await get_service().close()
 
@@ -80,6 +82,17 @@ def test_demo_t1_refunds_at_t1(results):
     assert r["letter"] in ("draft", "blocked")
     assert r["verify"] is True
     assert r["facts"] >= 10
+
+
+def test_declined_refund_ends_and_hands_the_case_to_a_person(results):
+    r = results["declined"]
+    assert r["decisions"]["rambursare_t1"] == "RAMBURSEAZA_CU_APROBARE" and r["prompts"]
+    # the run ends in its own state instead of "in progress" forever
+    assert r["finished"] and r["status"] == "REFUZAT"
+    assert r["rejected_by"] == "OPERATOR-TEST"
+    # no letter promising a refund nobody approved: the person handling the case writes to the customer
+    assert r["letter"] is None and r["nodes"]["redactor"] == "skipped"
+    assert r["verify"] is True
 
 
 def test_all_pipeline_steps_ran(results):

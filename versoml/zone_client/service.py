@@ -74,6 +74,16 @@ class ClientService:
         self._conn = None
         self._tasks: set[asyncio.Task] = set()
         self._counter = 0
+        self._repair_declined()
+
+    def _repair_declined(self) -> None:
+        """Cases declined before REFUZAT existed finished as IN_ANALIZA, which reads as "in progress" forever."""
+        for doc in self.rt.cases.all():
+            answer = (doc.get("interrupt") or {}).get("answer") or {}
+            if doc.get("status") == "IN_ANALIZA" and doc.get("verdict") == "RAMBURSEAZA_CU_APROBARE" \
+                    and answer.get("action") == "reject" and doc.get("finished_at") and doc.get("case_id"):
+                self.rt.cases.update(doc["case_id"], {"status": "REFUZAT", "rejected_by": doc.get("rejected_by")
+                                                      or answer.get("approver")})
 
     # ------------------------------------------------------------ the graph
 
@@ -268,6 +278,7 @@ class ClientService:
             "customer_ref": doc.get("customer_ref"),
             "scenario_phrase": scenario_phrase(doc.get("scenario"), doc.get("dispute_type"), doc.get("match")),
             "approved_by": doc.get("approved_by"), "approved_at": doc.get("approved_at"),
+            "rejected_by": doc.get("rejected_by"), "rejected_at": doc.get("rejected_at"),
             "received_at": doc.get("received_at"), "channel": doc.get("channel"), "scenario": doc.get("scenario"),
             "amount": doc.get("amount") or {"value": 0, "currency": "RON"}, "status": doc.get("status"),
             "verdict": doc.get("verdict"), "deadline": deadline, "sla_seconds_left": left,

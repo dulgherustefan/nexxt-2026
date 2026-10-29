@@ -1488,7 +1488,12 @@ async def rambursare(state: dict) -> dict:
         status = {Verdict.EXCEPTIE_FRAUDA_CLIENT.value: "EXCEPTIE", Verdict.RESPINGE_TARDIV.value: "RESPINS"}.get(
             verdict, "IN_ANALIZA")
         if verdict == Verdict.RAMBURSEAZA_CU_APROBARE.value and not approved:
-            status = "IN_ANALIZA"
+            # the person declined the refund: VersoML stops here and the case is theirs to handle by hand.
+            # The refund deadline still applies (refund, or report suspected fraud to the authority, DSP-05).
+            c.save({"status": "REFUZAT"})
+            await c.finish("rambursare", f"Refund declined by {approver}: no refund from VersoML. "
+                                         "A person handles the case; the refund deadline still applies")
+            return {"refund": {"done": False, "status": "REFUZAT", "declined_by": approver}}
         if verdict in (Verdict.EXCEPTIE_FRAUDA_CLIENT.value, Verdict.RESPINGE_TARDIV.value) and not approved:
             # the person did not confirm the unfavorable decision: refund within the deadline
             return await _issue_refund(c, state, amount, customer_ref, approved_by=approver)
@@ -2082,6 +2087,13 @@ def _numbers_allowed(c: "Ctx", state: dict):
 
 async def redactor(state: dict) -> dict:
     c = Ctx(state)
+    if (state.get("refund") or {}).get("status") == "REFUZAT":
+        # a letter now would promise a refund nobody approved: the person handling the case writes to the customer
+        await c.start("redactor", "No reply drafted: the refund was declined")
+        await c.finish("redactor", "No letter: the refund was declined, so the person handling the case writes "
+                                   "to the customer", status="skipped")
+        c.track("filtru_zid", "skipped", "No letter to check")
+        return {}
     await c.start("redactor", "Drafting the reply: every point answered, with deadlines and where to complain")
     from versoml.shared.rules import check_complaint_letter
     from versoml.wall.letter_filter import check_letter

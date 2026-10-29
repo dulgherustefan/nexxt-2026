@@ -3,7 +3,7 @@
 Two surfaces, one brand:
 
 - **Homepage** (`src/pages/home`): dark graphite (`night*`) with Raiffeisen yellow `#FEE600` as the light in the room: the headline accent, the beams, the progress bars, the one yellow button (charcoal `#2B2D33` text). Motion-led: animated grid, beams from inputs into VersoML, a pinned scroll story, fingerprints that settle.
-- **Console** (`/cases` and the rest): light and calm, after Mercury and Linear. White surfaces, quiet greys, one dark primary action, statuses as a dot and a word. Yellow is a signal there, not a fill.
+- **Console** (`/cases` and the rest): calm, after Mercury and Linear, in a light and a dark theme (the sun/moon toggle in the sidebar; the choice is saved, the system setting is the default). Quiet greys, statuses as a dot and a word, and Raiffeisen yellow on what a person acts on: the primary button, the active page in the sidebar, the "Waiting for you" lane, the step that needs you. The homepage stays dark and the Demo Bank pages stay light whatever the toggle says (`usePageTheme`).
 
 The mark is a V split down the middle: the ink half is the case as reported, the yellow half is the verso, the side the bank has to prove (`src/ui/Logo.tsx`, `public/favicon.svg`).
 
@@ -35,13 +35,19 @@ In the console, neutrals cover over 90% of every screen: no gradients, no glows,
 
 - Radius: 8px controls, 12px cards and panels, 16–22px only for the homepage showcase.
 - Cards use `shadow-[var(--shadow-card)]` (a 1px ring plus a faint drop), not borders. Floating layers use `--shadow-overlay`.
-- Buttons are pills (`rounded-full`): `primary` = ink with white text, `secondary` = white with the card ring. One primary per view.
+- Buttons are pills (`rounded-full`): `primary` = yellow with `on-yellow` text, `secondary` = paper with the card ring. One primary per view.
 
 ## Components and patterns
 
 - Status: `<Status tone>` (6–8px dot + word). Pills (`<Badge>`) only when a row needs a second state.
 - Lists: rows 48–56px, a 36px avatar or icon tile on the left, title + muted second line, amount right-aligned in `tnum`. Hover = `bg-hover`.
-- Needs a person: `<Banner tone="now">`: white card with a yellow live dot, one sentence saying why, one primary action.
+- Needs a person: `<Banner tone="now">`: yellow-tint card with a live dot, one sentence saying why, one primary action. On a case page the same buttons follow you in the step bar (and at the bottom of a phone screen) once the banner scrolls away.
+
+## Console structure
+
+- **Sidebar:** New case, then Cases; "What decides" (Rules, Knowledge); "Trust and setup" (Evaluation, MCP); "Try it as the customer" (Demo Bank, the fake courier page, QR codes).
+- **Cases:** four lanes that are also the filters: Waiting for you (yellow when it has cases), Due within 24 h, In progress, Closed (with the amount refunded). Click a lane again for all cases. The list is sorted by urgency.
+- **A case:** one page in the order the case happens: what the customer reported, the refund decision (rules and deadlines folded under it), getting the money back, the letter, the evidence file (six items, then "Show all"; the seal and "Verify integrity" on top). A sticky step bar names the five parts with where each stands and jumps to it. The agents, "Change a fact" and similar past cases sit in the right column.
 - Deadlines: `<DeadlineText>` says "Due tomorrow, 23:59"; the full date is in the tooltip. Never write "T+1" in the UI.
 - Empty states: say what's missing and offer one action ("No cases yet. Run a sample case.").
 - Citations: numbered markers in the text (a small hairline tag, like an ID) jump to the source list; each source shows its kind, source, confidence word with the mark ([P], [S], [U]) and rule IDs, and opens the full passage in a side sheet. "Why this result" stays folded.

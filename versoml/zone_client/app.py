@@ -151,7 +151,7 @@ def svc():
 def meta() -> dict:
     s = svc()
     llm = s.rt.llm.describe()
-    return {"zone": "client", "version": __version__, "llm": {k: llm[k] for k in ("mode", "region", "models", "live_ok")},
+    return {"zone": "client", "version": __version__, "llm": {k: llm[k] for k in ("mode", "region", "models", "live_ok", "fallback")},
             "osint_mode": s.rt.settings.versoml_osint_mode,
             "urls": {"client": s.rt.client_url(), "aml": s.rt.aml_url()}}
 

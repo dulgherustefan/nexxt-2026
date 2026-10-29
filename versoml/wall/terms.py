@@ -1,9 +1,10 @@
 """Forbidden terms in what the client zone writes (the wall, layer 5; docs/05 §6.3).
 
-Letters are in English now, so every term has its English forms next to the Romanian ones (with their
-inflections). Matching runs on the folded text (no diacritics, lower case). A few acronyms that are also ordinary
-words (STR for "strada", SAR, FIU, the HOLD signal) are matched with their capitals, on a copy of the text that
-keeps the case but has the same length and positions.
+A letter is in Romanian when the customer wrote in Romanian and in English otherwise, so every term has its Romanian
+and its English forms (with their inflections). Matching runs on the folded text (no diacritics, lower case), so
+"spălare" and "spalare" are the same word, and so are "tranzacție" and its cedilla spelling. A few acronyms that
+are also ordinary words (STR for "strada", SAR, FIU, the HOLD signal) are matched with their capitals, on a copy
+of the text that keeps the case but has the same length and positions.
 
 Before matching, harmless phrases in a refund letter are masked out ("blocked at your request", "suspicious
 messages", "keep an eye on your account", "you can report it to the police"). The list is a design choice, not a
@@ -60,7 +61,8 @@ TERMS: tuple[Term, ...] = (
        r"|\bcombaterea?\s+spalarii\s+banilor\b"
        r"|\bnational\s+office\s+for\s+(?:the\s+)?prevention\s+and\s+(?:control|combating|combat)\s+of\s+money\s+launder\w*",
        "names the AML reporting authority"),
-    _t("fiu", "financial intelligence unit", r"\bfinancial\s+intelligence(?:\s+units?)?\b",
+    _t("fiu", "financial intelligence unit",
+       r"\bfinancial\s+intelligence(?:\s+units?)?\b|\bunitat\w*\s+de\s+informatii\s+financiare\b",
        "names the financial intelligence unit, the AML reporting authority"),
     _t("fiu_acronym", "FIU", r"(?<![A-Za-z0-9])F\.?I\.?U\.?s?(?![A-Za-z0-9])",
        "names the financial intelligence unit, the AML reporting authority", cased=True),
@@ -87,20 +89,32 @@ TERMS: tuple[Term, ...] = (
     _t("legea_129", "Law 129/2019", r"\b129\s*/\s*2019\b", "cites the AML law"),
     _t("aml", "AML", r"(?<![a-z0-9])a\.?m\.?l\.?(?![a-z0-9])", "names the AML zone or an AML review"),
     _t("mlro", "MLRO", r"\bmlros?\b", "names the money laundering reporting officer"),
-    _t("tipping_off", "tipping-off", r"\btipping[\s-]?off\b|\btip[\s-]off\b|\btip(?:ped|ping|s)?\s+(?:\S+\s+)?off\b",
+    _t("tipping_off", "tipping-off",
+       r"\btipping[\s-]?off\b|\btip[\s-]off\b|\btip(?:ped|ping|s)?\s+(?:\S+\s+)?off\b"
+       r"|\binterdicti\w*\s+de\s+(?:a\s+)?(?:va\s+|il\s+|o\s+|ii\s+|le\s+)?(?:informa|avertiza|divulga|preveni)\w*"
+       r"|\b(?:nu\s+(?:avem\s+voie|ne\s+este\s+permis|putem)\s+sa\s+va\s+(?:avertizam|prevenim))\b",
        "names the ban itself"),
     _t("carausi", "money mule", r"\bcarau\w*|\bmoney[\s-]+mules?\b|\bmule\s+accounts?\b|\bmules?\b",
        "reveals the money mule analysis"),
-    _t("financial_crime", "financial crime", r"\bfinancial[\s-]+crimes?\b|\bfin[\s-]?crime\b",
+    _t("financial_crime", "financial crime",
+       r"\bfinancial[\s-]+crimes?\b|\bfin[\s-]?crime\b|\bcriminalitat\w*\s+financiar\w*"
+       r"|\binfractiun\w*\s+(?:economic\w*|financiar\w*)|\binfractional\w*",
        "names the financial crime team or review"),
     _t("compliance", "compliance review",
        rf"\b(?:flagged|referred|escalated|reported|passed|sent|forwarded)\s+{_W}{{0,3}}?(?:by|to|with)\s+(?:our\s+|the\s+)?"
        r"compliance\b|\bcompliance\s+(?:team|department|unit|officer|function|review|check|investigation|analyst|hold"
-       r"|flag)\w*",
+       r"|flag)\w*"
+       r"|\b(?:departament\w*|echip\w*|ofiter\w*|compartiment\w*|directi\w*|serviciu\w*|verificar\w*|analiz\w*"
+       r"|control\w*|structur\w*)\s+(?:de\s+)?conformitate\b"
+       rf"|\b(?:transmis\w*|trimis\w*|sesizat\w*|semnalat\w*|escaladat\w*|redirectionat\w*)\s+{_W}{{0,3}}?"
+       r"(?:catre|la)\s+(?:departamentul\s+(?:de\s+)?|echipa\s+(?:de\s+)?)?conformitat\w*",
        "reveals a compliance review"),
     _t("under_investigation", "under investigation",
        r"\bunder\s+(?:an?\s+)?(?:\w+\s+)?(?:investigation|scrutiny|surveillance|observation)\b"
-       r"|\b(?:pending|subject\s+to)\s+(?:an?\s+|the\s+)?(?:\w+\s+)?investigation\b",
+       r"|\b(?:pending|subject\s+to)\s+(?:an?\s+|the\s+)?(?:\w+\s+)?investigation\b"
+       r"|\bsub\s+(?:investigati\w*|ancheta\w*|supraveghere\w*|observatie\w*|urmarire\w*|cercetare\w*)"
+       r"|\bin\s+curs\s+de\s+(?:investigare|investigatie|cercetare|ancheta)\b"
+       r"|\bface\s+obiectul\s+(?:unei?\s+)?(?:investigati\w*|anchete\w*|cercetari\w*|verificari\w*\s+suplimentare)",
        "says someone or something is under investigation"),
     _t("tranzactie_suspecta", "suspicious transaction",
        rf"\b(?:tranzacti\w*|operatiun\w*|activitat\w*|plat[ai]\w*|transfer\w*|fonduri\w*|{_CONT}|{_BENEF})\s+"
@@ -125,7 +139,11 @@ TERMS: tuple[Term, ...] = (
        rf"\b(?:{_CONT}|{_BENEF}|holders?|transactions?|payments?|transfers?)\s+{_W}{{0,3}}?(?:was|were|is|are|been"
        r"|being)\s+(?:\w+\s+)?(?:flagged|blacklisted|black-listed|watch-?listed)\b"
        r"|\b(?:we|we've|we\s+have|we\s+had|our\s+\w+\s+(?:has|have|had))\s+(?:\w+\s+)?(?:flagged|blacklisted"
-       r"|watch-?listed)\b",
+       r"|watch-?listed)\b"
+       rf"|\b(?:{_CONT}|{_BENEF}|titular\w*|tranzacti\w*|plat[ai]\w*|transfer\w*)\s+{_W}{{0,3}}?(?:a\s+fost|au\s+fost"
+       r"|este|sunt|fusese|fusesera)\s+(?:\w+\s+)?(?:marcat\w*|semnalat\w*|inclus\w*\s+pe\s+(?:o\s+)?lista)\b"
+       r"|\blist\w*\s+neagr\w*|\blist\w*\s+de\s+(?:supraveghere|urmarire)\b"
+       rf"|\b(?:am|au|a)\s+(?:semnalat|marcat)\s+{_W}{{0,2}}?(?:{_CONT}|{_BENEF}|titular\w*)",
        "reveals that an account or a payment was flagged"),
     _t("blocat_la_cerere", "blocked at the authorities' request",
        r"\b(?:bloc\w*|suspend\w*|retinut\w*|retinere\w*|inghet\w*|sechestr\w*|poprit\w*|oprit\w*)\s+"

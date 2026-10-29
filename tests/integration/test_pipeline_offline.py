@@ -42,7 +42,8 @@ async def run(sid, action="approve", case_id=None):
     letter = d.get("letter") or {}
     return {"status": d["summary"]["status"], "decisions": {x["question"]: x["decision"] for x in d["decisions"]},
             "facts": len(d["facts"]), "letter": letter.get("status"), "subject": letter.get("subject"),
-            "body": letter.get("body"), "prompts": prompts,
+            "body": letter.get("body"), "metadata": letter.get("metadata"), "cmp": letter.get("cmp_checks"),
+            "numeric": letter.get("numeric_check"), "prompts": prompts,
             "summaries": [n.get("summary") for n in d["pipeline"]["nodes"] if n.get("summary")],
             "fact_summaries": [f["summary"] for f in d["facts"]],
             "messages": [e.message for e in s.rt.bus.history(case_id)],
@@ -69,6 +70,13 @@ async def main():
     tx = s.demo_scam("CUST-DEMO-01")
     case_id = await s.bank_dispute("CUST-DEMO-01", tx["transaction_id"], "I did not make this one either.")
     out["after_notice"] = await run(None, case_id=case_id)
+    # a customer who writes in Romanian gets the letter in Romanian
+    tx = s.demo_scam("CUST-DEMO-01")
+    case_id = await s.bank_dispute("CUST-DEMO-01", tx["transaction_id"],
+                                   "Bună ziua, nu am făcut eu această plată de 3.200 lei. Am primit un SMS de la curier "
+                                   "cu un link https://livrare-bancademo.example/colet și l-am deschis. Vă rog să-mi "
+                                   "returnați banii și să-mi spuneți de ce nu ați blocat tranzacția.")
+    out["romanian"] = await run(None, case_id=case_id)
     print("RESULT" + json.dumps(out), flush=True)
     await get_service().close()
 
@@ -149,6 +157,42 @@ def test_the_letter_is_english_and_specific(results):
     assert "Article 169 of Law 209/2019" in late and "cannot refund" in late
 
 
+def test_the_letter_explains_the_decision_and_carries_the_review_flags(results):
+    r = results["demo_t1"]
+    body = r["body"]
+    # the decision comes first, then the law, the data used and the main factors, and the customer's rights
+    opening = body.split("\n\n")[1]
+    assert opening.startswith("We have refunded the full amount of RON 3,200.00")
+    assert "To decide, we looked at your complaint, the record of the payment" in body
+    assert "The main factors were" in body and "a copy of the information and documents" in body
+    assert "A member of our disputes team reviewed and approved this decision." in body
+    assert not re.search(r"\b(?:PAY|DSP|CMP|REC|URM|DP)-\d{2}\b", body)            # rule IDs stay in the metadata
+    meta = r["metadata"]
+    assert meta["ai_assisted"] is True and meta["human_approved"] is True and meta["approved_by"] == "OPERATOR-TEST"
+    assert meta["language"] == "en" and "PAY-03" in meta["rule_ids"]
+    assert {c["rule_id"]: c["outcome"] for c in r["cmp"]} == {"CMP-01": "toate_punctele", "CMP-03": "bloc_prezent"}
+
+
+def test_a_romanian_complaint_gets_a_romanian_letter(results):
+    r = results["romanian"]
+    body = r["body"]
+    assert r["letter"] == "draft", (body, r["numeric"])
+    assert r["metadata"]["language"] == "ro" and r["metadata"]["ai_assisted"] is True
+    assert r["subject"].startswith("Rambursarea transferului de 3.200,00 lei")
+    assert body.startswith("Bună ziua, ") and body.rstrip().endswith("Echipa de contestații, Demo Bank")
+    assert "V-am rambursat integral suma de 3.200,00 lei" in body
+    assert "art. 173 din Legea nr. 209/2019" in body and "sfârșitul următoarei zile lucrătoare" in body
+    assert "Ne-ați întrebat de ce nu am oprit plata." in body
+    assert all(k in body for k in ("ANPC", "ANAF", "BNR", "CSALB"))
+    # Romanian formats and diacritics with a comma below; none of the English letter's wording
+    assert "\u015f" not in body and "\u0163" not in body and "ș" in body and "ț" in body
+    assert not re.search(r"\bRON\s?\d|\b\d{1,3}(?:,\d{3})+\.\d{2}\b|\b(?:Dear|Kind regards|refund)\b", body)
+    # the customer's words and their link are not quoted back
+    assert "livrare-bancademo" not in body and "Vă rog să-mi returnați" not in body
+    assert r["numeric"]["passed"] and r["numeric"]["checked"] >= 4
+    assert {c["rule_id"]: c["outcome"] for c in r["cmp"]} == {"CMP-01": "toate_punctele", "CMP-03": "bloc_prezent"}
+
+
 def test_sign_off_prompt_names_the_real_reason(results):
     r = results["frauda_client"]
     assert r["decisions"]["rambursare_t1"] == "RAMBURSEAZA_CU_APROBARE"
@@ -158,7 +202,7 @@ def test_sign_off_prompt_names_the_real_reason(results):
 
 
 @pytest.mark.parametrize("sid", ["demo_t1", "card_visa_secure", "reclamatie_tardiva", "frauda_client", "app",
-                                 "app_not_confirmed", "after_notice"])
+                                 "app_not_confirmed", "after_notice", "romanian"])
 def test_what_a_person_reads_is_english(results, sid):
     r = results[sid]
     texts = r["summaries"] + r["fact_summaries"] + r["messages"] + r["prompts"]

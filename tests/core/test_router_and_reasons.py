@@ -100,6 +100,18 @@ def test_approval_names_the_escalating_rule_only():
     assert "29 Oct 2026, 23:59" in s["sentence"] and "limit" not in s["sentence"]
 
 
+def test_a_reading_without_a_live_model_gets_its_own_reason():
+    hits = [{"rule_id": "DSP-59", "outcome": "sub_plafon"}, {"rule_id": "DSP-57", "outcome": "extragere_de_confirmat"}]
+    s = sentence({"question": "rambursare_t1", "decision": "RAMBURSEAZA_CU_APROBARE",
+                  "rule_ids": ["PAY-03", "DSP-59", "DSP-57"], "deadline": "2026-10-29T21:59:59+00:00"}, CTX, {}, hits)
+    assert s["rule_id"] == "DSP-57" and "because the complaint was read without a live model:" in s["sentence"]
+    assert "second look" not in s["sentence"]
+    injected = [{"rule_id": "DSP-57", "outcome": "DSP_SECURITY_SIGNAL"}]
+    s = sentence({"question": "rambursare_t1", "decision": "RAMBURSEAZA_CU_APROBARE", "rule_ids": ["PAY-03", "DSP-57"]},
+                 CTX, {}, injected)
+    assert "the complaint text needs a check against the bank's records" in s["sentence"]
+
+
 def test_every_verdict_gets_one_sentence_without_dashes():
     decisions = [
         {"question": "rambursare_t1", "decision": v, "rule_ids": r} for v, r in (

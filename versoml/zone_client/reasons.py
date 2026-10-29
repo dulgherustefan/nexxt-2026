@@ -6,7 +6,6 @@ sentence explains the decision the rules engine already made; it never changes i
 
 from __future__ import annotations
 
-
 from versoml.zone_client.fmt import fmt_date, fmt_datetime, money
 
 # the rule the sentence names, in order of preference, per verdict
@@ -29,6 +28,11 @@ APPROVAL_WHY = {
     "DSP-57": "the complaint text needs a check against the bank's records",
     "DSP-30": "earlier undisputed card payments match this one",
     "PAY-03": "a fraud hold came in without a written notice to the authority",
+}
+# a rule whose escalating outcomes mean different things gets the sentence of the outcome that fired
+APPROVAL_WHY_BY_OUTCOME = {
+    ("DSP-57", "extragere_de_confirmat"): "the complaint was read without a live model",
+    ("DSP-57", "suma_de_confirmat"): "the amount in the customer's document needs checking against the bank's records",
 }
 
 
@@ -79,8 +83,8 @@ def sentence(decision: dict, ctx: dict, extracted: dict | None = None, hits: lis
         if verdict == "RAMBURSEAZA":
             text = f"Refund now: {_unauthorized_clause(ctx, extracted)}"
         elif verdict == "RAMBURSEAZA_CU_APROBARE":
-            why = [APPROVAL_WHY[r] for r in ("DSP-59", "URM-03", "DSP-50", "DSP-57", "DSP-30", "PAY-03") if r in rule_ids
-                   and _fired(hits, r)]
+            why = [_approval_why(hits, r) for r in ("DSP-59", "URM-03", "DSP-50", "DSP-57", "DSP-30", "PAY-03")
+                   if r in rule_ids and _fired(hits, r)]
             text = (f"Refund once a person approves{by}, because "
                     + (" and ".join(why[:2]) if why else "the case needs a second look")
                     + f": {_unauthorized_clause(ctx, extracted)}")
@@ -130,16 +134,24 @@ def sentence(decision: dict, ctx: dict, extracted: dict | None = None, hits: lis
     return {"rule_id": rid, "question": question, "decision": verdict, "sentence": f"{text} ({rid})." if rid else f"{text}."}
 
 
+ESCALATING = {"DSP-59": ("DSP_AMOUNT_REVIEW",), "URM-03": ("semnale_de_risc",),
+              "DSP-50": ("DSP_AUTH_AMBIGUOUS", "semnale_autentificare"),
+              "DSP-57": ("DSP_SECURITY_SIGNAL", "suma_de_confirmat", "extragere_de_confirmat"),
+              "DSP-30": ("DSP_CE3_MET",), "PAY-03": ("PAY_FRAUD_NOTICE_MISSING",)}
+
+
 def _fired(hits: list[dict] | None, rule_id: str) -> bool:
     """A rule that escalates only counts when its finding was the escalating one (DSP-59 under the cap does not)."""
     if hits is None:
         return True
-    escalating = {"DSP-59": ("DSP_AMOUNT_REVIEW",), "URM-03": ("semnale_de_risc",),
-                  "DSP-50": ("DSP_AUTH_AMBIGUOUS", "semnale_autentificare"), "DSP-57": ("DSP_SECURITY_SIGNAL",
-                                                                                      "suma_de_confirmat"),
-                  "DSP-30": ("DSP_CE3_MET",), "PAY-03": ("PAY_FRAUD_NOTICE_MISSING",)}
-    wanted = escalating.get(rule_id)
+    wanted = ESCALATING.get(rule_id)
     return any(h.get("rule_id") == rule_id and (not wanted or h.get("outcome") in wanted) for h in hits)
+
+
+def _approval_why(hits: list[dict] | None, rule_id: str) -> str:
+    outcome = next((h.get("outcome") for h in hits or [] if h.get("rule_id") == rule_id
+                    and h.get("outcome") in ESCALATING.get(rule_id, ())), None)
+    return APPROVAL_WHY_BY_OUTCOME.get((rule_id, outcome), APPROVAL_WHY[rule_id])
 
 
 def decision_reasons(decisions: list[dict] | None, ctx: dict | None, extracted: dict | None = None,

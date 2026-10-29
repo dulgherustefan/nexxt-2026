@@ -1,6 +1,7 @@
 """The letter check: forbidden terms (true positives), harmless phrases (no false blocks), canary, raw personal data.
 
-Letters are written in English now; the Romanian forms stay covered, since a Romanian draft must not slip through.
+A letter is in Romanian when the customer wrote in Romanian and in English otherwise, so every term is checked in both
+languages, with or without diacritics.
 """
 
 from __future__ import annotations
@@ -86,6 +87,19 @@ BLOCKED_RO = [
     ("Conform Legii nr. 129/2019, nu vă putem oferi detalii.", "Law 129/2019"),
     ("Contul aparține unui cărăuș.", "money mule"),
     ("Tranzac\u0163ia este suspectă.", "suspicious transaction"),   # cedilla on the way in
+    # the Romanian forms of the terms that used to be English only
+    ("Datele au ajuns la Unitatea de Informații Financiare.", "financial intelligence unit"),
+    ("Cazul a fost transmis către departamentul de conformitate.", "compliance review"),
+    ("Echipa de conformitate analizează plata.", "compliance review"),
+    ("Beneficiarul se află sub investigație.", "under investigation"),
+    ("Contul este in curs de investigare.", "under investigation"),
+    ("Titularul face obiectul unei anchete.", "under investigation"),
+    ("Contul beneficiarului a fost marcat de bancă.", "flagged account or payment"),
+    ("Am semnalat contul beneficiarului.", "flagged account or payment"),
+    ("Titularul este pe lista neagră.", "flagged account or payment"),
+    ("Echipa de criminalitate financiară are cazul.", "financial crime"),
+    ("Avem interdicția de a vă informa despre analiză.", "tipping-off"),
+    ("Nu avem voie să vă avertizăm.", "tipping-off"),
 ]
 
 BENIGN_EN = [
@@ -149,6 +163,14 @@ BENIGN_RO = [
     "Vă mulțumim pentru răbdare. Cu stimă, Banca Demo",
     "Strada Exemplului nr. 10, București. Str. Lalelelor nr. 5.",
     "Contul dumneavoastră RO49 **** **** 0000 a fost creditat. Pentru întrebări: 021 123 4567, ajutor@bancademo.example.",
+    "Răspunsul nostru este în conformitate cu Legea nr. 209/2019.",
+    "Plata pe care ne-ați semnalat-o a fost rambursată.",
+    "Ne-ați informat că nu ați autorizat plata și ați semnalat-o în termenul de 13 luni.",
+    "Am analizat reclamația dumneavoastră, datele tranzacției și jurnalul de autentificare.",
+    "Nu putem oferi informații despre conturile altor persoane, dar am ținut cont de ce ne-ați spus.",
+    "Am cerut și băncii care a primit banii să îi returneze.",
+    "Un coleg din echipa de contestații a verificat și a aprobat această decizie.",
+    "Puteți sesiza și Poliția. Păstrați mesajele și chitanțele legate de această plată.",
 ]
 
 REFUND_LETTER = """Dear <CLIENT_1>,

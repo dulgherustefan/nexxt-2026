@@ -5,7 +5,9 @@ tools and returns only its own updates. The LLM extracts, argues and drafts; the
 approves anything unfavorable or over the cap.
 
 Node IDs, event types, verdict and status codes stay as they are (the console matches on them); everything a
-person reads is plain English (US spelling, money as "RON 3,200.00", dates as "29 Oct 2026, 23:59").
+person at the bank reads is plain English (US spelling, money as "RON 3,200.00", dates as "29 Oct 2026, 23:59").
+The letter to the customer is in the customer's language: Romanian ("3.200,00 lei", "29 octombrie 2026, ora 23:59")
+when the complaint is in Romanian, English otherwise.
 """
 
 from __future__ import annotations
@@ -30,7 +32,9 @@ from versoml.shared import canonical as K
 from versoml.shared.events import Emitter, now
 from versoml.shared.llm import Role
 from versoml.zone_client import prompts as P
-from versoml.zone_client.fmt import fmt_date, fmt_datetime, fmt_deadline, money, to_local
+from versoml.zone_client.fmt import (
+    fmt_date, fmt_date_ro, fmt_datetime, fmt_datetime_ro, fmt_deadline, money, money_ro, to_local,
+)
 from versoml.zone_client.runtime import ClientRuntime, get_runtime
 
 log = logging.getLogger("versoml.client.agents")
@@ -391,9 +395,9 @@ IMPERSONATED: list[tuple[str, str]] = [
     (r"\b(?:from|of)\s+(?:the|my|your)\s+bank\b|\bbank'?s\s+(?:security|fraud)\b|\b(?:security|fraud)\s+"
      r"(?:department|team)\b|\bbank\s+employee\b", "bank"),
 ]
-ASK_RE = re.compile(r"\b(?:vă rog|va rog|cer|solicit|doresc|vreau|de ce|cum|please|pls|i\s+want|i\s+would\s+like"
+ASK_RE = re.compile(r"\b(?:vă rog|va rog|cer|solicit|doresc|vreau|de ce|please|pls|i\s+want|i\s+would\s+like"
                     r"|i'?d\s+like|i\s+need|i'?m\s+asking|i\s+ask|i\s+request|i\s+demand|can\s+you|could\s+you|why"
-                    r"|how|what\s+can|help\s+me)\b", re.I)
+                    r"|what\s+can|help\s+me)\b|\b(?:how|cum)\b[^.!]*\?", re.I)
 # a first-person verb and the right context, in the same sentence
 SHARE_VERBS = ("am introdus", "am dat", "am completat", "i-am dat", "i-am spus", "am comunicat", "am trimis")
 SHARE_CONTEXT = ("card", "cod", "parol", "otp", "cvv", "pin", "datele")
@@ -430,23 +434,125 @@ def fallback_extract(text: str) -> P.ReceptorOut:
     asks = [s.strip() for s in re.split(r"(?<=[.!?])\s+", body) if len(s.strip()) >= 15 and ASK_RE.search(s)]
     points = [P.ReceptorPoint(text=s[:140], quote=s[:200]) for s in (asks or sentences[:2])][:4]
     injection = detect_injection(text or "")
-    low_sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", body_low)]
+    body_sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", body)]
 
-    def said(verbs: tuple[str, ...], context: tuple[str, ...], english: tuple[str, str]) -> bool:
-        """The customer says it in one sentence: a first-person verb and the right context."""
-        return any((any(v in s for v in verbs) and any(k in s for k in context))
-                   or (re.search(english[0], s) and re.search(english[1], s)) for s in low_sentences)
+    def said(verbs: tuple[str, ...], context: tuple[str, ...], english: tuple[str, str]) -> str | None:
+        """The sentence where the customer says it (a first-person verb and the right context), or None."""
+        for s in body_sentences:
+            low = s.lower()
+            if (any(v in low for v in verbs) and any(k in low for k in context)) \
+                    or (re.search(english[0], low) and re.search(english[1], low)):
+                return s
+        return None
 
+    sharing = said(SHARE_VERBS, SHARE_CONTEXT, SHARE_EN)
+    approving = said(APPROVE_VERBS, APPROVE_CONTEXT, APPROVE_EN)
     return P.ReceptorOut(
         claims_unauthorized=bool(UNAUTHORISED_RE.search(body_low)),
-        client_admits_sharing_credentials=said(SHARE_VERBS, SHARE_CONTEXT, SHARE_EN),
-        client_admits_approving_in_app=said(APPROVE_VERBS, APPROVE_CONTEXT, APPROVE_EN),
+        client_admits_sharing_credentials=sharing is not None, sharing_quote=sharing,
+        client_admits_approving_in_app=approving is not None, approving_quote=approving,
         noticed_when=None, contacted_by=contacted, impersonated_entity=impersonated,
         mentioned_urls=list(dict.fromkeys(m.rstrip(".,;") for m in URL_RE.findall(text or "")))[:5],
         mentioned_phones=list(dict.fromkeys(PHONE_RE.findall(text or "")))[:5],
         mentioned_amounts=amounts[:5], requested_remedy="refund of the amount" if REMEDY_RE.search(body_low) else None,
         points=points, injection_suspected=injection is not None, injection_quote=injection,
     )
+
+
+# ---------------------------------------------------------------- what the reading may claim
+
+ADMISSIONS = (("client_admits_sharing_credentials", "sharing_quote"),
+              ("client_admits_approving_in_app", "approving_quote"))
+ADMISSION_WORDS = {"client_admits_sharing_credentials": "shared their card details or codes",
+                   "client_admits_approving_in_app": "approved the payment in the app"}
+_PLAIN_MARKS = str.maketrans({"\u2019": "'", "\u2018": "'", "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u00ab": '"',
+                              "\u00bb": '"', "\u2013": "-", "\u2014": "-"})
+
+
+def _plain(text: str) -> str:
+    """Folded for comparing a quote with the complaint: no diacritics (cedillas included), lower case, plain quote
+    marks and dashes, one space between words."""
+    import unicodedata
+
+    decomposed = unicodedata.normalize("NFKD", normalize_ro(text or ""))
+    folded = "".join(ch for ch in decomposed if not unicodedata.combining(ch)).lower().translate(_PLAIN_MARKS)
+    return " ".join(folded.split())
+
+
+def quote_in_text(quote: str | None, text: str) -> bool:
+    """True when the quote is the customer's own words: it appears in the text as written, after folding case,
+    diacritics, quote marks and spaces. A quote cut short with "..." counts when each piece appears, in order."""
+    pieces = [p.strip(" .,;:!?\"'") for p in re.split(r"\[?\s*\.{3,}\s*\]?", _plain(quote or ""))]
+    pieces = [p for p in pieces if p]
+    if not pieces or sum(len(p) for p in pieces) < 4:
+        return False
+    hay, pos = _plain(text), 0
+    for piece in pieces:
+        found = hay.find(piece, pos)
+        if found < 0:
+            return False
+        pos = found + len(piece)
+    return True
+
+
+def ground_extraction(out: P.ReceptorOut, text: str, *, deterministic: bool = False) -> tuple[P.ReceptorOut, dict]:
+    """The reading, kept only where the complaint backs it. A point's quote and the injection quote must be the
+    customer's words, and a link or phone number the reading lists must be in the text (the domain check and the
+    DNSC draft use them), or they are dropped. An admission, true or false, stands only with its quote found in the
+    text; otherwise it becomes None and a person confirms it. The pattern reader's "false" only means it found
+    nothing, so it becomes None without a flag.
+
+    Returns the checked reading and {dropped, to_confirm}."""
+    from versoml.zone_client.numeric_check import host_of, phone_key
+
+    dropped: list[dict] = []
+    plain, digits = _plain(text), re.sub(r"\D", "", text or "")
+    urls = [u for u in out.mentioned_urls if host_of(u) and host_of(u) in plain]
+    phones = [p for p in out.mentioned_phones
+              if p in (text or "") or (len(phone_key(p)) >= 6 and phone_key(p) in digits)]
+    dropped += [{"field": "mentioned_urls", "quote": u} for u in out.mentioned_urls if u not in urls]
+    dropped += [{"field": "mentioned_phones", "quote": p} for p in out.mentioned_phones if p not in phones]
+    points = []
+    for i, point in enumerate(out.points):
+        if point.quote and not quote_in_text(point.quote, text):
+            dropped.append({"field": f"points[{i}].quote", "quote": point.quote})
+            point = point.model_copy(update={"quote": ""})
+        points.append(point)
+    update: dict[str, Any] = {"points": points, "mentioned_urls": urls, "mentioned_phones": phones}
+    if out.injection_quote and not quote_in_text(out.injection_quote, text):
+        dropped.append({"field": "injection_quote", "quote": out.injection_quote})
+        update["injection_quote"] = None
+    to_confirm: list[dict] = []
+    for field, quote_field in ADMISSIONS:
+        value, quote = getattr(out, field), getattr(out, quote_field)
+        if value is None:
+            update[quote_field] = None
+            continue
+        if quote and quote_in_text(quote, text):
+            continue
+        update[field], update[quote_field] = None, None
+        if quote:
+            dropped.append({"field": quote_field, "quote": quote})
+        if not (deterministic and value is False):
+            to_confirm.append({"field": field, "value": value, "quote": quote or None})
+    return out.model_copy(update=update), {"dropped": dropped, "to_confirm": to_confirm}
+
+
+def _grounding_summary(report: dict) -> str:
+    parts = []
+    for item in report["to_confirm"]:
+        says = ("says the customer " if item["value"] else "says the customer never ") + ADMISSION_WORDS[item["field"]]
+        parts.append(f"the reading {says}, but no such words are in the complaint")
+    quotes = sum(1 for d in report["dropped"] if d["field"] == "injection_quote" or d["field"].startswith("points"))
+    if quotes:
+        parts.append(f"{plural(quotes, 'quote')} not found in the complaint {'was' if quotes == 1 else 'were'} dropped")
+    mentions = sum(1 for d in report["dropped"] if d["field"] in ("mentioned_urls", "mentioned_phones"))
+    if mentions:
+        parts.append(f"{plural(mentions, 'link or phone number', 'links or phone numbers')} not in the complaint "
+                     f"{'was' if mentions == 1 else 'were'} dropped")
+    text = "; ".join(parts)
+    return text[:1].upper() + text[1:] + (": the admission is left blank for a person to confirm"
+                                           if report["to_confirm"] else "")
 
 
 class Ctx:
@@ -558,6 +664,8 @@ async def receptor(state: dict) -> dict:
         user=wrap_data("complaint", pseudo_text), schema=P.ReceptorOut,
         fallback=lambda: fallback_extract(pseudo_text), max_tokens=2500, scope=replay_scope(state),
     )
+    # every quote must be the customer's words, and an admission stands only on its quote
+    out, grounding = ground_extraction(out, pseudo_text, deterministic=info.mode == "offline")
     restore = lambda s: c.rt.privacy.restore(s, vault) if s else s  # noqa: E731
     injection_quote = out.injection_quote or deterministic_injection
     amounts, phones, hosts = _standard_mentions(complaint, out, restore)
@@ -580,6 +688,16 @@ async def receptor(state: dict) -> dict:
                        f"{label(CONTACT_LABELS, extracted.contacted_by or 'necunoscut')}",
                        Labels(conf="client", trust=Trust.UNTRUSTED, sinks=[Sink.CLIENT]))
     fact_map = {"client_admits_sharing_credentials": fid, "client_admits_approving_in_app": fid}
+    extracted_doc = {**extracted.model_dump(mode="json"), "to_confirm": [x["field"] for x in grounding["to_confirm"]]}
+    if grounding["dropped"] or grounding["to_confirm"]:
+        check = await c.fact("receptor", "complaint.grounding", "intake.quote_check",
+                             {"dropped": len(grounding["dropped"]), "to_confirm": len(grounding["to_confirm"])},
+                             grounding, _grounding_summary(grounding),
+                             Labels(conf="client", trust=Trust.UNTRUSTED, sinks=[Sink.CLIENT]))
+        if grounding["to_confirm"]:
+            await c.em.custom("extraction_unconfirmed", _grounding_summary(grounding),
+                              {"fact_id": check, "fields": extracted_doc["to_confirm"]},
+                              step="receptor", agent=AG["receptor"])
     if extracted.injection_suspected:
         inj = await c.fact("receptor", "security.injection", "detector.injection",
                            {"deterministic": bool(deterministic_injection)}, {"quote": injection_quote},
@@ -588,14 +706,14 @@ async def receptor(state: dict) -> dict:
                            Labels(conf="client", trust=Trust.UNTRUSTED, sinks=[Sink.CLIENT]))
         await c.em.custom("injection_detected", "Instructions found in the complaint: ignored and flagged for a person",
                           {"fact_id": inj, "quote": injection_quote}, step="receptor", agent=AG["receptor"])
-    c.save({"extracted": extracted.model_dump(mode="json"), "llm_mode": info.mode})
+    c.save({"extracted": extracted_doc, "llm_mode": info.mode})
     if info.mode != "live":
         await c.em.custom("llm_degraded", f"The complaint was read in {info.mode} mode, not by a live model: a person "
                                           "checks the extraction", {"mode": info.mode, "fact_id": fid},
                           step="receptor", agent=AG["receptor"])
     await c.finish("receptor", f"Extraction done ({info.mode}, {model})",
                    {"llm": info.as_dict(), "injection": extracted.injection_suspected})
-    return {"pseudo": {"text": pseudo_text, "vault": vault}, "extracted": extracted.model_dump(mode="json"),
+    return {"pseudo": {"text": pseudo_text, "vault": vault}, "extracted": extracted_doc,
             "fact_map": {**fact_map, "llm_mode": fid}, "llm_mode": info.mode}
 
 
@@ -2150,9 +2268,10 @@ def _fallback_dnsc(attack: dict) -> P.DnscDraft:
     if domain:
         lines.append(f"Domain: {domain}.")
     if url:
-        lines.append(f"URL: {url}.")
+        lines.append(f"URL reported by the customer, not yet confirmed by the bank: {url}.")
     if phones:
-        lines.append(f"Phone {'number' if len(phones) == 1 else 'numbers'} used by the scammer: {', '.join(phones)}.")
+        lines.append(f"Phone {'number' if len(phones) == 1 else 'numbers'} the customer says the scammer used, not yet "
+                     f"confirmed by the bank: {', '.join(phones)}.")
     age = attack.get("domain_age_hours")
     if isinstance(age, (int, float)):
         lines.append(f"The domain was registered about {plural(round(age), 'hour')} before the attack.")
@@ -2203,9 +2322,12 @@ async def recuperare(state: dict) -> dict:
         }
     attack = records.get("attack") or {}
     if attack.get("domain") or attack.get("phones"):
+        # the link and the numbers come from the customer's text: the report carries them as data nobody has confirmed
+        unconfirmed = [x for x in [attack.get("url"), *(attack.get("phones") or [])] if x]
         public = {"domain": attack.get("domain"), "url": attack.get("url"), "phones": attack.get("phones"),
                   "domain_age_hours": attack.get("domain_age_hours"), "lookalike_score": attack.get("lookalike_score"),
-                  "contact_channel": (state.get("extracted") or {}).get("contacted_by")}
+                  "contact_channel": (state.get("extracted") or {}).get("contacted_by"),
+                  "unconfirmed": {"values": unconfirmed, "source": "the customer's complaint, not checked by the bank"}}
         # the scammer's number is public, but the guard can't tell it from a customer's: the model sees a label
         masked, vault = c.rt.privacy.pseudonymize(_json(public), c.case_id)
         draft, info = await c.rt.llm.structured(
@@ -2215,6 +2337,7 @@ async def recuperare(state: dict) -> dict:
         restore = lambda s: c.rt.privacy.restore(s, vault) if s else s  # noqa: E731
         recovery["dnsc_report"] = {"title": restore(draft.title), "text": restore(draft.body),
                                    "indicators": [restore(x) for x in draft.indicators],
+                                   "unconfirmed": unconfirmed,
                                    "channel": "pnrisc.dnsc.ro / 1911", "status": "draft: a person sends it"}
     names = {"recall": "recall", "chargeback": "chargeback", "dnsc_report": "DNSC report"}
     await c.fact("recuperare", "recovery.drafts", "recall.draft", {"decision": escroc.get("decision")},
@@ -2236,140 +2359,481 @@ def _json(value: Any) -> str:
 
 HELPLINE = P.HELPLINE
 
-ADR_BLOCK = P.ADR_TEXT
-
-SAFETY_TIP = "Never share the codes we send you by text message, even with someone who says they work for the bank."
-SAFETY_TIPS = {"app": "If someone calls saying they work for the bank and asks you to move money or approve a "
-                       "payment, hang up and call us on the number on the back of your card."}
-
 REFUND_VERDICTS = ("RAMBURSEAZA", "RAMBURSEAZA_CU_APROBARE")
-_ABOUT_MONEY = re.compile(r"\bmoney\b|\brefund|\bback\b|\breturn|\breimburs|\bbani|\bsum", re.I)
-_WHY_NOT_STOPPED = (re.compile(r"\b(?:why|how\s+come|de\s+ce)\b", re.I), re.compile(r"\bblock|\bstop|\bbloc|\bopri", re.I))
+# the decisions that go against the customer: their letter says how to contest them (GDPR art. 22(3))
+ADVERSE_VERDICTS = ("RESPINGE_TARDIV", "NU_SE_APLICA_T1")
 
 
-def _point_answer(point: str, verdict: str | None) -> str | None:
-    """The fallback letter's answer to one point of the complaint, or None when the letter already answers it."""
-    if _WHY_NOT_STOPPED[0].search(point) and _WHY_NOT_STOPPED[1].search(point):
-        return ("You asked why we did not stop the payment. It went through the usual authentication steps, so it "
-                "was processed like any other payment."
-                + (" The law still requires us to refund you." if verdict in REFUND_VERDICTS else ""))
-    if _ABOUT_MONEY.search(point) and verdict in (*REFUND_VERDICTS, "RESPINGE_TARDIV", "NU_SE_APLICA_T1",
-                                                  "INFORMATII_SUPLIMENTARE"):
-        return None   # the outcome paragraph is the answer
-    return f"You also wrote: \u201c{point}\u201d We have taken this into account in our answer."
+def letter_language(state: dict) -> str:
+    """"ro" when the customer wrote in Romanian, "en" otherwise, as the intake step read the complaint."""
+    language = (state.get("extracted") or {}).get("language")
+    if language in ("ro", "en"):
+        return language
+    text = (state.get("complaint") or {}).get("text")
+    return guess_language(text) if text else "en"
 
 
-def _payment_words(state: dict) -> tuple[str, str]:
-    """("card payment", " to SHOP SRL") for the letter; a transfer's payee is not named."""
+def _formats(lang: str) -> tuple[Callable[..., str], Callable[[Any], str], Callable[[Any], str]]:
+    """(money, date, date and time) in the letter's language."""
+    return (money_ro, fmt_date_ro, fmt_datetime_ro) if lang == "ro" else (money, fmt_date, fmt_datetime)
+
+
+def _join(items: list[str], lang: str) -> str:
+    if lang != "ro" or len(items) <= 1:
+        return join_and(items)
+    return ", ".join(items[:-1]) + " și " + items[-1]
+
+
+PAYMENT_KINDS_RO = {"card": "plata cu cardul", "transfer": "transferul", "transfer_instant": "transferul instant"}
+# "efectuată" for a payment, "efectuat" for a transfer
+PAYMENT_MADE_RO = {"transfer": "efectuat", "transfer_instant": "efectuat"}
+# the same, after "of": "Rambursarea plății cu cardul", "Rambursarea transferului"
+PAYMENT_KINDS_RO_OF = {"card": "plății cu cardul", "transfer": "transferului", "transfer_instant": "transferului instant"}
+
+# The fallback letter's fixed sentences, by language. The Romanian ones are written for a Romanian reader, not
+# translated word for word: the formal "dumneavoastră", the words Romanian banks use, diacritics with a comma below.
+LETTER_WORDS: dict[str, dict[str, str]] = {
+    "en": {
+        "to": " to {merchant}",
+        "subject.refund": "Refund of {amount} for {a_kind}{to}",
+        "subject.claim": "Your claim about the {amount} {kind}",
+        "subject.late": "Your claim about the {amount} {kind} of {paid}",
+        "subject.info": "Your claim{about}: we need a few details",
+        "about": " about the payment of {amount}",
+        "refund.kept": ("We have refunded {refunded} to your account. Under Article 179 of Law 209/2019, the first "
+                        "{kept} of the loss stays with you."),
+        "refund.done": "We have refunded the full amount of {amount} to your account.",
+        "refund.by": "We will refund the full amount of {amount} to your account by {by}.",
+        "refund.soon": "We will refund the full amount of {amount} to your account.",
+        "told.same_day": "On {told} you told us that you did not make the {kind}{to} that left your account earlier "
+                         "that day.",
+        "told.on": "On {told} you told us that you did not make the {kind}{to} on {paid}.",
+        "told": "You told us that you did not make the {kind}{to}.",
+        "thanks.quick": "Thank you for telling us so quickly.",
+        "thanks": "Thank you for telling us about it.",
+        "law.refund": ("Under Article 173 of Law 209/2019, we must refund a payment you did not authorize by the end of "
+                       "the next business day after you report it."),
+        "route.app": ("We cannot refund the {kind} of {amount}{to} straight away, because our records show that it "
+                      "was approved in your banking app."),
+        "route.disputa_comerciant": ("We cannot refund the {kind} of {amount}{to} straight away, because you "
+                                     "authorized it and your claim is about what the merchant delivered."),
+        "route.eroare_procesare": ("We are correcting the {kind} of {amount}{to}, because our records show that the "
+                                   "merchant charged it twice."),
+        "route": ("We cannot refund the {kind} of {amount}{to} straight away, because our records show that it was "
+                  "authorized."),
+        "route.told.same_day": "On {told} you told us about this {kind}, which left your account that day.",
+        "route.told.on": "On {told} you told us about this {kind}, made on {paid}.",
+        "route.told": "You told us about this {kind}.",
+        "law.route": ("This means Article 173 of Law 209/2019, which makes us refund a payment you did not authorize by "
+                      "the end of the next business day, does not apply to it."),
+        "late": "We cannot refund the {kind} of {amount}{to}{made_on}. {told_part}",
+        "late.made_on": ", made on {paid}",
+        "late.told": "On {told} you told us that you did not make it.",
+        "late.told_unknown": "You told us that you did not make it.",
+        "law.late": ("Article 169 of Law 209/2019 allows 13 months from the payment date to report a payment you did "
+                     "not authorize. You told us after that period."),
+        "info": ("We cannot decide on your claim{about} yet, because we could not find this payment in our records "
+                 "from the details you gave{unknown}."),
+        "info.unknown": ", and we could not match your claim to an account with us",
+        "info.after": ("Reply to this email with the date and the amount of the payment and who it went to{unknown}. "
+                       "As soon as we find the payment, we will decide on the refund{by}"),
+        "info.after.unknown": ", and the phone number or IBAN registered with us",
+        "info.after.by": ", and we will send you our full answer by {answer_by}.",
+        "hold": "We need more time to finish our review of your claim about the {kind} of {amount}{to}{made_on}.",
+        "hold.made_on": ", made on {paid}",
+        "hold.after": "We will send you our decision on the refund by {answer_by}. You do not need to send us "
+                      "anything else for now.",
+        "hold.after.soon": ("We will send you our decision on the refund as soon as it is ready. You do not need to "
+                            "send us anything else for now."),
+        "data_used": "To decide, we looked at {data}.",
+        "references": "The rules we applied: {references}.",
+        "after.refund.RECHEMARE": ("We are also asking the bank that received the money to return it. You do not need "
+                                   "to do anything for this."),
+        "after.refund.CHARGEBACK": ("We are also asking the merchant's bank to return the money through Visa. You do "
+                                    "not need to do anything for this."),
+        "after.refund": "You do not need to do anything else.",
+        "after.route.RECHEMARE": ("We have asked the bank that received the money to return it, and we will write to "
+                                  "you with their answer{later}."),
+        "after.route.CHARGEBACK": ("We have started a chargeback with the merchant's bank, and we will write to you "
+                                   "with the outcome{later}."),
+        "after.route": ("We are trying to recover the money from the bank that received it, and we will write to "
+                        "you{later}."),
+        "later": " by {answer_by}",
+        "tip": "Never share the codes we send you by text message, even with someone who says they work for the bank.",
+        "tip.app": ("If someone calls saying they work for the bank and asks you to move money or approve a payment, "
+                    "hang up and call us on the number on the back of your card."),
+        "reviewed": "A member of our disputes team reviewed and approved this decision.",
+        "rights": ("You can ask us for a copy of the information and documents we used for this decision by replying "
+                   "to this email."),
+        "rights.contest": ("You can ask us for a copy of the information and documents we used, give us your point of "
+                           "view or ask for the decision to be reviewed again, by replying to this email."),
+    },
+    "ro": {
+        "to": " către {merchant}",
+        "subject.refund": "Rambursarea {kind_of} de {amount}{to}",
+        "subject.claim": "Reclamația dumneavoastră privind {kind} de {amount}",
+        "subject.late": "Reclamația dumneavoastră privind {kind} de {amount} din {paid}",
+        "subject.info": "Reclamația dumneavoastră{about}: avem nevoie de câteva detalii",
+        "about": " privind plata de {amount}",
+        "refund.kept": ("V-am rambursat suma de {refunded} în contul dumneavoastră. Conform art. 179 din Legea nr. "
+                        "209/2019, primii {kept} din pierdere rămân în sarcina dumneavoastră."),
+        "refund.done": "V-am rambursat integral suma de {amount} în contul dumneavoastră.",
+        "refund.by": "Vă vom rambursa integral suma de {amount} în contul dumneavoastră până la {by}.",
+        "refund.soon": "Vă vom rambursa integral suma de {amount} în contul dumneavoastră.",
+        "told.same_day": "Pe {told} ne-ați informat că nu ați autorizat {kind}{to} din aceeași zi.",
+        "told.on": "Pe {told} ne-ați informat că nu ați autorizat {kind}{to} din {paid}.",
+        "told": "Ne-ați informat că nu ați autorizat {kind}{to}.",
+        "thanks.quick": "Vă mulțumim că ne-ați anunțat atât de repede.",
+        "thanks": "Vă mulțumim că ne-ați anunțat.",
+        "law.refund": ("Conform art. 173 din Legea nr. 209/2019, suntem obligați să rambursăm o plată pe care nu ați "
+                       "autorizat-o cel târziu până la sfârșitul următoarei zile lucrătoare după ce ne-ați semnalat-o."),
+        "route.app": ("Nu vă putem rambursa imediat {kind} în valoare de {amount}{to}, deoarece înregistrările "
+                      "noastre arată că plata a fost aprobată în aplicația dumneavoastră de banking."),
+        "route.disputa_comerciant": ("Nu vă putem rambursa imediat {kind} în valoare de {amount}{to}, deoarece plata "
+                                     "a fost autorizată de dumneavoastră, iar reclamația privește produsul sau "
+                                     "serviciul comerciantului."),
+        "route.eroare_procesare": ("Corectăm {kind} în valoare de {amount}{to}, deoarece înregistrările noastre arată "
+                                   "că comerciantul a încasat aceeași sumă de două ori."),
+        "route": ("Nu vă putem rambursa imediat {kind} în valoare de {amount}{to}, deoarece înregistrările noastre "
+                  "arată că plata a fost autorizată."),
+        "route.told.same_day": "Pe {told} ne-ați informat despre această plată, efectuată în aceeași zi.",
+        "route.told.on": "Pe {told} ne-ați informat despre această plată, efectuată pe {paid}.",
+        "route.told": "Ne-ați informat despre această plată.",
+        "law.route": ("Prin urmare, art. 173 din Legea nr. 209/2019, care ne obligă să rambursăm o plată neautorizată "
+                      "până la sfârșitul următoarei zile lucrătoare, nu se aplică în acest caz."),
+        "late": "Nu vă putem rambursa {kind} în valoare de {amount}{to}{made_on}. {told_part}",
+        "late.made_on": ", {made} pe {paid}",
+        "late.told": "Pe {told} ne-ați informat că nu ați autorizat această plată.",
+        "late.told_unknown": "Ne-ați informat că nu ați autorizat această plată.",
+        "law.late": ("Art. 169 din Legea nr. 209/2019 permite semnalarea unei plăți neautorizate în cel mult 13 luni "
+                     "de la data plății. Ne-ați semnalat plata după expirarea acestui termen."),
+        "info": ("Nu putem lua încă o decizie cu privire la reclamația dumneavoastră{about}, deoarece nu am găsit această "
+                 "plată în evidențele noastre pe baza detaliilor primite{unknown}."),
+        "info.unknown": " și nu am putut asocia reclamația unui cont deschis la noi",
+        "info.after": ("Răspundeți la acest e-mail cu data și suma plății, precum și cu numele celui care a primit "
+                       "banii{unknown}. Imediat ce găsim plata, vom decide asupra rambursării{by}"),
+        "info.after.unknown": ", împreună cu numărul de telefon sau IBAN-ul înregistrat la noi",
+        "info.after.by": " și vă vom trimite răspunsul complet până la {answer_by}.",
+        "hold": ("Avem nevoie de mai mult timp pentru a finaliza analiza reclamației dumneavoastră privind {kind} în "
+                 "valoare de {amount}{to}{made_on}."),
+        "hold.made_on": ", {made} pe {paid}",
+        "hold.after": ("Vă vom comunica decizia privind rambursarea până la {answer_by}. Deocamdată nu trebuie să ne "
+                       "trimiteți nimic altceva."),
+        "hold.after.soon": ("Vă vom comunica decizia privind rambursarea imediat ce este gata. Deocamdată nu trebuie să "
+                            "ne trimiteți nimic altceva."),
+        "data_used": "Pentru a lua această decizie, am analizat {data}.",
+        "references": "Prevederile legale aplicate: {references}.",
+        "after.refund.RECHEMARE": ("Am cerut și băncii care a primit banii să îi returneze. Nu trebuie să faceți nimic "
+                                   "în acest sens."),
+        "after.refund.CHARGEBACK": ("Am cerut și băncii comerciantului să returneze banii, prin procedura de "
+                                    "chargeback Visa. Nu trebuie să faceți nimic în acest sens."),
+        "after.refund": "Nu mai trebuie să faceți nimic altceva.",
+        "after.route.RECHEMARE": ("Am cerut băncii care a primit banii să îi returneze și vă vom comunica răspunsul "
+                                  "acesteia{later}."),
+        "after.route.CHARGEBACK": ("Am inițiat procedura de chargeback la banca comerciantului și vă vom comunica "
+                                   "rezultatul{later}."),
+        "after.route": "Încercăm să recuperăm banii de la banca ce i-a primit și vă vom scrie{later}.",
+        "later": " până la {answer_by}",
+        "tip": ("Nu comunicați nimănui codurile pe care vi le trimitem prin SMS, nici măcar cuiva care se prezintă "
+                "drept angajat al băncii."),
+        "tip.app": ("Dacă vă sună cineva care se prezintă drept angajat al băncii și vă cere să mutați bani sau să "
+                    "aprobați o plată, închideți și sunați-ne la numărul de pe spatele cardului."),
+        "reviewed": "Un coleg din echipa de contestații a verificat și a aprobat această decizie.",
+        "rights": ("Ne puteți cere o copie a informațiilor și a documentelor pe care le-am folosit pentru această "
+                   "decizie, răspunzând la acest e-mail."),
+        "rights.contest": ("Ne puteți cere o copie a informațiilor și a documentelor folosite, ne puteți transmite "
+                           "punctul dumneavoastră de vedere sau puteți cere reanalizarea deciziei, răspunzând la acest "
+                           "e-mail."),
+    },
+}
+# the data a decision rests on (GDPR art. 15(1)(h) and CJEU C-203/22): categories, never values or scores
+DATA_WORDS = {
+    "en": {"complaint": "your complaint", "payment": "the record of the payment",
+           "authentication": "the authentication record", "device": "the device used for the payment",
+           "reported": "the date you reported it"},
+    "ro": {"complaint": "reclamația dumneavoastră", "payment": "datele tranzacției",
+           "authentication": "jurnalul de autentificare", "device": "dispozitivul folosit pentru plată",
+           "reported": "data la care ne-ați anunțat"},
+}
+# the main factor behind each decision, in plain words: what the rules weighed, with no threshold or score
+FACTOR_WORDS = {
+    "en": {"refund": ("The main factors were that you told us you did not authorize the payment and that you reported "
+                      "it within the 13 months the law allows."),
+           "late": "The main factor was the time between the payment and your report, which is longer than 13 months.",
+           "app": "The main factor was that the payment was confirmed in your banking app.",
+           "app.screen": ("The main factors were that the payment was confirmed in your banking app and that the "
+                          "screen showed the amount and the payee."),
+           "disputa_comerciant": "The main factor was that you authorized the card payment yourself.",
+           "eroare_procesare": "The main factor was that the merchant charged the same payment twice.",
+           "route": "The main factor was that the payment was authorized."},
+    "ro": {"refund": ("Am ținut cont, în principal, de faptul că ați declarat că nu ați autorizat plata și că ați "
+                      "semnalat-o în termenul de 13 luni prevăzut de lege."),
+           "late": "Decizia se bazează pe intervalul dintre data plății și data sesizării, care depășește 13 luni.",
+           "app": "Am ținut cont, în principal, de faptul că plata a fost confirmată în aplicația de banking.",
+           "app.screen": ("Am ținut cont, în principal, de faptul că plata a fost confirmată în aplicația de banking, "
+                          "iar pe ecran au apărut suma și beneficiarul."),
+           "disputa_comerciant": "Am ținut cont, în principal, de faptul că ați autorizat dumneavoastră plata cu cardul.",
+           "eroare_procesare": ("Am ținut cont, în principal, de faptul că comerciantul a încasat aceeași plată de două "
+                                "ori."),
+           "route": "Am ținut cont, în principal, de faptul că plata a fost autorizată."},
+}
+# the one thing the customer can do or show that would change an unfavorable outcome (no internal thresholds)
+COUNTERFACTUAL_WORDS = {
+    "en": {"late": ("If you have documents showing that you told us about this payment earlier, within the 13 months, "
+                    "send them to us and we will look at your claim again."),
+           "app": ("If you did not approve the payment in the app yourself, tell us in your reply and we will look at "
+                   "your claim again."),
+           "disputa_comerciant": ("If the merchant does not solve the problem, send us the order confirmation and your "
+                                  "messages with the merchant, and we will check whether the money can come back "
+                                  "through Visa."),
+           "eroare_procesare": ("If you still see both charges on your statement after the correction, tell us and we "
+                                "will look at it again.")},
+    "ro": {"late": ("Dacă aveți documente care arată că ne-ați semnalat plata mai devreme, în termenul de 13 luni, "
+                    "trimiteți-ni-le și vom analiza din nou reclamația."),
+           "app": ("Dacă nu ați aprobat dumneavoastră plata în aplicație, spuneți-ne în răspunsul la acest e-mail și "
+                   "vom analiza din nou reclamația."),
+           "disputa_comerciant": ("Dacă problema nu se rezolvă cu comerciantul, trimiteți-ne confirmarea comenzii și "
+                                  "mesajele schimbate cu acesta, iar noi vom verifica dacă banii pot fi recuperați "
+                                  "prin Visa."),
+           "eroare_procesare": ("Dacă după corectare vedeți în continuare ambele plăți în extras, spuneți-ne și vom "
+                                "analiza din nou situația.")},
+}
+# the fallback letter's answer to a point of the complaint, by the point's topic (versoml.shared.rules.packs.cmp):
+# in the bank's own words, never the customer's quoted back
+POINT_ANSWERS = {
+    "en": {"why_not_stopped": ("You asked why we did not stop the payment. It went through the usual authentication "
+                               "steps, so it was processed like any other payment."),
+           "still_refund": " The law still requires us to refund you.",
+           "own_card": (f"You asked us to block your card. If it is not blocked yet, call us on {HELPLINE} and we will "
+                        "block it straight away."),
+           "payee": ("You asked us to act on the account that received the money. We cannot share information about "
+                     "other people's accounts, but we have taken what you told us into account."),
+           "documents": ("You can ask us for a copy of the information we hold about this payment by replying to this "
+                         "email."),
+           "police": "You can also report the fraud to the police. Keep the messages and receipts linked to this payment.",
+           "other": "We have read the other details in your message and taken them into account in our review."},
+    "ro": {"why_not_stopped": ("Ne-ați întrebat de ce nu am oprit plata. Plata a trecut prin pașii obișnuiți de "
+                               "autentificare, așa că a fost procesată ca orice altă plată."),
+           "still_refund": " Legea ne obligă totuși să vă rambursăm suma.",
+           "own_card": (f"Ne-ați cerut să vă blocăm cardul. Dacă nu este încă blocat, sunați-ne la {HELPLINE} și îl "
+                        "blocăm imediat."),
+           "payee": ("Ne-ați cerut să luăm măsuri privind contul care a primit banii. Nu putem oferi informații despre "
+                     "conturile altor persoane, dar am ținut cont de ce ne-ați spus."),
+           "documents": ("Ne puteți cere o copie a informațiilor pe care le deținem despre această plată, răspunzând la "
+                         "acest e-mail."),
+           "police": "Puteți sesiza și Poliția. Păstrați mesajele și chitanțele legate de această plată.",
+           "other": "Am citit și celelalte detalii din mesajul dumneavoastră și am ținut cont de ele în analiza noastră."},
+}
+_RO_REFERENCE = ((r"\bLaw (\d+/\d{4})", r"Legea nr. \1"), (r"\bGEO (\d+/\d{4})", r"OUG nr. \1"),
+                 (r"\bCJEU ruling (C-\d+/\d+)", r"hotărârea CJUE în cauza \1"), (r"\bGDPR\b", "RGPD"),
+                 (r"\bpara\.", "alin."), (r"\bletter\b", "lit."), (r"\band\b", "și"))
+
+
+def ro_reference(ref: str) -> str:
+    """"Law 209/2019, art. 173" -> "Legea nr. 209/2019, art. 173"."""
+    for pattern, repl in _RO_REFERENCE:
+        ref = re.sub(pattern, repl, ref)
+    return ref
+
+
+def _payment_words(state: dict, lang: str = "en") -> tuple[str, str, str]:
+    """("card payment", " to SHOP SRL", the kind after "of") for the letter; a transfer's payee is not named."""
     ctx = state["rule_context"]
     tx = (state.get("records") or {}).get("transaction") or {}
-    kind = PAYMENT_KINDS.get(str(ctx.get("channel") or ""), "payment")
+    channel = str(ctx.get("channel") or "")
     merchant = g(tx, "merchant_name", "counterparty_name") if ctx.get("channel") == "card" else None
-    return kind, (f" to {merchant}" if merchant else "")
+    to_whom = LETTER_WORDS[lang]["to"].format(merchant=merchant) if merchant else ""
+    if lang == "ro":
+        return PAYMENT_KINDS_RO.get(channel, "plata"), to_whom, PAYMENT_KINDS_RO_OF.get(channel, "plății")
+    kind = PAYMENT_KINDS.get(channel, "payment")
+    return kind, to_whom, kind
 
 
-def _fallback_letter(state: dict, references: list[str] | None = None) -> P.LetterOut:
-    """The letter without an LLM: the same facts, in the shape the letter prompt asks for. `references` are plain
-    legal references from the knowledge base (none means no extra line)."""
+def _data_used(state: dict, lang: str) -> list[str]:
+    """The kinds of data the decision rests on, as the customer would name them."""
+    ctx = state.get("rule_context") or {}
+    words = DATA_WORDS[lang]
+    used = [words["complaint"]]
+    if not declared_only(state):
+        used.append(words["payment"])
+    if ctx.get("sca_performed") is not None or ctx.get("screen_showed_amount_and_payee") is not None:
+        used.append(words["authentication"])
+    if ctx.get("device_known") is not None:
+        used.append(words["device"])
+    if ctx.get("notified_at"):
+        used.append(words["reported"])
+    return used
+
+
+def _main_factor(state: dict, verdict: str | None, lang: str) -> str | None:
+    ctx = state.get("rule_context") or {}
+    words = FACTOR_WORDS[lang]
+    if verdict in REFUND_VERDICTS:
+        return words["refund"]
+    if verdict == Verdict.RESPINGE_TARDIV.value:
+        return words["late"]
+    if verdict == Verdict.NU_SE_APLICA_T1.value:
+        kind = str(ctx.get("dispute_type") or "")
+        if kind == "app":
+            return words["app.screen" if ctx.get("screen_showed_amount_and_payee") is True else "app"]
+        return words.get(kind, words["route"])
+    return None
+
+
+def _counterfactual(state: dict, verdict: str | None, lang: str) -> str | None:
+    words = COUNTERFACTUAL_WORDS[lang]
+    if verdict == Verdict.RESPINGE_TARDIV.value:
+        return words["late"]
+    if verdict == Verdict.NU_SE_APLICA_T1.value:
+        return words.get(str((state.get("rule_context") or {}).get("dispute_type") or ""))
+    return None
+
+
+def _explanation(state: dict, lang: str, reviewed_by: str | None) -> dict | None:
+    """What the letter says about how the decision was made (CJEU C-203/22, Dun & Bradstreet): the data used, the
+    main factors, what would change an unfavorable outcome, whether a person reviewed it and the customer's rights.
+    None for a fraud hold: that letter gives no reason (tipping-off)."""
+    verdict = (_decision(state, Question.RAMBURSARE_T1) or {}).get("decision")
+    if verdict == Verdict.EXCEPTIE_FRAUDA_CLIENT.value:
+        return None
+    if verdict == Verdict.INFORMATII_SUPLIMENTARE.value:
+        return {"data_used": [DATA_WORDS[lang]["complaint"]], "main_factors": [], "counterfactual": None,
+                "reviewed_by_person": False, "documents": False, "contest": False}
+    kept = bool((state.get("refund") or {}).get("retained"))
+    factor = _main_factor(state, verdict, lang)
+    return {"data_used": _data_used(state, lang), "main_factors": [factor] if factor else [],
+            "counterfactual": _counterfactual(state, verdict, lang), "reviewed_by_person": bool(reviewed_by),
+            "documents": True, "contest": verdict in ADVERSE_VERDICTS or kept}
+
+
+def _point_answer(point: str, quote: str, case: dict, lang: str) -> str | None:
+    """The fallback letter's answer to one point of the complaint, or None when the letter already answers it. The
+    answer is chosen by the point's topic (the same topics the CMP-01 check reads), so the customer's words are
+    never quoted back to them."""
+    from versoml.shared.rules.packs.cmp import point_topic
+
+    topic = point_topic(point) or (point_topic(quote) if quote else None)
+    words = POINT_ANSWERS[lang]
+    verdict = case.get("verdict")
+    if topic == "why_not_stopped":
+        return words["why_not_stopped"] + (words["still_refund"] if verdict in REFUND_VERDICTS else "")
+    if topic in ("own_card", "police"):
+        return words[topic]
+    if topic == "payee":
+        return None if case.get("escroc") in ("RECHEMARE", "CHARGEBACK") else words["payee"]
+    if topic == "documents":
+        return None if (case.get("explanation") or {}).get("documents") else words["documents"]
+    if topic == "refund" or (topic == "duplicate" and case.get("dispute_type") == "eroare_procesare"):
+        return None   # the opening paragraph is the answer
+    return words["other"]
+
+
+def _fallback_letter(state: dict, references: list[str] | None = None, *,
+                     reviewed_by: str | None = None) -> P.LetterOut:
+    """The letter without an LLM, in the customer's language and in the shape the letter prompt asks for: the decision
+    first, then why (the law, the data used and the main factor), answers to the customer's points in the bank's own
+    words, the next step with what would change an unfavorable outcome, the customer's rights and where to complain.
+    `references` are plain legal references from the knowledge base (none means no extra line); `reviewed_by` is the
+    person who signed the decision, when one did."""
+    lang = letter_language(state)
+    words = LETTER_WORDS[lang]
+    cash, day, moment = _formats(lang)
     ctx = state["rule_context"]
     t1 = _decision(state, Question.RAMBURSARE_T1) or {}
     ans = _decision(state, Question.RASPUNS_RECLAMATIE) or {}
     escroc = (_decision(state, Question.RECUPERARE_ESCROC) or {}).get("decision")
     value = ctx.get("amount") or {}
-    amount = money(float(value.get("value", 0)), value.get("currency") or "RON")
+    amount = cash(float(value.get("value", 0)), value.get("currency") or "RON")
     fm = ctx.get("fact_ids") or {}
     verdict = t1.get("decision")
-    kind, to_whom = _payment_words(state)
+    dispute_type = str(ctx.get("dispute_type") or "")
+    kind, to_whom, kind_of = _payment_words(state, lang)
     paid, told = to_local(ctx.get("executed_at")), to_local(ctx.get("notified_at"))
-    paid_on, told_on = fmt_date(paid), fmt_date(told)
-    on_paid = f" on {paid_on}" if paid_on else ""
-    when_paid = " earlier that day" if paid_on and paid_on == told_on else on_paid
-    you_told = f"On {told_on} you told us" if told_on else "You told us"
-    by, answer_by = fmt_datetime(t1.get("deadline")), fmt_date(ans.get("deadline"))
+    paid_on, told_on = day(paid), day(told)
+    same_day = bool(paid_on) and paid_on == told_on
+    by, answer_by = moment(t1.get("deadline")), day(ans.get("deadline"))
     back = state.get("refund") or {}
     refunded = bool(back.get("done"))
     # the bank kept the customer's share under art. 179(1): the letter says how much went back
-    kept = money(float(back["payer_liability"]), back.get("currency") or "RON") if back.get("retained") else None
+    kept = cash(float(back["payer_liability"]), back.get("currency") or "RON") if back.get("retained") else None
     quick = bool(paid and told and (told - paid) <= timedelta(days=2))
+    explanation = _explanation(state, lang, reviewed_by)
+    made = PAYMENT_MADE_RO.get(str(ctx.get("channel") or ""), "efectuată")
+    fill = {"amount": amount, "kind": kind, "kind_of": kind_of, "to": to_whom, "paid": paid_on, "told": told_on,
+            "by": by, "answer_by": answer_by, "made": made,
+            "a_kind": ("an " if kind[:1] in "aeiou" else "a ") + kind}
+    tip = words["tip.app"] if dispute_type == "app" else words["tip"]
     law = ""
     if verdict in REFUND_VERDICTS:
-        subject = f"Refund of {amount} for a {kind}{to_whom}"
-        opening = (f"{you_told} that you did not make the {kind} of {amount}{to_whom}{when_paid}. "
-                   + (f"We have refunded {money(float(back['amount']), back.get('currency') or 'RON')} to your "
-                      f"account: under Article 179 of Law 209/2019 the first {kept} of the loss stays with you."
-                      if refunded and kept else
-                      "We have refunded the full amount to your account." if refunded else
-                      f"We will refund the full amount to your account by {by}." if by else
-                      "We will refund the full amount to your account.")
-                   + (" Thank you for telling us so quickly." if quick else " Thank you for telling us about it."))
-        law = ("Under Article 173 of Law 209/2019, we must refund a payment you did not authorize by the end of the "
-               "next business day after you report it.")
-        after = {"RECHEMARE": "We are also asking the bank that received the money to return it. You do not need to "
-                              "do anything for this.",
-                 "CHARGEBACK": "We are also asking the merchant's bank to return the money through Visa. You do not "
-                               "need to do anything for this."}.get(escroc, "You do not need to do anything else.")
-    elif verdict == "NU_SE_APLICA_T1":
-        subject = f"Your claim about the {amount} {kind}"
-        how = {"app": "was approved in your banking app",
-               "disputa_comerciant": "was a card payment you authorized",
-               "eroare_procesare": "was charged twice by the merchant"}.get(ctx.get("dispute_type"), "was authorized")
-        opening = (f"{you_told} about the {kind} of {amount}{to_whom} made{when_paid or ' recently'}. "
-                   f"Our records show that the payment {how}.")
-        law = ("This means Article 173 of Law 209/2019, which makes us refund a payment you did not authorize by the "
-               "end of the next business day, does not apply to it.")
-        later = f" by {answer_by}" if answer_by else ""
-        after = {"RECHEMARE": f"We have asked the bank that received the money to return it, and we will write to you "
-                              f"with their answer{later}.",
-                 "CHARGEBACK": f"We have started a chargeback with the merchant's bank, and we will write to you with "
-                               f"the outcome{later}."}.get(
-            escroc, f"We are trying to recover the money from the bank that received it, and we will write to you{later}.")
-    elif verdict == "RESPINGE_TARDIV":
-        subject = f"Your claim about the {amount} {kind}" + (f" of {paid_on}" if paid_on else "")
-        opening = f"{you_told} that you did not make the {kind} of {amount}{to_whom}{on_paid}."
-        law = ("Article 169 of Law 209/2019 allows 13 months from the payment date to report a payment you did not "
-               "authorize. You told us after that period, so we cannot refund this payment.")
-        after = ("If you have documents showing that you contacted us earlier, send them to us and we will look at "
-                 "your claim again.")
-    elif verdict == "INFORMATII_SUPLIMENTARE":
+        refund_value = cash(float(back["amount"]), back.get("currency") or "RON") if refunded and kept else amount
+        subject = words["subject.refund"].format(**{**fill, "amount": refund_value if lang == "en" else amount})
+        decision = words["refund.kept" if refunded and kept else "refund.done" if refunded else
+                         "refund.by" if by else "refund.soon"]
+        what = words["told.same_day" if same_day else "told.on" if paid_on and told_on else "told"]
+        opening = " ".join([decision.format(**fill, refunded=refund_value, kept=kept), what.format(**fill),
+                            words["thanks.quick"] if quick else words["thanks"]])
+        law = words["law.refund"]
+        after = words.get(f"after.refund.{escroc}", words["after.refund"])
+    elif verdict == Verdict.NU_SE_APLICA_T1.value:
+        subject = words["subject.claim"].format(**fill)
+        route = words.get(f"route.{dispute_type}", words["route"])
+        what = words["route.told.same_day" if same_day else "route.told.on" if paid_on and told_on else "route.told"]
+        opening = f"{route.format(**fill)} {what.format(**fill)}"
+        law = words["law.route"]
+        later = words["later"].format(answer_by=answer_by) if answer_by else ""
+        after = words.get(f"after.route.{escroc}", words["after.route"]).format(later=later)
+    elif verdict == Verdict.RESPINGE_TARDIV.value:
+        subject = words["subject.late" if paid_on else "subject.claim"].format(**fill)
+        told_part = words["late.told" if told_on else "late.told_unknown"].format(**fill)
+        made_on = words["late.made_on"].format(**fill) if paid_on else ""
+        opening = words["late"].format(**{**fill, "made_on": made_on, "told_part": told_part})
+        law = words["law.late"]
+        after = ""
+    elif verdict == Verdict.INFORMATII_SUPLIMENTARE.value:
         # declared facts only: the payment (or the customer) was not found from the details in the complaint
         stated = (state.get("declared") or {}).get("amount") or {}
-        about = (f" about the payment of {money(float(stated['value']), stated.get('currency') or 'RON')}"
-                 if stated.get("value") else " about a payment")
+        about = (words["about"].format(amount=cash(float(stated["value"]), stated.get("currency") or "RON"))
+                 if stated.get("value") else "")
         known = bool((state.get("match") or {}).get("customer_ref") or (state.get("complaint") or {}).get("customer_ref"))
-        subject = f"Your claim{about}: we need a few details"
-        opening = (f"We have received your claim{about}" + (f" on {told_on}" if told_on else "") + ". We could not find "
-                   "this payment in our records from the details you gave"
-                   + ("" if known else ", and we could not match your claim to an account with us") + ".")
-        after = ("Reply to this email with the date and the amount of the payment and who it went to"
-                 + ("" if known else ", and the phone number or IBAN registered with us") + ". As soon as we find the "
-                 "payment, we will decide on the refund" + (f", and we will send you our full answer by {answer_by}."
-                                                            if answer_by else "."))
+        subject = words["subject.info"].format(about=about)
+        opening = words["info"].format(about=about, unknown="" if known else words["info.unknown"])
+        after = words["info.after"].format(
+            unknown="" if known else words["info.after.unknown"],
+            by=words["info.after.by"].format(answer_by=answer_by) if answer_by else ".")
     else:
-        subject = f"Your claim about the {amount} {kind}"
-        opening = f"We have received your claim about the {kind} of {amount}{to_whom}{on_paid}."
-        after = ("We need more time to finish our review, and we will send you our answer"
-                 + (f" by {answer_by}." if answer_by else " as soon as it is ready."))
+        subject = words["subject.claim"].format(**fill)
+        made_on = words["hold.made_on"].format(**fill) if paid_on else ""
+        opening = words["hold"].format(**{**fill, "made_on": made_on})
+        after = words["hold.after"].format(answer_by=answer_by) if answer_by else words["hold.after.soon"]
+    rules_cite = [x for x in [fm.get("rules_outcome")] if x]
     paragraphs = [
-        P.LetterParagraph(text="Dear <CLIENT_1>,", cites=[]),
+        P.LetterParagraph(text=P.GREETING[lang], cites=[]),
         P.LetterParagraph(text=opening, cites=[x for x in [fm.get("amount"), fm.get("notified_at")] if x]),
     ]
-    if law:
-        paragraphs.append(P.LetterParagraph(text=law, cites=[x for x in [fm.get("rules_outcome")] if x]))
-    if references and verdict != "EXCEPTIE_FRAUDA_CLIENT":
-        paragraphs.append(P.LetterParagraph(text="The rules we applied: " + "; ".join(references) + ".",
-                                            cites=[x for x in [fm.get("rules_outcome")] if x]))
-    points = []
+    if law and explanation:
+        why = [law, words["data_used"].format(data=_join(explanation["data_used"], lang)),
+               *explanation["main_factors"]]
+        paragraphs.append(P.LetterParagraph(text=" ".join(why), cites=rules_cite))
+    if references and explanation:
+        listed = "; ".join(ro_reference(r) for r in references) if lang == "ro" else "; ".join(references)
+        paragraphs.append(P.LetterParagraph(text=words["references"].format(references=listed), cites=rules_cite))
+    points, answers = [], []
+    case = {"verdict": verdict, "escroc": escroc, "dispute_type": dispute_type, "explanation": explanation}
     for point in (state.get("extracted") or {}).get("points", [])[:4]:
-        answer = _point_answer(point["text"], verdict)
-        if answer:
+        answer = _point_answer(point["text"], point.get("quote") or "", case, lang)
+        if answer and answer not in answers:
+            answers.append(answer)
             paragraphs.append(P.LetterParagraph(text=answer, cites=[]))
         points.append(point["text"])
-    paragraphs.append(P.LetterParagraph(text=f"{after} {SAFETY_TIPS.get(ctx.get('dispute_type'), SAFETY_TIP)}",
-                                        cites=[]))
-    paragraphs.append(P.LetterParagraph(
-        text=f"{ADR_BLOCK} If you have questions, call us on {HELPLINE} or reply to this email, quoting case "
-             f"{state.get('case_id') or ctx.get('case_id')}.", cites=[]))
-    paragraphs.append(P.LetterParagraph(text=f"Kind regards,\nDisputes team, {BANK}", cites=[]))
+    counterfactual = (explanation or {}).get("counterfactual")
+    paragraphs.append(P.LetterParagraph(text=" ".join(x for x in (after, counterfactual, tip) if x), cites=[]))
+    if explanation and explanation["documents"]:
+        rights = words["rights.contest"] if explanation["contest"] else words["rights"]
+        paragraphs.append(P.LetterParagraph(
+            text=f"{words['reviewed']} {rights}" if explanation["reviewed_by_person"] else rights, cites=[]))
+    case_id = state.get("case_id") or ctx.get("case_id")
+    paragraphs.append(P.LetterParagraph(text=f"{P.ADR[lang]} {P.contact_line(case_id, lang)}", cites=[]))
+    paragraphs.append(P.LetterParagraph(text=P.SIGN_OFF[lang], cites=[]))
     return P.LetterOut(subject=subject, paragraphs=paragraphs, points_answered=points)
 
 
@@ -2393,16 +2857,20 @@ def _local_iso(value: Any) -> str | None:
     return dt.isoformat(timespec="seconds") if dt else None
 
 
-def _letter_brief(state: dict, c: Ctx) -> dict:
+def _letter_brief(state: dict, c: Ctx, lang: str = "en", reviewed_by: str | None = None) -> dict:
     ctx = state["rule_context"]
     value = ctx.get("amount") or {}
-    kind, to_whom = _payment_words(state)
+    cash = _formats(lang)[0]
+    kind, to_whom, _ = _payment_words(state, lang)
+    tx = (state.get("records") or {}).get("transaction") or {}
+    merchant = g(tx, "merchant_name", "counterparty_name") if to_whom else None
     decisions = [d for d in state.get("decisions", []) if d.get("question") in
                  ("rambursare_t1", "raspuns_reclamatie", "recuperare_escroc")]
     out = {
         "case_id": c.case_id,
-        "payment": {"amount": money(float(value.get("value", 0)), value.get("currency") or "RON"), "type": kind,
-                    "merchant": to_whom[4:] or None, "made_at": _local_iso(ctx.get("executed_at")),
+        "language": "Romanian" if lang == "ro" else "English",
+        "payment": {"amount": cash(float(value.get("value", 0)), value.get("currency") or "RON"), "type": kind,
+                    "merchant": merchant, "made_at": _local_iso(ctx.get("executed_at")),
                     "reported_at": _local_iso(ctx.get("notified_at"))},
         "refund_sent": bool((state.get("refund") or {}).get("done")),
         "decisions": [{"question": d["question"], "decision": d["decision"],
@@ -2412,12 +2880,15 @@ def _letter_brief(state: dict, c: Ctx) -> dict:
         "points": [p["text"] for p in (state.get("extracted") or {}).get("points", [])],
         "evidence_ids": sorted({v for v in (ctx.get("fact_ids") or {}).values()})[:20],
     }
+    explanation = _explanation(state, lang, reviewed_by)
+    if explanation:
+        out["explanation"] = explanation
     back = state.get("refund") or {}
     if back.get("retained"):
         # the bank kept the customer's share under art. 179(1): the letter says what went back
         currency = back.get("currency") or "RON"
-        out["refund"] = {"amount": money(float(back["amount"]), currency), "basis": "Law 209/2019, art. 179(1)",
-                         "customer_share_kept": money(float(back["payer_liability"]), currency)}
+        out["refund"] = {"amount": cash(float(back["amount"]), currency), "basis": "Law 209/2019, art. 179(1)",
+                         "customer_share_kept": cash(float(back["payer_liability"]), currency)}
     if declared_only(state):
         # the customer's statement, not the bank's records: no amount when they gave none
         if not float(value.get("value") or 0):
@@ -2439,6 +2910,18 @@ def _customer_name(c: Ctx, state: dict) -> str | None:
     return name or None
 
 
+def _greet(body: str, name: str | None, lang: str) -> str:
+    """The customer's name in place of the label; without one, "Dear customer," or a plain "Bună ziua,"."""
+    if name:
+        return re.sub(r"<CLIENT_\d+>", name, body)
+    if lang == "ro":
+        return re.sub(r"<CLIENT_\d+>", "client", re.sub(r",\s*<CLIENT_\d+>", "", body))
+    return re.sub(r"<CLIENT_\d+>", "customer", body)
+
+
+RULE_ID_RE = re.compile(r"\b[A-Z]{2,4}-\d{2}\b|·")
+
+
 def _legal_references(state: dict) -> tuple[list[str], list[dict]]:
     """Plain legal references for the letter, from the knowledge base, for the rules behind the letter's decisions.
     None for a fraud hold: that letter gives no reason (tipping-off)."""
@@ -2455,7 +2938,9 @@ def _legal_references(state: dict) -> tuple[list[str], list[dict]]:
     for hit in G.for_rules(ids, k_per=1):
         if hit.get("kind") not in ("rule", "law"):
             continue
-        fresh = [r for r in G.plain_reference_parts(hit) if not any(r.startswith(x) or x.startswith(r) for x in refs)]
+        # a rule's title can stand in for a missing legal basis, and it starts with the rule ID: the letter names laws
+        fresh = [r for r in G.plain_reference_parts(hit) if not RULE_ID_RE.search(r)
+                 and not any(r.startswith(x) or x.startswith(r) for x in refs)]
         if fresh:
             refs.extend(fresh)
             used.append(hit)
@@ -2463,6 +2948,14 @@ def _legal_references(state: dict) -> tuple[list[str], list[dict]]:
             break
     refs = refs[:3]
     return refs, used
+
+
+def _letter_rule_ids(state: dict) -> list[str]:
+    """The rules behind the letter's decisions: they go in the letter's metadata, never in its text."""
+    ids: list[str] = []
+    for q in (Question.RAMBURSARE_T1, Question.RASPUNS_RECLAMATIE, Question.RECUPERARE_ESCROC):
+        ids += [r for r in (_decision(state, q) or {}).get("rule_ids") or [] if r not in ids]
+    return ids
 
 
 def _numbers_allowed(c: "Ctx", state: dict):
@@ -2478,6 +2971,10 @@ def _numbers_allowed(c: "Ctx", state: dict):
                         currency)
     for d in state.get("decisions") or []:
         allowed.add_content({"deadline": d.get("deadline"), "amount": d.get("amount")}, currency)
+    back = state.get("refund") or {}
+    if back.get("done") and back.get("amount") is not None:
+        allowed.add_content({k: back.get(k) for k in ("amount", "debited", "payer_liability", "currency")},
+                            back.get("currency") or currency, kind="refund.instruction")
     return allowed
 
 
@@ -2495,32 +2992,41 @@ async def redactor(state: dict) -> dict:
                                    "to the customer", status="skipped")
         c.track("filtru_zid", "skipped", "No letter to check")
         return {}
-    await c.start("redactor", "Drafting the reply: every point answered, with deadlines and where to complain")
+    lang = letter_language(state)
+    await c.start("redactor", "Drafting the reply in " + ("Romanian" if lang == "ro" else "English")
+                  + ": the decision and why, every point answered, deadlines and where to complain")
     from versoml.shared.rules import check_complaint_letter
     from versoml.wall.letter_filter import check_letter
     from versoml.zone_client import numeric_check as N
 
+    doc = c.rt.cases.get(c.case_id) or {}
+    reviewed_by = doc.get("approved_by") or doc.get("rejected_by")
     references, reference_hits = _legal_references(state)
-    data = _letter_brief(state, c)
+    data = _letter_brief(state, c, lang, reviewed_by)
     if references:
-        data["legal_basis"] = references
+        data["legal_basis"] = [ro_reference(r) for r in references] if lang == "ro" else references
     brief = wrap_data("letter_data", _json(data))
-    fallback = lambda: _fallback_letter(state, references)  # noqa: E731
+    system = P.letter_system(lang)
+    fallback = lambda: _fallback_letter(state, references, reviewed_by=reviewed_by)  # noqa: E731
     out, info = await c.rt.llm.structured(
-        role=Role.SONNET, agent=AG["redactor"], system=P.LETTER_SYSTEM,
+        role=Role.SONNET, agent=AG["redactor"], system=system,
         user=brief, schema=P.LetterOut, effort="low", max_tokens=3000, fallback=fallback, scope=replay_scope(state))
     valid = {f.fact_id for f in c.rt.ledger.facts(c.case_id)}
-    points = [p["text"] for p in (state.get("extracted") or {}).get("points", [])]
+    claim_points = (state.get("extracted") or {}).get("points", [])
+    points = [p["text"] for p in claim_points]
+    quotes = [p.get("quote") or "" for p in claim_points]
+    adr_block = P.ADR[lang]
     vault = (state.get("pseudo") or {}).get("vault") or {}
     restore = lambda s: c.rt.privacy.restore(s, vault) if s else s  # noqa: E731
 
     def compose(letter: P.LetterOut) -> tuple[str, list]:
-        # the CMP checks from the rules engine: every point gets an answer (CMP-01), the complaints block (CMP-03)
+        # the CMP checks from the rules engine, read from the letter itself: every point gets an answer (CMP-01),
+        # the complaints block (CMP-03)
         body = "\n\n".join(p.text for p in letter.paragraphs)
-        hits = check_complaint_letter(body, points, letter.points_answered)
+        hits = check_complaint_letter(body, points, quotes)
         if any(h.outcome == "CMP_ADR_BLOCK_MISSING" for h in hits):
-            body += "\n\n" + ADR_BLOCK
-            hits = check_complaint_letter(body, points, letter.points_answered)
+            body += "\n\n" + adr_block
+            hits = check_complaint_letter(body, points, quotes)
         return body, hits
 
     allowed = _numbers_allowed(c, state)
@@ -2529,11 +3035,14 @@ async def redactor(state: dict) -> dict:
         return N.check(N.sections_of(restore(letter.subject), [restore(p.text) for p in letter.paragraphs]), allowed)
 
     pseudo_body, cmp_hits = compose(out)
-    if "\n\n" + ADR_BLOCK in pseudo_body and ADR_BLOCK not in "\n\n".join(p.text for p in out.paragraphs):
+    if "\n\n" + adr_block in pseudo_body and adr_block not in "\n\n".join(p.text for p in out.paragraphs):
         await c.em.custom("rule_hit", "CMP-03: the ANPC / ANAF / BNR / CSALB paragraph was missing, so it was added",
                           {"rule_id": "CMP-03", "outcome": "bloc_adaugat"}, step="redactor", agent=AG["redactor"])
-    await c.finish("redactor", f"Letter drafted ({info.mode}); {plural(len(out.points_answered), 'point')} answered",
-                   {"llm": info.as_dict(), "cmp": _cmp_rows(cmp_hits)})
+    answered = next((h for h in cmp_hits if h.rule_id == "CMP-01"), None)
+    await c.finish("redactor", f"Letter drafted ({info.mode}, {'Romanian' if lang == 'ro' else 'English'}); "
+                   + ("every point answered" if answered is None or answered.outcome == "toate_punctele"
+                      else "a point still needs an answer: a person adds it"),
+                   {"llm": info.as_dict(), "cmp": _cmp_rows(cmp_hits), "language": lang})
 
     await c.start("filtru_zid", "Checking the letter: every number against the case file, forbidden terms, canary "
                                 "tokens, personal data")
@@ -2545,7 +3054,7 @@ async def redactor(state: dict) -> dict:
                                            "with the values from the case file",
                           {"mismatches": num["mismatches"]}, step="filtru_zid", agent=AG["filtru_zid"])
         retry, _ = await c.rt.llm.structured(
-            role=Role.SONNET, agent=AG["redactor"], system=P.LETTER_SYSTEM, user=brief + N.feedback(num["mismatches"]),
+            role=Role.SONNET, agent=AG["redactor"], system=system, user=brief + N.feedback(num["mismatches"]),
             schema=P.LetterOut, effort="low", max_tokens=3000, fallback=fallback, scope=replay_scope(state))
         rewritten = True
         second = numbers(retry)
@@ -2562,7 +3071,7 @@ async def redactor(state: dict) -> dict:
                     + ", ".join(result.blocked_terms) + ". Write the letter again without them. Talk only about the "
                     "customer's payment, the decision, the next step and where to complain.")
         retry, _ = await c.rt.llm.structured(
-            role=Role.SONNET, agent=AG["redactor"], system=P.LETTER_SYSTEM,
+            role=Role.SONNET, agent=AG["redactor"], system=system,
             user=brief + feedback, schema=P.LetterOut, effort="low",
             max_tokens=3000, fallback=fallback, scope=replay_scope(state))
         candidate, candidate_hits = compose(retry)
@@ -2572,13 +3081,18 @@ async def redactor(state: dict) -> dict:
             cites = sorted({x for p in out.paragraphs for x in p.cites if x in valid})
             num = numbers(out)
     numeric_check = {**num, "rewritten": rewritten}
-    body = restore(pseudo_body)
-    body = re.sub(r"<CLIENT_\d+>", _customer_name(c, state) or "customer", body)
+    body = _greet(restore(pseudo_body), _customer_name(c, state), lang)
     passed = result.passed and num["passed"]
     status = "draft" if passed else "blocked"
+    # human_approved: a person signed the decision this letter gives. The letter itself stays a draft until a
+    # person sends it (status).
+    metadata = {"ai_assisted": True, "human_approved": bool(reviewed_by), "approved_by": reviewed_by,
+                "language": lang, "llm_mode": info.mode, "rule_ids": _letter_rule_ids(state),
+                "legal_basis": references}
     letter = {"case_id": c.case_id, "subject": restore(out.subject), "body": body, "cites": cites,
               "points_answered": out.points_answered, "filter": result.model_dump(mode="json"), "status": status,
-              "cmp_checks": _cmp_rows(cmp_hits), "numeric_check": numeric_check}
+              "cmp_checks": _cmp_rows(cmp_hits), "numeric_check": numeric_check, "language": lang,
+              "metadata": metadata}
     if not result.passed:
         c.rt.record_block(c.case_id, result.reasons, result.blocked_terms)
         await c.em.custom("wall_block", "The wall blocked the letter: " + "; ".join(result.reasons[:2]),
@@ -2589,15 +3103,18 @@ async def redactor(state: dict) -> dict:
                           {"mismatches": num["mismatches"]}, step="filtru_zid", agent=AG["filtru_zid"])
     await c.fact("filtru_zid", "letter.numeric_check", "letters.numeric_check", {"checked": num["checked"]},
                  numeric_check,
-                 (f"Every number in the letter matches the case file ({plural(num['checked'], 'value')} checked)"
-                  if num["passed"] else f"{plural(len(num['mismatches']), 'number')} in the letter do not match the case "
+                 (f"Every number, phone number and link in the letter matches the case file "
+                  f"({plural(num['checked'], 'value')} checked)"
+                  if num["passed"] else f"{plural(len(num['mismatches']), 'value')} in the letter do not match the case "
                                         "file: sent to a person")
                  + (" after one rewrite" if rewritten else ""))
     await c.fact("filtru_zid", "letter.checked", "letters.check_letter", {"chars": len(body)},
                  {"passed": result.passed, "blocked_terms": result.blocked_terms, "canaries": result.canaries_found,
-                  "sha256_letter": hashlib.sha256(body.encode()).hexdigest()},
+                  "sha256_letter": hashlib.sha256(body.encode()).hexdigest(), "language": lang,
+                  "metadata": metadata},
                  "The letter passed the wall check" if result.passed else "The wall BLOCKED the letter")
-    used = reference_hits if any(ref in body for ref in references) else []
+    shown = [ro_reference(r) for r in references] if lang == "ro" else references
+    used = reference_hits if any(ref in body for ref in shown) else []
     if used:
         await _record_grounding(c, "letter", used, step="redactor")
     c.save({"letter": letter, "numeric_check": numeric_check})

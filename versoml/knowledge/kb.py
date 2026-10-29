@@ -354,6 +354,13 @@ class KnowledgeBase:
                             "outcome": outcome, "scenario": scenario, "case_id": case_id, "origin": "runtime"})
         path = self.runtime_precedents_path
         path.parent.mkdir(parents=True, exist_ok=True)
+        # the network call happens before the lock: a slow embedding must not hold up searches on other cases
+        vec = None
+        try:
+            vec = self.embedder.embed([chunk.embed_text()], "search_document", namespace="precedents",
+                                      model=self.model)
+        except Exception as exc:  # noqa: BLE001 - a precedent without a vector is still found by BM25
+            log.warning("No vector for precedent %s: %s", case_id, type(exc).__name__)
         with self._lock:
             with path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(chunk.to_json(), ensure_ascii=False, sort_keys=True) + "\n")
@@ -367,12 +374,6 @@ class KnowledgeBase:
                 self._chunks[i] = chunk
                 self._has_vec[i] = False
             self._dirty = True
-            vec = None
-            try:
-                vec = self.embedder.embed([chunk.embed_text()], "search_document", namespace="precedents",
-                                          model=self.model)
-            except Exception as exc:  # noqa: BLE001 - a precedent without a vector is still found by BM25
-                log.warning("No vector for precedent %s: %s", case_id, type(exc).__name__)
             if vec is not None:
                 self._dense[i] = vec[0]
                 self._has_vec[i] = True

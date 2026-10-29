@@ -2238,6 +2238,9 @@ def precedent_text(c: "Ctx", state: dict) -> str:
     return text
 
 
+PRECEDENT_TIMEOUT_S = 10
+
+
 async def _add_precedent(c: "Ctx", state: dict) -> None:
     """A sealed case becomes a precedent in the client-zone knowledge base (information for later cases only)."""
     from versoml.zone_client import grounding as G
@@ -2259,7 +2262,15 @@ async def _add_precedent(c: "Ctx", state: dict) -> None:
     ctx = state.get("rule_context") or {}
     meta = {"scenario": ctx.get("scenario"), "channel": ctx.get("channel"), "dispute_type": ctx.get("dispute_type"),
             "case_id": c.case_id}
-    if G.add_precedent(c.case_id, precedent_text(c, state), outcome, meta=meta):
+    # off the event loop and with a time limit: the embedding is a network call, and the seal must not wait on it
+    try:
+        added = await asyncio.wait_for(
+            asyncio.to_thread(G.add_precedent, c.case_id, precedent_text(c, state), outcome, meta=meta),
+            timeout=PRECEDENT_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        log.warning("precedent for %s still embedding after %ss; sealing without waiting", c.case_id, PRECEDENT_TIMEOUT_S)
+        return
+    if added:
         await c.fact("sigiliu", "kb.precedent_added", "knowledge.add_precedent", {"case_id": c.case_id},
                      {"outcome": outcome}, "The case was added to the precedents for similar cases (pseudonymized)",
                      Labels(conf="client", trust=Trust.TRUSTED, sinks=[Sink.CLIENT]))

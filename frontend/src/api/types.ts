@@ -820,6 +820,8 @@ export interface McpInfo {
   tools: McpTool[];
   snippets: { claude_desktop?: string; cursor?: string; http?: string } & Record<string, string | undefined>;
   http_url: string;
+  /** The demo tunnel's address for the same server, open to anyone with per-person limits. */
+  public_http_url?: string | null;
   zones?: Record<string, string>;
 }
 

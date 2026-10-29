@@ -305,10 +305,106 @@ def _aml_tools(server) -> None:
                           {"action": action, "note": note, "analyst": "ANALIST-90"})
 
 
+# Tools that cost Bedrock calls (or outside lookups), and the limit each one counts against.
+COSTLY_TOOLS = {"versoml_open_case": "case_run", "versoml_intake": "case_run", "versoml_approve": "case_run",
+                "versoml_kb_ask": "kb_ask", "versoml_domain_intel": "web_lookup"}
+MAX_BODY = 64_000
+
+
+class PublicLimits:
+    """ASGI wrapper for MCP over HTTP: a size cap, a per-caller request rate, and per-caller limits on the costly
+    tools. Case tools then go through the API, which also applies the shared limits; `versoml_kb_ask` runs in this
+    process, so its shared limit is counted here."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+        self.router = app.router  # the zone app runs the MCP session manager through this router's lifespan
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http" or scope["method"] != "POST":
+            await self.app(scope, receive, send)
+            return
+        from versoml.shared import ratelimit
+
+        body, more = b"", True
+        while more:
+            message = await receive()
+            body += message.get("body", b"")
+            more = message.get("more_body", False)
+            if len(body) > MAX_BODY:
+                await _refuse(send, 413, None, "The request is too large for this demo.")
+                return
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        caller = ratelimit.caller_of(headers)
+        refusal = ratelimit.check("mcp_call", caller) if caller else None
+        if refusal is None:
+            for name, rpc_id in _tool_calls(body):
+                policy = COSTLY_TOOLS.get(name)
+                if policy == "kb_ask" or (policy and caller):
+                    refusal = ratelimit.check(policy, caller)
+                if refusal:
+                    break
+        if refusal:
+            log.info("MCP limit %s reached", refusal.policy)
+            await _refuse(send, 429, refusal.retry_after, refusal.text(), _first_id(body))
+            return
+        sent = False
+
+        async def replay():
+            nonlocal sent
+            if not sent:
+                sent = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
+
+        await self.app(scope, replay, send)
+
+
+def _messages(body: bytes) -> list[dict]:
+    try:
+        data = json.loads(body or b"null")
+    except ValueError:
+        return []
+    return [m for m in (data if isinstance(data, list) else [data]) if isinstance(m, dict)]
+
+
+def _tool_calls(body: bytes) -> list[tuple[str, Any]]:
+    return [(str((m.get("params") or {}).get("name") or ""), m.get("id"))
+            for m in _messages(body) if m.get("method") == "tools/call"]
+
+
+def _first_id(body: bytes) -> Any:
+    ids = [m.get("id") for m in _messages(body) if "id" in m]
+    return ids[0] if ids else None
+
+
+async def _refuse(send, status: int, retry_after: int | None, text: str, rpc_id: Any = None) -> None:
+    """A JSON-RPC error the MCP client can show, with the HTTP status and Retry-After for anything in between."""
+    payload = json.dumps({"jsonrpc": "2.0", "id": rpc_id, "error": {"code": -32000, "message": text}}).encode()
+    headers = [(b"content-type", b"application/json"), (b"content-length", str(len(payload)).encode())]
+    if retry_after:
+        headers.append((b"retry-after", str(retry_after).encode()))
+    await send({"type": "http.response.start", "status": status, "headers": headers})
+    await send({"type": "http.response.body", "body": payload})
+
+
 def http_app(zone: Zone):
-    """The Starlette app for MCP over HTTP (streamable), mounted at /mcp in the zone's process."""
+    """The Starlette app for MCP over HTTP (streamable), mounted at /mcp in the zone's process.
+
+    Reachable on this machine and on the demo's public hosts (`VERSOML_PUBLIC_HOSTS`); any other Host header is
+    refused (DNS rebinding protection), and every request passes the public limits first."""
+    from mcp.server.transport_security import TransportSecuritySettings
+
     server = build_server(zone)
-    return server.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True)
+    public = [h.strip() for h in get_settings().versoml_public_hosts.split(",") if h.strip()]
+    security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["127.0.0.1", "127.0.0.1:*", "localhost", "localhost:*", *public],
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*", *[f"https://{h}" for h in public]],
+    )
+    app = server.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True,
+                                     transport_security=security, max_request_body_size=MAX_BODY)
+    return PublicLimits(app)
 
 
 def main() -> None:

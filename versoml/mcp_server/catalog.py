@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 
-from versoml.config import ROOT
+from versoml.config import ROOT, get_settings
 
 TOOLS = [
     ("versoml_rules_catalog", "both", "The rules catalog, with the legal basis and a confidence mark", "read"),
@@ -49,6 +49,9 @@ def mcp_info(client_url: str) -> dict:
             "http": "versoml mcp --zone client --transport http --port 8765",
         },
         "http_url": f"{client_url}/mcp/",
+        # the demo's public tunnel: the same server, open to anyone, with per-person limits
+        "public_http_url": next((f"https://{h.strip()}/mcp/" for h in get_settings().versoml_public_hosts.split(",")
+                                 if h.strip()), None),
         "zones": {"client": "the client zone's tools; the AML tools are not listed",
                   "aml": "the AML zone's tools; nothing from them reaches the customer"},
     }

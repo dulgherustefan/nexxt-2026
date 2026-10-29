@@ -171,8 +171,15 @@ function Setup({ info }: { info: McpInfo }) {
   } else {
     body = (
       <div className="flex flex-col gap-5">
+        {info.public_http_url && (
+          <Snippet
+            label="Public URL"
+            code={info.public_http_url}
+            intro={<>From any computer: in Claude, open Settings, then Connectors, and add it as a custom connector; in Cursor, put it as <span className="font-mono text-[0.8667rem]">url</span> in mcp.json. Each person gets a few cases and questions every 10 minutes, so the demo stays up for everyone.</>}
+          />
+        )}
         {info.http_url ? (
-          <Snippet label="URL" code={info.http_url} intro="For MCP clients that connect over HTTP. This address points at the VersoML server that’s running now." />
+          <Snippet label="URL on this computer" code={info.http_url} intro="For MCP clients on the computer that runs VersoML." />
         ) : (
           <NotSent what="an HTTP address" />
         )}

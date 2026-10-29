@@ -165,6 +165,7 @@ class LLMClient:
         self._client = None
         self._live_failed_at: float | None = None
         self.calls: list[CallInfo] = []
+        self._gates: dict[int, asyncio.Semaphore] = {}
 
     # ------------------------------------------------------------ configurare
 
@@ -197,6 +198,14 @@ class LLMClient:
             "replay_entries": len(self.replay),
             "usage": asdict(self.usage),
         }
+
+    def _gate(self) -> asyncio.Semaphore:
+        """At most `versoml_llm_max_concurrency` Bedrock calls in flight, whoever asks: the rest wait their turn
+        instead of tripping the account's throttling. One semaphore per event loop (tests run several loops)."""
+        loop = id(asyncio.get_running_loop())
+        if loop not in self._gates:
+            self._gates[loop] = asyncio.Semaphore(max(1, self.settings.versoml_llm_max_concurrency))
+        return self._gates[loop]
 
     def _get_client(self):
         if self._client is None:
@@ -264,14 +273,15 @@ class LLMClient:
                     kwargs: dict[str, Any] = {}
                     if effort and self._supports_effort(model):
                         kwargs["output_config"] = {"effort": effort}
-                    response = await self._get_client().messages.parse(
-                        model=model,
-                        max_tokens=max_tokens,
-                        system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-                        messages=[{"role": "user", "content": user}],
-                        output_format=schema,
-                        **kwargs,
-                    )
+                    async with self._gate():
+                        response = await self._get_client().messages.parse(
+                            model=model,
+                            max_tokens=max_tokens,
+                            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+                            messages=[{"role": "user", "content": user}],
+                            output_format=schema,
+                            **kwargs,
+                        )
                     parsed = response.parsed_output
                     if parsed is None:
                         raise LLMUnavailable(f"the response has no valid JSON (stop_reason={response.stop_reason})")
@@ -337,7 +347,7 @@ class LLMClient:
                     if effort and self._supports_effort(model):
                         kwargs["output_config"] = {"effort": effort}
                     chunks: list[str] = []
-                    async with self._get_client().messages.stream(
+                    async with self._gate(), self._get_client().messages.stream(
                         model=model,
                         max_tokens=max_tokens,
                         system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
@@ -426,11 +436,12 @@ class LLMClient:
                     kwargs: dict[str, Any] = {}
                     if effort and self._supports_effort(model):
                         kwargs["output_config"] = {"effort": effort}
-                    response = await self._get_client().messages.create(
-                        model=model, max_tokens=4000,
-                        system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-                        tools=tools, messages=messages, **kwargs,
-                    )
+                    async with self._gate():
+                        response = await self._get_client().messages.create(
+                            model=model, max_tokens=4000,
+                            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+                            tools=tools, messages=messages, **kwargs,
+                        )
                     total_in += response.usage.input_tokens or 0
                     total_out += response.usage.output_tokens or 0
                     messages.append({"role": "assistant", "content": [b.model_dump(mode="json", exclude_none=True) for b in response.content]})

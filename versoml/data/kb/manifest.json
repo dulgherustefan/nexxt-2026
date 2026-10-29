@@ -1,8 +1,8 @@
 {
-  "built_at": "2026-10-28T23:23:40+00:00",
+  "built_at": "2026-10-29T00:22:06+00:00",
   "chunker_version": "5",
   "embedding_model": "cohere.embed-v4:0",
-  "static_fingerprint": "21018ccb6ac19a9114b035aeb685d90549b1d0f4e7f6d3ec456c380e4013c57b",
+  "static_fingerprint": "9e7184f1f02f1dd4496cddd016f2399e285800380b4c12c2823189d51c355239",
   "precedents_fingerprint": "90461ea051d862606b8f33513c9723bb42985ce75c3232e21bd5558b2cb92869",
   "counts": {
     "static": 434,

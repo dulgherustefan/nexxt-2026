@@ -6,7 +6,7 @@
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)
 ![Claude on Bedrock](https://img.shields.io/badge/Claude-Amazon%20Bedrock-FF9900?style=for-the-badge&logo=amazonaws&logoColor=white)
 
-**Live demo: https://versoml.vercel.app**
+**Showcase: https://versoml.vercel.app.** The public site now runs in your browser on demo data: the server and the live agents are offline. The rules, deadlines, sign-off and the sealed evidence file work the same; for the full version with the live agents, run it locally (below).
 
 Built for the Raiffeisen Bank track, "AI for Operational Efficiency", at NEXXT Summit 2026 (VibeHack, Bucharest). The status badge in the console tells you what you are looking at: **Live** (Claude on Bedrock), **Replay** (recorded model answers), **Offline** (rules and templates), or **Server not reachable** (the demo server is off and the site shows demo data).
 

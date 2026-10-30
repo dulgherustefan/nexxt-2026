@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router"
 import { probeMeta } from "./api/client";
 import { RuntimeProvider, useRuntime } from "./api/runtime";
 import { AppShell, BootScreen } from "./shell/AppShell";
+import { SHOWCASE } from "./ui/ShowcaseBanner";
 import { Loading, SectionBoundary } from "./ui/kit";
 import NotFound from "./pages/NotFound";
 import HomePage from "./pages/home/HomePage";
@@ -111,6 +112,7 @@ function Console() {
 function Root() {
   const [aml, setAml] = useState(false);
   useEffect(() => {
+    if (SHOWCASE) return;
     let alive = true;
     void probeMeta(1500).then((m) => alive && setAml(m?.zone === "aml"));
     return () => {

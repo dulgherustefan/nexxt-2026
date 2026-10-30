@@ -9,6 +9,7 @@ import { NumberTicker } from "../../components/fx/NumberTicker";
 import { Logo } from "../../ui/Logo";
 import { usePageTheme } from "../../ui/ThemeToggle";
 import { cx } from "../../ui/kit";
+import { SHOWCASE, ShowcasePill } from "../../ui/ShowcaseBanner";
 import EvidenceSeal from "./EvidenceSeal";
 import FlowDiagram from "./FlowDiagram";
 import Story, { StoryStacked } from "./Story";
@@ -36,6 +37,7 @@ export default function HomePage() {
             <FinalCta />
           </main>
           <Footer />
+          <ShowcasePill />
         </div>
       </LazyMotion>
     </MotionConfig>
@@ -254,6 +256,7 @@ const SNAPSHOT: Proof = { at: "2026-10-28", cases: 340, refundsOk: 100, deadline
 function useProof(): Proof {
   const [p, setP] = useState(SNAPSHOT);
   useEffect(() => {
+    if (SHOWCASE) return;   // no server behind the showcase build: keep the snapshot
     let alive = true;
     fetch("/api/eval", { headers: TUNNEL_HEADERS })
       .then((r) => (r.ok ? r.json() : null))

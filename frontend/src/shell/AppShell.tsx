@@ -21,6 +21,7 @@ import { useApi, useResource, useRuntime } from "../api/runtime";
 import { cx, Dot } from "../ui/kit";
 import { Logo, LogoMark } from "../ui/Logo";
 import { ThemeToggle, usePageTheme } from "../ui/ThemeToggle";
+import { SHOWCASE, ShowcaseBanner } from "../ui/ShowcaseBanner";
 import { caseStatus } from "../pages/client/caseUi";
 import { PhoneDemoDialog } from "./PhoneDemo";
 
@@ -60,7 +61,7 @@ function SystemStatus() {
   const s =
     mode === "mock"
       ? mockReason === "forced"
-        ? { tone: "neutral" as const, title: "Demo data", detail: "No server (?mock=1)" }
+        ? { tone: "neutral" as const, title: "Showcase", detail: "Server offline · runs in your browser" }
         : { tone: "danger" as const, title: "Server not reachable", detail: "Showing demo data" }
       : llm === "live"
         ? { tone: "ok" as const, title: "Live", detail: `Claude on Amazon Bedrock · ${meta.llm?.region ?? "us-east-1"}` }
@@ -215,6 +216,7 @@ export function AppShell() {
             </button>
           </div>
         </div>
+        <ShowcaseBanner />
         <main id="main" className="mx-auto w-full max-w-[1240px] px-5 py-7 sm:px-8 lg:px-10 lg:py-9">
           {/* a short fade when the page changes; keyed so every route enters the same way */}
           <div key={location.pathname} className="animate-enter"><Outlet /></div>
@@ -241,7 +243,7 @@ export function BootScreen() {
     <div role="status" className="grid min-h-dvh place-items-center bg-paper">
       <div className="flex items-center gap-3 text-muted">
         <LogoMark className="size-6 text-ink" />
-        <span className="text-[0.9333rem]">Connecting to the server…</span>
+        <span className="text-[0.9333rem]">{SHOWCASE ? "Loading the demo…" : "Connecting to the server…"}</span>
       </div>
     </div>
   );
